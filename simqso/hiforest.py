@@ -231,30 +231,37 @@ class VoigtTable:
 		for j,b in enumerate(self.bbins):
 			# offset slightly to avoid division by zero error
 			self.xv[j] = np.arange(1e-5,u_range,dv/b)
+		self.dx = np.array([len(self.xv[j])-1 for j in range(len(self.bbins))])
 		self.voigt_tab = {}
 		for i in range(na):
 			self.voigt_tab[i] = {}
 			for j in range(nb):
 				vprof = voigt(10**self.logabins[i],self.xv[j])
 				self.voigt_tab[i][j] = np.concatenate([vprof[::-1][1:],vprof])
-	def getIndexes(self,a,b,wave):
+	def sum_of_voigts(self,a,b,wave,c_voigt,tau_lam):
 		ii = np.argmin(np.abs(np.log10(a)[:,np.newaxis] -
 		               self.logabins[np.newaxis,:]),axis=1)
 		jj = np.argmin(np.abs(b[:,np.newaxis]-self.bbins[np.newaxis,:]),axis=1)
 		wc = np.round((np.log(wave) - np.log(self.wave0))/self.dv_c)
 		wc = wc.astype(np.int32)
-		return ii,jj,wc
-	def get(self,i,j,wc):
-		dx = len(self.xv[j])-1
+		dx = self.dx[jj]
 		w1,w2 = wc-dx,wc+dx+1
-		x1,x2 = 0,2*dx+1
-		if w1 < 0:
-			x1 = -w1
-			w1 = 0
-		if w2 > self.npix:
-			x2 = self.npix - w1
-			w2 = self.npix
-		return self.voigt_tab[i][j][x1:x2],w1,w2
+		x1,x2 = np.zeros(len(a),dtype=np.int32),2*dx+1
+		# off left edge of spectrum
+		ll = np.where(w1<0)[0]
+		x1[ll] = -w1[ll]
+		w1[ll] = 0
+		# off right edge of spectrum
+		ll = np.where(w2>self.npix)[0]
+		x2[ll] = self.npix - w1[ll]
+		w2[ll] = self.npix
+		# within the spectrum!
+		ll = np.where(~((w2<0)|(w1>=self.npix)|(w2-w1<=0)))[0]
+		# now loop over the absorbers and add the tabled voigt profiles
+		for i,j,k in zip(ii[ll],jj[ll],ll):
+			tau_lam[w1[k]:w2[k]] += \
+			                  c_voigt[k] * self.voigt_tab[i][j][x1[k]:x2[k]]
+		return tau_lam
 
 def fast_sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,b,tauMin,tauMax):
 	'''uses a  lookup table'''
@@ -267,12 +274,8 @@ def fast_sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,b,tauMin,tauMax):
 	                        lambda_z[kk],b[kk]/c_kms,
 	                        tauMin,tauMax)
 	kk = np.where(c_voigt < tau_split)[0]
-	ii,jj,wcv = voigttab.getIndexes(a[kk],b[kk],lambda_z[kk])
-	for i,j,k,wc in zip(ii,jj,kk,wcv):
-		voigtprof,w1,w2 = voigttab.get(i,j,wc)
-		if (w1<0 or w2>len(wave) or w2-w1<=0):
-			continue
-		tau_lam[w1:w2] += c_voigt[k] * voigtprof
+	tau_lam = voigttab.sum_of_voigts(a[kk],b[kk],lambda_z[kk],
+	                                 c_voigt[kk],tau_lam)
 	return tau_lam
 
 def calc_tau_lambda(los,zem,wave,**kwargs):
