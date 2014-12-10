@@ -150,11 +150,11 @@ def generateLOS(model,zmin,zmax):
 			x = np.random.random_sample(n)
 			b = bsig*(-np.log((bexp(bmax)-bexp(bmin))*x + bexp(bmin)))**(-1./4)
 		#
-		abs = np.empty(n,dtype=abs_dtype)
-		abs['z'] = z
-		abs['logNHI'] = np.log10(NHI)
-		abs['b'] = b
-		absorbers.append(abs)
+		absorber = np.empty(n,dtype=abs_dtype)
+		absorber['z'] = z
+		absorber['logNHI'] = np.log10(NHI)
+		absorber['b'] = b
+		absorbers.append(absorber)
 	return np.concatenate(absorbers)
 
 def voigt(a,x):
@@ -164,16 +164,116 @@ def voigt(a,x):
 	H0 = exp(-x2)
 	return H0 - (a/sqrt_pi)/x2 * (H0*H0*(4*x2*x2 + 7*x2 + 4 + Q) - Q - 1)
 
-class VoigtFast(object):
-	def __init__(self,u_range=10.,npts=1000):
-		self.logabins = np.array([-3.0 - 0.05*n**1.4 for n in range(30)])
-		xfast = np.linspace(-u_range,u_range,npts)
-		self.voigt_interp = [interp1d(xfast,voigt(10**loga,xfast),
-		                              bounds_error=False,fill_value=0.0)
-		                      for loga in self.logabins]
-	def __call__(self,a,x):
-		ai = np.argmin(np.abs(np.log10(a)-self.logabins))
-		return self.voigt_interp[ai](x)
+def sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,bnorm,tauMin,tauMax):
+	umax = np.clip(np.sqrt(c_voigt * (a/sqrt_pi)/tauMin),5.0,np.inf)
+	# ***assumes constant velocity bin spacings***
+	dv = (wave[1]-wave[0])/wave[0] * c_kms
+	du = (dv/c_kms)/bnorm
+	npix = (umax/du).astype(np.int32)
+	for i in range(len(a)):
+		w0 = np.searchsorted(wave,lambda_z[i])
+		i1 = max(0,w0-npix[i])
+		i2 = min(len(wave),w0+npix[i])
+		if np.all(tau_lam[i1:i2] > tauMax):
+			continue
+		# the clip is to prevent division by zero errors
+		u = np.abs((wave[i1:i2]/lambda_z[i]-1)/bnorm[i]).clip(1e-5,np.inf)
+		tau_lam[i1:i2] += c_voigt[i] * voigt(a[i],u)
+	return tau_lam
+
+# from http://stackoverflow.com/questions/42558/python-and-the-singleton-pattern
+class Singleton:
+	def __init__(self,decorated):
+		self._decorated = decorated
+	def Instance(self,*args,**kwargs):
+		try:
+			inst = self._instance
+			#self._argcheck(*args)
+		except AttributeError:
+			self._instance = self._decorated(*args,**kwargs)
+			inst = self._instance
+		return inst
+	def __call__(self):
+		raise TypeError('Must be accessed through "Instance()".')
+	def __instancecheck__(self,inst):
+		return isinstance(inst,self._decorated)
+	#def _argcheck(self,*args):
+	#	raise NotImplementedError
+@Singleton
+class VoigtTable:
+	def __init__(self,*args,**kwargs):
+		self._init_table(*args,**kwargs)
+	def _argcheck(self,*args):
+		assert self.dv == args[0]
+	def _init_table(self,*args,**kwargs):
+		wave, = args
+		# ***assumes constant velocity bin spacings***
+		dv = (wave[1]-wave[0])/wave[0] * c_kms
+		self.wave0 = wave[0]
+		self.npix = len(wave)
+		self.dv = dv
+		self.dv_c = dv/c_kms
+		#
+		na = kwargs.get('fastvoigt_na',20)
+		loga_min = kwargs.get('fastvoigt_logamin',-8.5)
+		loga_max = kwargs.get('fastvoigt_logamax',-3.0)
+		gamma = kwargs.get('fastvoigt_gamma',1.5)
+		nb = kwargs.get('fastvoigt_nb',20)
+		u_range = kwargs.get('fastvoigt_urange',10)
+		# define the bins in Voigt a parameter using exponential spacings
+		alpha = (loga_max - loga_min) / na**gamma
+		self.logabins = np.array([loga_max - alpha*n**gamma 
+		                              for n in range(na)])
+		# define the bins in b
+		self.bbins = np.linspace(10.,100.,nb)
+		# 
+		self.xv = {}
+		for j,b in enumerate(self.bbins):
+			# offset slightly to avoid division by zero error
+			self.xv[j] = np.arange(1e-5,u_range,dv/b)
+		self.voigt_tab = {}
+		for i in range(na):
+			self.voigt_tab[i] = {}
+			for j in range(nb):
+				vprof = voigt(10**self.logabins[i],self.xv[j])
+				self.voigt_tab[i][j] = np.concatenate([vprof[::-1][1:],vprof])
+	def getIndexes(self,a,b,wave):
+		ii = np.argmin(np.abs(np.log10(a)[:,np.newaxis] -
+		               self.logabins[np.newaxis,:]),axis=1)
+		jj = np.argmin(np.abs(b[:,np.newaxis]-self.bbins[np.newaxis,:]),axis=1)
+		wc = np.round((np.log(wave) - np.log(self.wave0))/self.dv_c)
+		wc = wc.astype(np.int32)
+		return ii,jj,wc
+	def get(self,i,j,wc):
+		dx = len(self.xv[j])-1
+		w1,w2 = wc-dx,wc+dx+1
+		x1,x2 = 0,2*dx+1
+		if w1 < 0:
+			x1 = -w1
+			w1 = 0
+		if w2 > self.npix:
+			x2 = self.npix - w1
+			w2 = self.npix
+		return self.voigt_tab[i][j][x1:x2],w1,w2
+
+def fast_sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,b,tauMin,tauMax):
+	'''uses a  lookup table'''
+	voigttab = VoigtTable.Instance(wave)
+	#
+	tau_split = 1.0
+	# split out strong absorbers and do full calc
+	kk = np.where(c_voigt >= tau_split)[0]
+	tau_lam = sum_of_voigts(wave,tau_lam,c_voigt[kk],a[kk],
+	                        lambda_z[kk],b[kk]/c_kms,
+	                        tauMin,tauMax)
+	kk = np.where(c_voigt < tau_split)[0]
+	ii,jj,wcv = voigttab.getIndexes(a[kk],b[kk],lambda_z[kk])
+	for i,j,k,wc in zip(ii,jj,kk,wcv):
+		voigtprof,w1,w2 = voigttab.get(i,j,wc)
+		if (w1<0 or w2>len(wave) or w2-w1<=0):
+			continue
+		tau_lam[w1:w2] += c_voigt[k] * voigtprof
+	return tau_lam
 
 def calc_tau_lambda(los,zem,wave,**kwargs):
 	lymanseries_range = kwargs.get('lymanseries_range',
@@ -182,23 +282,15 @@ def calc_tau_lambda(los,zem,wave,**kwargs):
 	tauMin = kwargs.get('tauMin',1e-5)
 	tau_lam = kwargs.get('tauIn',np.zeros_like(wave))
 	fast = kwargs.get('fast',True)
-	if fast:
-		# cached Voigt profile using single a value
-		voigt_interp = VoigtFast()
-		voigt_profile = lambda a,x: voigt_interp(a,x)
-	else:
-		# full Voigt profile calculation
-		voigt_profile = lambda a,x: voigt(a,x)
 	#
-	ii = np.argsort(los['logNHI'])[::-1]
-	NHI = 10**los['logNHI'][ii]
-	z1 = 1 + los['z'][ii]
-	b = los['b'][ii]
+	NHI = 10**los['logNHI']
+	z1 = 1 + los['z']
+	b = los['b']
 	nabs = len(los)
 	# some constants used in tau calculation
 	tau_c_lim = sigma_c*NHI
 	bnorm = b/c_kms
-	# loop over Lyman series transitions, starting at 2->1
+	# loop over Lyman series transitions
 	for transition in range(*lymanseries_range):
 		# transition properties
 		lambda0 = linelist.WREST[LymanSeries[transition]]
@@ -212,15 +304,15 @@ def calc_tau_lambda(los,zem,wave,**kwargs):
 		lambda_z = lambda0*z1
 		# all the values used to calculate tau, now just needs line profile
 		c_voigt = 0.014971475 * NHI * F / nu_D
-		umax = np.clip(np.sqrt(c_voigt * (a/sqrt_pi)/tauMin),5.0,np.inf)
-		for i in xrange(nabs):
-			u = (wave/lambda_z[i] - 1) / bnorm[i]
-			if umax[i] < u[0]:
-				continue
-			i1,i2 = np.searchsorted(u,[-umax[i],umax[i]])
-			if np.all(tau_lam[i1:i2] > tauMax):
-				continue
-			u = np.abs(u[i1:i2])
-			tau_lam[i1:i2] += c_voigt[i] * voigt_profile(a[i],u)
+		#
+		#tau_lam[:] += continuum_absorption()
+		if fast:
+			tau_lam = fast_sum_of_voigts(wave,tau_lam,c_voigt,a,
+			                             lambda_z,b,
+			                             tauMin,tauMax)
+		else:
+			tau_lam = sum_of_voigts(wave,tau_lam,c_voigt,a,
+			                        lambda_z,bnorm,
+			                        tauMin,tauMax)
 	return tau_lam
 
