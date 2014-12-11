@@ -105,7 +105,7 @@ WP11_model = {
 forestModels = {'Fan1999':Fan99_model,
                 'Worseck&Prochaska2011':WP11_model}
 
-def generateLOS(model,zmin,zmax):
+def generate_los(model,zmin,zmax):
 	'''Given a model for the distribution of absorption systems, generate
 	   a random line-of-sight populated with absorbers.
 	   returns (z,logNHI,b) for each absorption system.
@@ -152,7 +152,9 @@ def generateLOS(model,zmin,zmax):
 		absorber['logNHI'] = np.log10(NHI)
 		absorber['b'] = b
 		absorbers.append(absorber)
-	return np.concatenate(absorbers)
+	absorbers = np.concatenate(absorbers)
+	# return sorted by redshift
+	return absorbers[absorbers['z'].argsort()]
 
 def voigt(a,x):
 	'''Tepper-Garcia 2006, footnote 4 (see erratum)'''
@@ -335,4 +337,49 @@ def calc_tau_lambda(wave,los,**kwargs):
 			                        c_voigt,a,lambda_z,b,
 			                        tauMin,tauMax)
 	return tau_lam
+
+# XXX move to sqbase?
+from .spectrum import fixed_R_dispersion,deres,resample
+
+def generate_spectra(wave,z_em,los,**kwargs):
+	# default is 3 km/s
+	forestR = kwargs.get('forest_R',1e5)
+	specR = wave[0]/(wave[1]-wave[0]) # XXX only for log grid...
+	# go a bit below the minimum wavelength
+	wavemin = wave[0] - (wave[1]-wave[0])
+	# go well beyond LyA to get maximum wavelength
+	wavemax = min(wave[-1],1250*(1+z_em.max()))
+	wend = np.searchsorted(wave,wavemax,side='right')
+	fwave = fixed_R_dispersion(wavemin,wavemax,forestR)
+	#
+	los = los[los['z']<z_em.max()]
+	zi = np.concatenate([[0,],np.searchsorted(los['z'],z_em)])
+	#
+	tspec = np.ones(z_em.shape+wave.shape)
+	#
+	tau = np.zeros_like(fwave)
+	for i in range(1,len(zi)):
+		zi1,zi2 = zi[i-1],zi[i]
+		tau = calc_tau_lambda(fwave,los[zi1:zi2],tauIn=tau,**kwargs)
+		T = np.exp(-tau)
+		T = deres(T,forestR,specR)
+		tspec[i-1,:wend] = resample(fwave,T,wave[:wend])
+	return tspec
+
+def generate_N_spectra(wave,z_em,nlos,**kwargs):
+	forestModel = kwargs.get('forestModel','Worseck&Prochaska2011')
+	forestModel = forestModels[forestModel]
+	zmin = kwargs.get('zmin',0.0)
+	zmax = kwargs.get('zmax',z_em.max())
+	specAll = np.zeros(z_em.shape+wave.shape)
+	# map each emission redshift to a line-of-sight
+	losMap = np.random.randint(0,nlos,z_em.shape[0])
+	# generate spectra for each line-of-sight
+	for losNum in range(nlos):
+		ii = np.where(losMap == losNum)[0]
+		zi = z_em[ii].argsort()
+		los = generate_los(forestModel,zmin,zmax)
+		spec = generate_spectra(wave,z_em[ii[zi]],los,**kwargs)
+		specAll[ii,:] = spec[zi.argsort()]
+	return specAll
 
