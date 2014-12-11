@@ -275,7 +275,26 @@ def fast_sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,b,
 	                                 c_voigt[ii],tau_lam)
 	return tau_lam
 
-def calc_tau_lambda(los,zem,wave,**kwargs):
+def sum_of_continuum_absorption(wave,tau_lam,NHI,z1,tauMin,tauMax):
+	tau_c_lim = sigma_c*NHI
+	lambda_z_c = 912.*z1
+	ii = np.where((lambda_z_c > wave[0]) & (tau_c_lim > tauMin))[0]
+	# sort by decreasing column density to start with highest tau systems
+	ii = ii[NHI[ii].argsort()[::-1]]
+	# ending pixel (wavelength at onset of continuum absorption)
+	i_end = np.searchsorted(wave,lambda_z_c[ii],side='right')
+	# starting pixel - wavelength where tau drops below tauMin
+	wave_start = (tauMin/tau_c_lim[ii])**0.333 * wave[i_end]
+	i_start = np.searchsorted(wave,wave_start)
+	# now do the sum
+	for i,i1,i2 in zip(ii,i_start,i_end):
+		# ... only if pixels aren't already saturated
+		if np.any(tau_lam[i1:i2] < tauMax):
+			l1l0 = wave[i1:i2]/lambda_z_c[i]
+			tau_lam[i1:i2] += tau_c_lim[i]*l1l0*l1l0*l1l0
+	return tau_lam
+
+def calc_tau_lambda(wave,los,**kwargs):
 	lymanseries_range = kwargs.get('lymanseries_range',
 	                               default_lymanseries_range)
 	tauMax = kwargs.get('tauMax',15.0)
@@ -283,13 +302,15 @@ def calc_tau_lambda(los,zem,wave,**kwargs):
 	tau_lam = kwargs.get('tauIn',np.zeros_like(wave))
 	fast = kwargs.get('fast',True)
 	tauSplit = kwargs.get('fast_tauSplit',1.0)
-	#
+	# arrays of absorber properties
 	NHI = 10**los['logNHI']
 	z1 = 1 + los['z']
 	b = los['b']
-	# some constants used in tau calculation
-	tau_c_lim = sigma_c*NHI
-	# loop over Lyman series transitions
+	# first apply continuum blanketing. the dense systems will saturate
+	# a lot of the spectrum, obviating the need for calculations of
+	# discrete transition profiles
+	tau_lam = sum_of_continuum_absorption(wave,tau_lam,NHI,z1,tauMin,tauMax)
+	# now loop over Lyman series transitions and add up Voigt profiles
 	for transition in range(*lymanseries_range):
 		# transition properties
 		lambda0 = linelist.WREST[LymanSeries[transition]]
