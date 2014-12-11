@@ -161,11 +161,12 @@ def voigt(a,x):
 	H0 = exp(-x2)
 	return H0 - (a/sqrt_pi)/x2 * (H0*H0*(4*x2*x2 + 7*x2 + 4 + Q) - Q - 1)
 
-def sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,bnorm,tauMin,tauMax):
+def sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,b,tauMin,tauMax):
 	umax = np.clip(np.sqrt(c_voigt * (a/sqrt_pi)/tauMin),5.0,np.inf)
 	# ***assumes constant velocity bin spacings***
 	dv = (wave[1]-wave[0])/wave[0] * c_kms
-	du = (dv/c_kms)/bnorm
+	du = dv/b
+	bnorm = b/c_kms
 	npix = (umax/du).astype(np.int32)
 	for i in range(len(a)):
 		w0 = np.searchsorted(wave,lambda_z[i])
@@ -265,13 +266,13 @@ def fast_sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,b,
 	'''uses a  lookup table'''
 	voigttab = VoigtTable.Instance(wave)
 	# split out strong absorbers and do full calc
-	kk = np.where(c_voigt >= tauSplit)[0]
-	tau_lam = sum_of_voigts(wave,tau_lam,c_voigt[kk],a[kk],
-	                        lambda_z[kk],b[kk]/c_kms,
+	ii = np.where(c_voigt >= tauSplit)[0]
+	tau_lam = sum_of_voigts(wave,tau_lam,
+	                        c_voigt[ii],a[ii],lambda_z[ii],b[ii],
 	                        tauMin,tauMax)
-	kk = np.where(c_voigt < tauSplit)[0]
-	tau_lam = voigttab.sum_of_voigts(a[kk],b[kk],lambda_z[kk],
-	                                 c_voigt[kk],tau_lam)
+	ii = np.where(c_voigt < tauSplit)[0]
+	tau_lam = voigttab.sum_of_voigts(a[ii],b[ii],lambda_z[ii],
+	                                 c_voigt[ii],tau_lam)
 	return tau_lam
 
 def calc_tau_lambda(los,zem,wave,**kwargs):
@@ -288,7 +289,6 @@ def calc_tau_lambda(los,zem,wave,**kwargs):
 	b = los['b']
 	# some constants used in tau calculation
 	tau_c_lim = sigma_c*NHI
-	bnorm = b/c_kms
 	# loop over Lyman series transitions
 	for transition in range(*lymanseries_range):
 		# transition properties
@@ -306,12 +306,12 @@ def calc_tau_lambda(los,zem,wave,**kwargs):
 		#
 		#tau_lam[:] += continuum_absorption()
 		if fast:
-			tau_lam = fast_sum_of_voigts(wave,tau_lam,c_voigt,a,
-			                             lambda_z,b,
+			tau_lam = fast_sum_of_voigts(wave,tau_lam,
+			                             c_voigt,a,lambda_z,b,
 			                             tauMin,tauMax,tauSplit)
 		else:
-			tau_lam = sum_of_voigts(wave,tau_lam,c_voigt,a,
-			                        lambda_z,bnorm,
+			tau_lam = sum_of_voigts(wave,tau_lam,
+			                        c_voigt,a,lambda_z,b,
 			                        tauMin,tauMax)
 	return tau_lam
 
