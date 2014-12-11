@@ -4,10 +4,6 @@ import os
 import numpy as np
 import scipy.stats as stats
 import scipy.constants as const
-from scipy.special import gamma as special_gamma
-from scipy.interpolate import interp1d
-from scipy.integrate import quad
-from astropy.io import fits
 
 # shorthands
 pi,exp,sqrt = np.pi,np.exp,np.sqrt
@@ -19,6 +15,7 @@ sigma_c = 6.33e-18 # cm^-2
 fourpi = 4*pi
 
 def _getlinelistdata():
+	from astropy.io import fits
 	# Line list obtained from Prochaska's XIDL code
 	# https://svn.ucolick.org/xidl/trunk/Spec/Lines/all_lin.fits
 	datadir = os.path.split(__file__)[0]+'/data/'
@@ -246,7 +243,7 @@ class VoigtTable:
 		wc = wc.astype(np.int32)
 		dx = self.dx[jj]
 		w1,w2 = wc-dx,wc+dx+1
-		x1,x2 = np.zeros(len(a),dtype=np.int32),2*dx+1
+		x1,x2 = np.zeros_like(dx),2*dx+1
 		# off left edge of spectrum
 		ll = np.where(w1<0)[0]
 		x1[ll] = -w1[ll]
@@ -263,17 +260,16 @@ class VoigtTable:
 			                  c_voigt[k] * self.voigt_tab[i][j][x1[k]:x2[k]]
 		return tau_lam
 
-def fast_sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,b,tauMin,tauMax):
+def fast_sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,b,
+                       tauMin,tauMax,tauSplit):
 	'''uses a  lookup table'''
 	voigttab = VoigtTable.Instance(wave)
-	#
-	tau_split = 1.0
 	# split out strong absorbers and do full calc
-	kk = np.where(c_voigt >= tau_split)[0]
+	kk = np.where(c_voigt >= tauSplit)[0]
 	tau_lam = sum_of_voigts(wave,tau_lam,c_voigt[kk],a[kk],
 	                        lambda_z[kk],b[kk]/c_kms,
 	                        tauMin,tauMax)
-	kk = np.where(c_voigt < tau_split)[0]
+	kk = np.where(c_voigt < tauSplit)[0]
 	tau_lam = voigttab.sum_of_voigts(a[kk],b[kk],lambda_z[kk],
 	                                 c_voigt[kk],tau_lam)
 	return tau_lam
@@ -285,11 +281,11 @@ def calc_tau_lambda(los,zem,wave,**kwargs):
 	tauMin = kwargs.get('tauMin',1e-5)
 	tau_lam = kwargs.get('tauIn',np.zeros_like(wave))
 	fast = kwargs.get('fast',True)
+	tauSplit = kwargs.get('fast_tauSplit',1.0)
 	#
 	NHI = 10**los['logNHI']
 	z1 = 1 + los['z']
 	b = los['b']
-	nabs = len(los)
 	# some constants used in tau calculation
 	tau_c_lim = sigma_c*NHI
 	bnorm = b/c_kms
@@ -312,7 +308,7 @@ def calc_tau_lambda(los,zem,wave,**kwargs):
 		if fast:
 			tau_lam = fast_sum_of_voigts(wave,tau_lam,c_voigt,a,
 			                             lambda_z,b,
-			                             tauMin,tauMax)
+			                             tauMin,tauMax,tauSplit)
 		else:
 			tau_lam = sum_of_voigts(wave,tau_lam,c_voigt,a,
 			                        lambda_z,bnorm,
