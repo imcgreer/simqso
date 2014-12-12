@@ -166,7 +166,7 @@ def voigt(a,x):
 def sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,b,tauMin,tauMax):
 	umax = np.clip(np.sqrt(c_voigt * (a/sqrt_pi)/tauMin),5.0,np.inf)
 	# ***assumes constant velocity bin spacings***
-	dv = (wave[1]-wave[0])/wave[0] * c_kms
+	dv = (wave[1]-wave[0])/(0.5*(wave[0]+wave[1])) * c_kms
 	du = dv/b
 	bnorm = b/c_kms
 	npix = (umax/du).astype(np.int32)
@@ -208,7 +208,7 @@ class VoigtTable:
 	def _init_table(self,*args,**kwargs):
 		wave, = args
 		# ***assumes constant velocity bin spacings***
-		dv = (wave[1]-wave[0])/wave[0] * c_kms
+		dv = (wave[1]-wave[0])/(0.5*(wave[0]+wave[1])) * c_kms
 		self.wave0 = wave[0]
 		self.npix = len(wave)
 		self.dv = dv
@@ -338,20 +338,19 @@ def calc_tau_lambda(wave,los,**kwargs):
 			                        tauMin,tauMax)
 	return tau_lam
 
-# XXX move to sqbase?
-from .spectrum import fixed_R_dispersion,deres,resample
-
 def generate_spectra(wave,z_em,los,**kwargs):
-	# default is 3 km/s
-	forestR = kwargs.get('forest_R',1e5)
-	specR = wave[0]/(wave[1]-wave[0]) # XXX only for log grid...
-	# go a bit below the minimum wavelength
-	wavemin = wave[0] - (wave[1]-wave[0])
+	# default is 10 km/s
+	forestRmin = kwargs.get('forestRmin',3e4)
+	specR = (0.5*(wave[0]+wave[1]))/(wave[1]-wave[0])
+	nrebin = np.int(np.ceil(forestRmin/specR))
+	forestR = specR * nrebin
+	# go a half pixel below the minimum wavelength
+	wavemin = wave[0] - (wave[1]-wave[0])/2
 	# go well beyond LyA to get maximum wavelength
 	wavemax = min(wave[-1],1250*(1+z_em.max()))
-	wend = np.searchsorted(wave,wavemax,side='right')
-	fwave = fixed_R_dispersion(wavemin,wavemax,forestR)
-	#
+	npix = np.searchsorted(wave,wavemax,side='right')
+	fwave = np.exp(np.log(wavemin)+forestR**-1*np.arange(npix*nrebin))
+	# only need absorbers up to the maximum redshift
 	los = los[los['z']<z_em.max()]
 	zi = np.concatenate([[0,],np.searchsorted(los['z'],z_em)])
 	#
@@ -361,9 +360,9 @@ def generate_spectra(wave,z_em,los,**kwargs):
 	for i in range(1,len(zi)):
 		zi1,zi2 = zi[i-1],zi[i]
 		tau = calc_tau_lambda(fwave,los[zi1:zi2],tauIn=tau,**kwargs)
-		T = np.exp(-tau)
-		T = deres(T,forestR,specR)
-		tspec[i-1,:wend] = resample(fwave,T,wave[:wend])
+		T = np.exp(-tau).reshape(-1,nrebin)
+		tspec[i-1,:npix] = np.average(T,weights=fwave.reshape(-1,nrebin),
+		                              axis=1)
 	return tspec
 
 def generate_N_spectra(wave,z_em,nlos,**kwargs):
