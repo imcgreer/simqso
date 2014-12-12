@@ -4,6 +4,7 @@ import os
 import numpy as np
 import scipy.stats as stats
 import scipy.constants as const
+from astropy.io import fits
 
 # shorthands
 pi,exp,sqrt = np.pi,np.exp,np.sqrt
@@ -15,7 +16,6 @@ sigma_c = 6.33e-18 # cm^-2
 fourpi = 4*pi
 
 def _getlinelistdata():
-	from astropy.io import fits
 	# Line list obtained from Prochaska's XIDL code
 	# https://svn.ucolick.org/xidl/trunk/Spec/Lines/all_lin.fits
 	datadir = os.path.split(__file__)[0]+'/data/'
@@ -164,6 +164,10 @@ def voigt(a,x):
 	return H0 - (a/sqrt_pi)/x2 * (H0*H0*(4*x2*x2 + 7*x2 + 4 + Q) - Q - 1)
 
 def sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,b,tauMin,tauMax):
+	'''Given arrays of parameters, compute the summed optical depth
+	   spectrum of absorbers using Voigt profiles.
+	   Uses the Tepper-Garcia 2006 approximation for the Voigt function.
+	'''
 	umax = np.clip(np.sqrt(c_voigt * (a/sqrt_pi)/tauMin),5.0,np.inf)
 	# ***assumes constant velocity bin spacings***
 	dv = (wave[1]-wave[0])/(0.5*(wave[0]+wave[1])) * c_kms
@@ -265,7 +269,12 @@ class VoigtTable:
 
 def fast_sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,b,
                        tauMin,tauMax,tauSplit):
-	'''uses a  lookup table'''
+	'''Given arrays of parameters, compute the summed optical depth
+	   spectrum of absorbers using Voigt profiles.
+	   Uses the Tepper-Garcia 2006 approximation for the Voigt function
+	   for large optical depth systems (defined by tauSplit), and
+	   a lookup table for low optical depth systems.
+	'''
 	voigttab = VoigtTable.Instance(wave)
 	# split out strong absorbers and do full calc
 	ii = np.where(c_voigt >= tauSplit)[0]
@@ -278,6 +287,10 @@ def fast_sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,b,
 	return tau_lam
 
 def sum_of_continuum_absorption(wave,tau_lam,NHI,z1,tauMin,tauMax):
+	'''Compute the summed optical depth for Lyman continuum blanketing
+	   given a series of absorbers with column densities NHI and
+	   redshifts z1 (=1+z).
+	'''
 	tau_c_lim = sigma_c*NHI
 	lambda_z_c = 912.*z1
 	ii = np.where((lambda_z_c > wave[0]) & (tau_c_lim > tauMin))[0]
@@ -297,6 +310,9 @@ def sum_of_continuum_absorption(wave,tau_lam,NHI,z1,tauMin,tauMax):
 	return tau_lam
 
 def calc_tau_lambda(wave,los,**kwargs):
+	'''Compute the absorption spectrum, in units of optical depth, for
+	   a series of absorbers along a line-of-sight (los).
+	'''
 	lymanseries_range = kwargs.get('lymanseries_range',
 	                               default_lymanseries_range)
 	tauMax = kwargs.get('tauMax',15.0)
@@ -339,6 +355,16 @@ def calc_tau_lambda(wave,los,**kwargs):
 	return tau_lam
 
 def generate_spectra(wave,z_em,los,**kwargs):
+	'''Generate a transmission spectrum along a line-of-sight (los)
+	   given by a series of discrete absorbers. The returned spectra
+	   have the same dispersion as the input (wave), but are generated
+	   on a higher reslution grid (given by 'forestRmin').
+	   The spectra are calculated at discrete redshift intervals given
+	   by z_em; i.e., the return value is a stack of transmission spectra
+	   for a single line-of-sight, with each row corresponding to a
+	   redshift in z_em.
+	   Returns: array with shape (Nz,Nwave)
+	'''
 	# default is 10 km/s
 	forestRmin = kwargs.get('forestRmin',3e4)
 	specR = (0.5*(wave[0]+wave[1]))/(wave[1]-wave[0])
@@ -366,19 +392,143 @@ def generate_spectra(wave,z_em,los,**kwargs):
 	return tspec
 
 def generate_N_spectra(wave,z_em,nlos,**kwargs):
+	'''Generate a library of forest transmission spectra, randomly mapping 
+	   an array of emission redshifts to a set of lines-of-sight.
+	    wave - the input dispersion (forest is calculated on super-sampled grid)
+	    z_em - the list of emission redshifts
+	    nlos - the number of lines-of-sight to generate
+	   If nlos == -1, each emission redshift has an independent line-of-sight
+	   If losMap is provided in kwargs, this is the mapping from z_em to LOS,
+	    i.e., losMap has the same number of entries as z_em, and has elements 
+	    in the range 0..nlos-1
+	   Otherwise, losMap is generated randomly.
+	   Returns dictionary with
+	    T = transmission array (Nz,Nwave)
+	    losMap = line-of-sight to z_em mapping (Nz)
+	    z = z_em
+	    wave = wave
+	'''
 	forestModel = kwargs.get('forestModel','Worseck&Prochaska2011')
 	forestModel = forestModels[forestModel]
 	zmin = kwargs.get('zmin',0.0)
 	zmax = kwargs.get('zmax',z_em.max())
+	losMap = kwargs.get('losMap')
+	if nlos == -1:
+		# each emission redshift gets its own line-of-sight
+		nlos = len(z_em)
+		losMap = np.arange(nlos)
+	# Generate the lines-of-sight first, to preserve random generator order
+	linesofsight = [generate_los(forestModel,zmin,zmax) for i in range(nlos)]
+	if losMap is None:
+		# map each emission redshift to a randomly chosen line-of-sight
+		losMap = np.random.randint(0,nlos,z_em.shape[0])
+	# generate spectra for each line-of-sight
 	specAll = np.zeros(z_em.shape+wave.shape)
-	# map each emission redshift to a line-of-sight
-	losMap = np.random.randint(0,nlos,z_em.shape[0])
+	for losNum,los in enumerate(linesofsight):
+		ii = np.where(losMap == losNum)[0]
+		if len(ii)==0:
+			continue
+		zi = z_em[ii].argsort()
+		spec = generate_spectra(wave,z_em[ii[zi]],los,**kwargs)
+		specAll[ii,:] = spec[zi.argsort()]
+		print 'finished LOS #%d' % (losNum+1)
+	return dict(T=specAll,losMap=losMap,z=z_em.copy(),wave=wave.copy())
+
+def generate_grid_spectra(wave,zbins,nlos,**kwargs):
+	'''Generate spectra on a grid at discrete redshift samplings zbins.
+	   nlos sets the number of times the grid is repeated along independent
+	    lines-of-sight.
+	   e.g., if zbins = [2.0,2.5,3.0] and nlos = 2, the returned spectra
+	    include two lines-of-sight with samplings at z = 2, 2.5, and 3.
+	'''
+	zem = np.tile(zbins,nlos)
+	losMap = np.repeat(np.arange(nlos),len(zbins))
+	# This is needed for the absorber list to be reproducible.
+	seed = kwargs.get('GridSeed',1)
+	np.random.seed(seed)
+	sp = generate_N_spectra(wave,zem,nlos,losMap=losMap,**kwargs)
+	sp['nLOS'] = nlos
+	sp['zbins'] = zbins
+	sp['seed'] = seed
+	return sp
+
+def generate_spectra_from_grid(wave,z_em,tgrid,**kwargs):
+	'''Given an input grid of transmission spectra, calculate output spectra
+	   at redshift intervals given by z_em. This is used to 'extend' and grid
+	   spectrum to align with new redshift samplings.
+	   E.g., if tgrid has samples at z=[2.0,2.5.,3.0] and z_em=[2.2,2.7],
+	    then the returned spectra are sampled at z=2.2 and z=2.7, where the
+	    first spectrum is generated by taking the input grid spectrum at z=2.0
+	    and extending it to z=2.2 by adding additional absorbers.
+	   Similarly, the z=2.7 spectrum is generated from the z=2.5 grid spectrum.
+	   This is useful for quickly generating forest spectra at arbitrary
+	   redshifts without having to do the full calculation.
+	'''
+	forestModel = kwargs.get('forestModel','Worseck&Prochaska2011')
+	forestModel = forestModels[forestModel]
+	zmin = kwargs.get('zmin',0.0)
+	zmax = kwargs.get('zmax',tgrid['zbins'].max())
+	specAll = np.zeros(z_em.shape+wave.shape)
+	# map each emission redshift to a line-of-sight, or a predefined
+	#  mapping if provided
+	nlos = tgrid['nLOS']
+	losMap = kwargs.get('losMap',np.random.randint(0,nlos,z_em.shape[0]))
+	T = tgrid['T'].reshape(nlos,len(tgrid['zbins']),-1)
+	np.random.seed(tgrid['seed'])
 	# generate spectra for each line-of-sight
 	for losNum in range(nlos):
 		ii = np.where(losMap == losNum)[0]
-		zi = z_em[ii].argsort()
 		los = generate_los(forestModel,zmin,zmax)
-		spec = generate_spectra(wave,z_em[ii[zi]],los,**kwargs)
-		specAll[ii,:] = spec[zi.argsort()]
-	return specAll
+		if len(ii)==0:
+			# need to do it here, because all los'es must be generated for
+			# the random number generation to proceed in the correct order
+			continue
+		jj = np.digitize(z_em[ii],tgrid['zbins'])
+		for j in range(len(tgrid['zbins'])):
+			zi = np.where(jj-1==j)[0]
+			if len(zi)==0:
+				continue
+			# generate spectra needs emission redshifts to be increasing
+			zs = z_em[ii[zi]].argsort()
+			# only use the absorbers starting at the redshift bin edge
+			los_ii = np.where(los['z'] > tgrid['zbins'][j])[0]
+			# add up the absorber spectra and then multiply them into the
+			# spectrum for the redshift bin j
+			spec = generate_spectra(wave,z_em[ii[zi[zs]]],los[los_ii],**kwargs)
+			specAll[ii[zi],:] = T[losNum,j][np.newaxis,:] * spec[zs.argsort()]
+	return dict(T=specAll,losMap=losMap,z=z_em.copy(),wave=wave.copy())
+
+def save_spectra(spec,forestName):
+	'''Save a spectrum to a FITS file.'''
+	wave = spec['wave']
+	npix = len(wave)
+	nobj = len(spec['z'])
+	spec_dtype = [('T','(%d,)f4'%npix),('z','f4'),('losMap','i4')]
+	ftab = np.empty(nobj,dtype=spec_dtype)
+	for k,fmt in spec_dtype:
+		ftab[k] = spec[k]
+	logwave = np.log(wave[:2])
+	hdu = fits.new_table(ftab)
+	hdu.header.update('CD1_1',np.diff(logwave)[0])
+	hdu.header.update('CRPIX1',1)
+	hdu.header.update('CRVAL1',logwave[0])
+	if 'zbins' in spec:
+		hdu.header.update('NLOS',spec['nLOS'])
+		hdu.header.update('ZBINS',','.join('%.3f'%z for z in spec['zbins']))
+		hdu.header.update('GRIDSEED',spec['seed'])
+	hdu.writeto(forestName+'.fits.gz',clobber=True)
+
+def load_spectra(forestName):
+	'''Load a spectrum from a FITS file.'''
+	spec,hdr = fits.getdata(forestName+'.fits.gz',header=True)
+	nwave = spec['T'].shape[1]
+	wave = np.arange(nwave)
+	logwave = hdr['CRVAL1'] + hdr['CD1_1']*(wave-(hdr['CRPIX1']-1))
+	wave = np.exp(logwave)
+	rv = dict(T=spec['T'],losMap=spec['losMap'],z=spec['z'],wave=wave)
+	if 'ZBINS' in hdr:
+		rv['nLOS'] = hdr['NLOS']
+		rv['zbins'] = np.array(hdr['ZBINS'].split(',')).astype(np.float)
+		rv['seed'] = hdr['GRIDSEED']
+	return rv
 
