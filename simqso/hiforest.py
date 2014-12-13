@@ -7,13 +7,11 @@ import scipy.constants as const
 from astropy.io import fits
 
 # shorthands
-pi,exp,sqrt = np.pi,np.exp,np.sqrt
-c = const.c # m/s
-c_kms = c/1e3
-c_cms = c*1e2
-sqrt_pi = sqrt(pi)
+exp,sqrt = np.exp,np.sqrt
+c_kms = const.c/1e3
+sqrt_pi = sqrt(np.pi)
 sigma_c = 6.33e-18 # cm^-2
-fourpi = 4*pi
+fourpi = 4*np.pi
 
 def _getlinelistdata():
 	# Line list obtained from Prochaska's XIDL code
@@ -168,7 +166,7 @@ def sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,b,tauMin,tauMax):
 	   spectrum of absorbers using Voigt profiles.
 	   Uses the Tepper-Garcia 2006 approximation for the Voigt function.
 	'''
-	umax = np.clip(np.sqrt(c_voigt * (a/sqrt_pi)/tauMin),5.0,np.inf)
+	umax = np.clip(sqrt(c_voigt * (a/sqrt_pi)/tauMin),5.0,np.inf)
 	# ***assumes constant velocity bin spacings***
 	dv = (wave[1]-wave[0])/(0.5*(wave[0]+wave[1])) * c_kms
 	du = dv/b
@@ -340,10 +338,9 @@ def calc_tau_lambda(wave,los,**kwargs):
 		a = Gamma / (fourpi*nu_D)
 		# wavelength of transition at absorber redshift
 		lambda_z = lambda0*z1
-		# all the values used to calculate tau, now just needs line profile
+		# coefficient of absorption strength (central tau)
 		c_voigt = 0.014971475 * NHI * F / nu_D
-		#
-		#tau_lam[:] += continuum_absorption()
+		# all the values used to calculate tau, now just needs line profile
 		if fast:
 			tau_lam = fast_sum_of_voigts(wave,tau_lam,
 			                             c_voigt,a,lambda_z,b,
@@ -358,7 +355,7 @@ def generate_spectra(wave,z_em,los,**kwargs):
 	'''Generate a transmission spectrum along a line-of-sight (los)
 	   given by a series of discrete absorbers. The returned spectra
 	   have the same dispersion as the input (wave), but are generated
-	   on a higher reslution grid (given by 'forestRmin').
+	   on a higher resolution grid (given by 'Rmin').
 	   The spectra are calculated at discrete redshift intervals given
 	   by z_em; i.e., the return value is a stack of transmission spectra
 	   for a single line-of-sight, with each row corresponding to a
@@ -366,16 +363,16 @@ def generate_spectra(wave,z_em,los,**kwargs):
 	   Returns: array with shape (Nz,Nwave)
 	'''
 	# default is 10 km/s
-	forestRmin = kwargs.get('forestRmin',3e4)
+	forestRmin = kwargs.get('Rmin',3e4)
 	specR = (0.5*(wave[0]+wave[1]))/(wave[1]-wave[0])
 	nrebin = np.int(np.ceil(forestRmin/specR))
 	forestR = specR * nrebin
 	# go a half pixel below the minimum wavelength
-	wavemin = wave[0] - (wave[1]-wave[0])/2
+	wavemin = exp(np.log(wave[0])-0.5/specR)
 	# go well beyond LyA to get maximum wavelength
 	wavemax = min(wave[-1],1250*(1+z_em.max()))
 	npix = np.searchsorted(wave,wavemax,side='right')
-	fwave = np.exp(np.log(wavemin)+forestR**-1*np.arange(npix*nrebin))
+	fwave = exp(np.log(wavemin)+forestR**-1*np.arange(npix*nrebin))
 	# only need absorbers up to the maximum redshift
 	los = los[los['z']<z_em.max()]
 	zi = np.concatenate([[0,],np.searchsorted(los['z'],z_em)])
@@ -386,7 +383,7 @@ def generate_spectra(wave,z_em,los,**kwargs):
 	for i in range(1,len(zi)):
 		zi1,zi2 = zi[i-1],zi[i]
 		tau = calc_tau_lambda(fwave,los[zi1:zi2],tauIn=tau,**kwargs)
-		T = np.exp(-tau).reshape(-1,nrebin)
+		T = exp(-tau).reshape(-1,nrebin)
 		tspec[i-1,:npix] = np.average(T,weights=fwave.reshape(-1,nrebin),
 		                              axis=1)
 	return tspec
@@ -408,10 +405,14 @@ def generate_N_spectra(wave,z_em,nlos,**kwargs):
 	    z = z_em
 	    wave = wave
 	'''
-	forestModel = kwargs.get('forestModel','Worseck&Prochaska2011')
-	forestModel = forestModels[forestModel]
-	zmin = kwargs.get('zmin',0.0)
-	zmax = kwargs.get('zmax',z_em.max())
+	forestModel = kwargs.get('ForestModel','Worseck&Prochaska2011')
+	if type(forestModel) is str:
+		forestModel = forestModels[forestModel]
+	zrange = kwargs.get('zRange')
+	if zrange is None:
+		zmin,zmax = 0.0,z_em.max()
+	else:
+		zmin,zmax = zrange
 	losMap = kwargs.get('losMap')
 	if nlos == -1:
 		# each emission redshift gets its own line-of-sight
@@ -464,10 +465,14 @@ def generate_spectra_from_grid(wave,z_em,tgrid,**kwargs):
 	   This is useful for quickly generating forest spectra at arbitrary
 	   redshifts without having to do the full calculation.
 	'''
-	forestModel = kwargs.get('forestModel','Worseck&Prochaska2011')
-	forestModel = forestModels[forestModel]
-	zmin = kwargs.get('zmin',0.0)
-	zmax = kwargs.get('zmax',tgrid['zbins'].max())
+	forestModel = kwargs.get('ForestModel','Worseck&Prochaska2011')
+	if type(forestModel) is str:
+		forestModel = forestModels[forestModel]
+	zrange = kwargs.get('zRange')
+	if zrange is None:
+		zmin,zmax = 0.0,tgrid['zbins'].max()
+	else:
+		zmin,zmax = zrange
 	specAll = np.zeros(z_em.shape+wave.shape)
 	# map each emission redshift to a line-of-sight, or a predefined
 	#  mapping if provided
@@ -508,10 +513,12 @@ def save_spectra(spec,forestName):
 	for k,fmt in spec_dtype:
 		ftab[k] = spec[k]
 	logwave = np.log(wave[:2])
+	# XXX should figure out the standard way
 	hdu = fits.new_table(ftab)
 	hdu.header.update('CD1_1',np.diff(logwave)[0])
 	hdu.header.update('CRPIX1',1)
 	hdu.header.update('CRVAL1',logwave[0])
+	hdu.header.update('CRTYPE1','LOGWAVE')
 	if 'zbins' in spec:
 		hdu.header.update('NLOS',spec['nLOS'])
 		hdu.header.update('ZBINS',','.join('%.3f'%z for z in spec['zbins']))
@@ -524,7 +531,7 @@ def load_spectra(forestName):
 	nwave = spec['T'].shape[1]
 	wave = np.arange(nwave)
 	logwave = hdr['CRVAL1'] + hdr['CD1_1']*(wave-(hdr['CRPIX1']-1))
-	wave = np.exp(logwave)
+	wave = exp(logwave)
 	rv = dict(T=spec['T'],losMap=spec['losMap'],z=spec['z'],wave=wave)
 	if 'ZBINS' in hdr:
 		rv['nLOS'] = hdr['NLOS']
