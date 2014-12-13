@@ -1,0 +1,103 @@
+#!/usr/bin/env python
+
+import numpy as np
+
+class MzGrid(object):
+	'''
+	A grid of points in (M,z) space.
+	The space is divided into cells with n points per cell, such that
+	the final grid dimensions are (M,z,nPerBin).
+	The grid can be iterated to obtain (M,z) pairs spanning the full grid. 
+	Individual cells can be accessed with grid.bin(i,j).
+	'''
+	def __iter__(self):
+		Mv = self.Mgrid.flatten()
+		zv = self.zgrid.flatten()
+		ii,jj,kk = np.indices(self.Mgrid.shape)
+		for M,z,i,j,k in zip(Mv,zv,ii.flatten(),jj.flatten(),kk.flatten()):
+			yield M,z,(i,j,k)
+	def getRedshifts(self,sorted=False,return_index=False):
+		zv = self.zgrid.flatten()
+		if sorted:
+			zi = zv.argsort()
+			if return_index:
+				return zv[zi],zi
+			else:
+				return zv[zi]
+		else:
+			return zv
+	def bin(self,i,j):
+		return self.Mgrid[i,j,:],self.zgrid[i,j,:]
+	def get(self,i):
+		if type(i) is tuple:
+			idx = i
+		else:
+			idx = np.unravel_index(i,self.Mgrid.shape)
+		return self.Mgrid[idx],self.zgrid[idx]
+	def numQSO(self):
+		return self.Mgrid.size
+	def get_Medges(self):
+		return self.Medges
+	def get_zbincenters(self):
+		return self.zbincenters
+
+class LuminosityRedshiftGrid(MzGrid):
+	def __init__(self,Medges,zedges,nPerBin,lumUnits='M1450'):
+		if lumUnits != 'M1450':
+			raise NotImplementedError('only M1450 supported for now')
+		self.Medges = Medges
+		self.zedges = zedges
+		self.nPerBin = nPerBin
+		self.nM = Medges.shape[0] - 1
+		self.nz = zedges.shape[0] - 1
+		self.Mgrid = np.zeros((self.nM,self.nz,nPerBin))
+		self.zgrid = np.zeros((self.nM,self.nz,nPerBin))
+		dM = np.diff(Medges)
+		dz = np.diff(zedges)
+		for i in range(self.nM):
+			for j in range(self.nz):
+				binM = Medges[i] + dM[i]*np.random.rand(nPerBin)
+				binz = zedges[j] + dz[j]*np.random.rand(nPerBin)
+				zi = binz.argsort()
+				self.Mgrid[i,j,:] = binM[zi]
+				self.zgrid[i,j,:] = binz[zi]
+	def getLuminosities(self,units='ergs/s/Hz'):
+		# convert M1450 -> ergs/s/Hz
+		pass
+
+class FluxRedshiftGrid(MzGrid):
+	'''
+	Construct a grid in (mag,z) having a fixed number of points within each 
+	bin. The bin spacings need not be uniform, as long as they are 
+	monotonically increasing.
+	'''
+	def __init__(self,medges,zedges,nPerBin,obsBand='i',restBand='1450'):
+		self.medges = medges
+		self.zedges = zedges
+		self.nPerBin = nPerBin
+		self.nM = medges.shape[0] - 1
+		self.nz = zedges.shape[0] - 1
+		self.mgrid = np.zeros((self.nM,self.nz,nPerBin))
+		self.zgrid = np.zeros((self.nM,self.nz,nPerBin))
+		self.zbincenters = (zedges[:-1]+zedges[1:])/2
+		dm = np.diff(medges)
+		dz = np.diff(zedges)
+		m2M = sqbase.Mconverter(obsBand,restBand)
+		# distribute quasars into bins of flux 
+		for i in range(self.nM):
+			for j in range(self.nz):
+				binm = medges[i] + dm[i]*np.random.rand(nPerBin)
+				binz = zedges[j] + dz[j]*np.random.rand(nPerBin)
+				zi = binz.argsort()
+				self.mgrid[i,j,:] = binm[zi]
+				self.zgrid[i,j,:] = binz[zi]
+		# convert to luminosity
+		self.Mgrid = self.mgrid - m2M(self.zgrid)
+		self.Medges = np.empty((self.nz,self.nM+1))
+		for j in range(self.nz):
+			self.Medges[j,:] = self.medges - m2M(self.zedges[j])
+	def get_zrange(self):
+		return self.zedges[0],self.zedges[-1]
+	def resetAbsMag(self,Mgrid):
+		self.Mgrid[:] = Mgrid
+
