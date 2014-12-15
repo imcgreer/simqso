@@ -2,11 +2,23 @@
 
 import numpy as np
 from astropy.io import fits
+from astropy.table import Table
 
 from . import sqbase
 from . import sqgrids as grids
 from . import hiforest
+#from . import sqphoto
 
+
+def buildWaveGrid(simParams):
+	dispersionScale = simParams.get('DispersionScale','logarithmic')
+	if dispersionScale == 'logarithmic':
+		lam1,lam2 = simParams['waveRange']
+		R = simParams['SpecResolution']
+		wave = sqbase.fixed_R_dispersion(lam1,lam2,R)
+	else:
+		raise ValueError('Dispersion scale %s not supported' % dispersionScale)
+	return wave
 
 
 def buildMzGrid(gridPars):
@@ -79,20 +91,31 @@ def buildForest(wave,z,forestParams):
 		forestSpec = hiforest.generate_spectra_from_grid(wave,z,tgrid,**kwargs)
 	return forestSpec
 
+
+
 def timerLog(action):
 	pass
 
-def buildWaveGrid(simParams):
-	dispersionScale = simParams.get('DispersionScale','logarithmic')
-	if dispersionScale == 'logarithmic':
-		lam1,lam2 = simParams['waveRange']
-		R = simParams['SpecResolution']
-		wave = sqbase.fixed_R_dispersion(lam1,lam2,R)
-	else:
-		raise ValueError('Dispersion scale %s not supported' % dispersionScale)
-	return wave
+def readSimulationData(fileName):
+	qsoData = fits.getdata(fileName+'.fits',1)
+	return Table(qsoData)
 
-def qsoSimulation(simParams):
+def initGridData(simParams,Mz):
+	return Table({'M':Mz.Mgrid,'z':Mz.zgrid})
+
+def initSimulationData(simParams,gridData,features):
+	featureData = [feature.getTable() for feature in features]
+	return Table(gridData + featureData)
+
+def writeSimulationData(simParams,dataTab):
+	# XXX write params to header
+	# XXX write feature data to extensions
+	fileName = simParams['FileName']
+	dataTab.write(fileName+'.fits')
+
+
+def qsoSimulation(simParams,saveSpectra=False,
+                  forestOnly=False,onlyMap=False,noPhotoMap=False):
 	'''
 	Run a complete simulation.
 	1) Construct (M,z) grid of QSOs.
@@ -106,20 +129,14 @@ def qsoSimulation(simParams):
 	#
 	# build or restore the grid of (M,z) for each QSO
 	#
-	havePhot = False
-	stopAfterForest = simParams.get('StopAfterForest',False)
 	wave = buildWaveGrid(simParams)
 	timerLog('StartSimulation')
 	try:
 		# if simulation data already exists, load it and skip to photomap
-		qsotab = fits.open(simParams['FileName']+'.fits')[1]
-		havePhot = qsotab.header.get('HAVEPHOT',False)
-		if not havePhot:
-			Mz = grids.MzGridFromData(qsotab.data,simParams['GridParams'])
-		print 'havePhot is ',havePhot
+		qsoData = readSimulationData(simParams['FileName'])
+		Mz = grids.MzGridFromData(qsoData,simParams['GridParams'])
 	except IOError:
-		print simParams['FileName']+'.fits not found'
-		Mz = None
+		print simParams['FileName']+' output not found'
 		if 'GridFileName' in simParams:
 			print 'restoring MzGrid from ',simParams['GridFileName']
 			try:
@@ -128,19 +145,19 @@ def qsoSimulation(simParams):
 			except IOError:
 				print simParams['GridFileName'],' not found, generating'
 				Mz = buildMzGrid(simParams['GridParams'])
-				qsotab = initQSOs(simParams,Mz,Mzonly=True)
-				qsotab.writeto(simParams['GridFileName']+'.fits')
+				gridData = initGridData(simParams,Mz)
+				writeGridData(simParams['GridFileName'],gridData)
 		else:
 			print 'generating Mz grid'
 			Mz = buildMzGrid(simParams['GridParams'])
-		if not stopAfterForest:
-			qsotab = initQSOs(simParams,Mz)
-			qsotab.writeto(simParams['fileName']+'.fits')
-	timerLog('BuildForest')
+		if not forestOnly:
+			gridData = initGridData(simParams,Mz)
+			writeSimulationData(simParams,gridData)
 	#
 	# get the forest transmission spectra, or build if needed
 	#
-	if not havePhot:
+	if not onlyMap:
+		timerLog('BuildForest')
 		forestFn = simParams['ForestParams']['FileName']
 		try:
 			print 'loading forest ',
@@ -155,36 +172,26 @@ def qsoSimulation(simParams):
 			# a debugging hack to rescale the forest transmission levels
 			forest['T'] *= simParams['scaleTransmission']
 			np.clip(forest['T'],0,1,out=forest['T'])
-	if stopAfterForest:
+	if forestOnly:
 		timerLog('Finish')
 		return
 	#
 	# Use continuum and emission line distributions to build the components
 	# of the intrinsic QSO spectrum, then calculate photometry
 	#
-	timerLog('BuildQuasarSpectra')
-	if not havePhot:
-		qsotab.data = buildQSOspectra(Mz,forest,qsotab.data,simParams)
-		qsotab.header.update('HAVEPHOT',1)
-		qsotab.writeto(simParams['fileName']+'.fits',clobber=True)
+	photoMap = sqphoto.load_photo_map(simParams['PhotoMapParams'])
+	if not onlyMap:
+		timerLog('BuildQuasarSpectra')
+		simQSOs = buildQSOspectra(Mz,forest,simParams,photoMap,
+		                          saveSpectra=saveSpectra)
+		qsoData = initSimulationData(simParams,gridData,simQSOs)
 	#
 	# map the simulated photometry to observed values with uncertainties
 	#
-	timerLog('PhotoMap')
-	if not simParams.get('no_photo_map',False):
+	if not noPhotoMap:
 		print 'mapping photometry'
-		obsflux = qsotab.data['obsflux']
-		obsivar = qsotab.data['obsivar']
-		phmap = photomap.load_photomap(datadir+'../tmpdata/photmap')
-		maptype = simParams.get('photomaptype','SDSS_Single_Epoch')
-		for i in xrange(qsotab.data.size):
-			obsflux[i],obsivar[i] = photomap.map(phmap,
-			                                     qsotab.data['mag'][i],
-			                                     qsotab.data['flux'][i],
-			                                     simParams['bands'],maptype,
-			                                     (obsflux[i],obsivar[i]))
-			if ((i+1)%10000)==0:
-				print 'mapped %d' % (i+1)
+		timerLog('PhotoMap')
+		qsoData = photoMap.mapObserved(qsoData)
 	timerLog('Finish')
-	qsotab.writeto(simParams['fileName']+'.fits',clobber=True)
+	qsotab.writeto(simParams['FileName']+'.fits',clobber=True)
 
