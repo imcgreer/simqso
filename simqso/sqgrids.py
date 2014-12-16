@@ -11,11 +11,12 @@ class MzGrid(object):
 	Individual cells can be accessed with grid.bin(i,j).
 	'''
 	def __iter__(self):
-		Mv = self.Mgrid.flatten()
-		zv = self.zgrid.flatten()
-		ii,jj,kk = np.indices(self.Mgrid.shape)
-		for M,z,i,j,k in zip(Mv,zv,ii.flatten(),jj.flatten(),kk.flatten()):
-			yield M,z,(i,j,k)
+		itM = np.nditer(self.Mgrid,flags=['multi_index'])
+		itz = np.nditer(self.zgrid)
+		while not itM.finished:
+			yield itM[0],itz[0],itM.multi_index
+			itM.iternext()
+			itz.iternext()
 	def getRedshifts(self,sorted=False,return_index=False):
 		zv = self.zgrid.flatten()
 		if sorted:
@@ -40,6 +41,30 @@ class MzGrid(object):
 		return self.Medges
 	def get_zbincenters(self):
 		return self.zbincenters
+
+class MzGridFromData(MzGrid):
+	def __init__(self,mzdata,gridpar):
+		if len(gridpar['mRange'])==3:
+			self.Medges = np.arange(*gridpar['mRange'])
+			self.zedges = np.arange(*gridpar['zRange'])
+			self.nPerBin = gridpar['nPerBin']
+			self.nM = self.Medges.shape[0] - 1
+			self.nz = self.zedges.shape[0] - 1
+			self.zbincenters = (self.zedges[:-1]+self.zedges[1:])/2
+			gridshape = (self.nM,self.nz,self.nPerBin)
+			self.Mgrid = mzdata['M'].copy().reshape(gridshape)
+			self.zgrid = mzdata['z'].copy().reshape(gridshape)
+		else:
+			self.Mgrid = mzdata['M'].copy()
+			self.zgrid = mzdata['z'].copy()
+			self.nM = 1
+			self.nz = 1
+			self.Medges = np.array(gridpar['mRange'])
+			self.zedges = np.array(gridpar['zRange'])
+			self.nPerBin = self.Mgrid.size
+			self.zbincenters = np.mean(self.zedges)
+	def get_zrange(self):
+		return self.zedges[0],self.zedges[-1]
 
 class LuminosityRedshiftGrid(MzGrid):
 	def __init__(self,Medges,zedges,nPerBin,lumUnits='M1450'):
