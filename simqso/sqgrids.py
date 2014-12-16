@@ -126,3 +126,26 @@ class FluxRedshiftGrid(MzGrid):
 	def resetAbsMag(self,Mgrid):
 		self.Mgrid[:] = Mgrid
 
+class FixedPLContinuumGrid(object):
+	def __init__(self,M,z,slopes,breakpoints):
+		self.slopes = np.asarray(slopes)
+		self.breakpoints = np.asarray(breakpoints)
+	def get(self,*args):
+		return self.slopes,self.breakpoints
+	def __iter__(self):
+		while True:
+			yield self.slopes,self.breakpoints
+
+class GaussianPLContinuumGrid(object):
+	def __init__(self,M,z,slopeMeans,slopeStds,breakpoints):
+		self.slopeMeans = slopeMeans
+		self.slopeStds = slopeStds
+		self.breakpoints = breakpoints
+		shape = z.shape+(len(slopeMeans),)
+		x = np.random.randn(*shape)
+		mu = np.asarray(slopeMeans)
+		sig = np.asarray(slopeStds)
+		self.slopes = mu + x*sig
+	def get(self,idx):
+		return self.slopes[idx],self.breakpoints
+

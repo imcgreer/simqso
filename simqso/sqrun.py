@@ -7,7 +7,7 @@ from astropy.table import Table
 from . import sqbase
 from . import sqgrids as grids
 from . import hiforest
-#from . import sqphoto
+from . import sqphoto
 
 
 def buildWaveGrid(simParams):
