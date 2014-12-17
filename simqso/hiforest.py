@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 
-import os
 import numpy as np
 import scipy.stats as stats
 import scipy.constants as const
 from astropy.io import fits
+
+from .sqbase import datadir
 
 # shorthands
 exp,sqrt = np.exp,np.sqrt
@@ -16,7 +17,6 @@ fourpi = 4*np.pi
 def _getlinelistdata():
 	# Line list obtained from Prochaska's XIDL code
 	# https://svn.ucolick.org/xidl/trunk/Spec/Lines/all_lin.fits
-	datadir = os.path.split(__file__)[0]+'/data/'
 	linelist = fits.getdata(datadir+'all_lin.fits')
 	Hlines = np.array([i for i in range(linelist.size) 
 	                       if 'HI' in linelist.ION[i]])

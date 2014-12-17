@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 
+import os
 import numpy as np
 from astropy.convolution import convolve,Gaussian1DKernel
 from scipy.interpolate import interp1d
+
+datadir = os.path.split(__file__)[0]+'/data/'
 
 def fixed_R_dispersion(lam1,lam2,R):
 	'''Generate a wavelength grid with fixed resolution (i.e., logarithmic)'''
