@@ -92,6 +92,55 @@ def buildForest(wave,z,forestParams):
 	return forestSpec
 
 
+def buildContinuumModels(continuumParams):
+	slopes = continuumParams['PowerLawSlopes'][::2]
+	breakpts = continuumParams['PowerLawSlopes'][1::2]
+	print '... building continuum grid'
+	np.random.seed(continuumParams.get('RandomSeed'))
+	if continuumParams['ContinuumModel'] == 'GaussianPLawDistribution':
+		meanSlopes = [s[0] for s in slopes]
+		stdSlopes = [s[1] for s in slopes]
+		continuumGrid = grids.GaussianPLContinuumGrid(Mz.Mgrid,Mz.zgrid,
+		                                     meanSlopes,stdSlopes,breakpts)
+	elif continuumParams['ContinuumModel'] == 'FixedPLawDistribution':
+		continuumGrid = grids.FixedPLContinuumGrid(Mz.Mgrid,Mz.zgrid,
+		                                           slopes,breakpts)
+	else:
+		raise ValueError
+	return continuumGrid
+
+
+
+def buildQSOspectra(wave,Mz,forest,photoMap,qsoParams,
+                    featuresIn=None,saveSpectra=False):
+	'''
+	Assemble the spectral components of each QSO from the input parameters.
+	---
+	Required:
+	  'ContinuumModel'  :  'GaussianPLawDistribution','FixedPLawDistribution'
+	---
+	Optional:
+	  'EmissionLineModel'   : 'None',
+	                          'FixedVdBCompositeLines',
+	                          'FixedLBQSEmissionLines'
+	  'DustExtinctionModel' : 'None',
+	                          'Fixed E(B-V)',
+	                          'Exponential E(B-V) Distribution'
+	'''
+	if saveSpectra:
+		spectra = []
+	else:
+		spectra = None
+	continua = buildContinuumModels(qsoParams['ContinuumModelParams'])
+	features = buildFeatures(qsoParams)
+	for M,z,idx in Mz:
+		spec.setLuminosity(M,units=Mz.lumUnits)
+		spec.setRedshift(z)
+		spec.setContinuum(continua.get(idx))
+		synMags = spec.calcSynPhot(photoMap)
+	return dict(synMags=synMags,continua=continua,features=features,
+	            spectra=spectra)
+
 
 def timerLog(action):
 	pass
@@ -182,7 +231,8 @@ def qsoSimulation(simParams,saveSpectra=False,
 	photoMap = sqphoto.load_photo_map(simParams['PhotoMapParams'])
 	if not onlyMap:
 		timerLog('BuildQuasarSpectra')
-		simQSOs = buildQSOspectra(Mz,forest,simParams,photoMap,
+		simQSOs = buildQSOspectra(wave,Mz,forest,photoMap,
+		                          simParams['QuasarModelParams'],
 		                          saveSpectra=saveSpectra)
 		qsoData = initSimulationData(simParams,gridData,simQSOs)
 	#
