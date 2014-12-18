@@ -166,26 +166,38 @@ def readSimulationData(fileName):
 	qsoData = fits.getdata(fileName+'.fits',1)
 	return Table(qsoData)
 
-def writeSimulationData(simParams,gridData,simQSOs,photoData):
+def writeSimulationData(simParams,gridData,simQSOs,photoData,
+	                    writeFeatures=False):
 	outShape = gridData['M'].shape
-	fluxData = Table({'synMag':simQSOs['synMag'].reshape(outShape+(-1,)),
-	                  'synFlux':simQSOs['synFlux'].reshape(outShape+(-1,))})
-	# XXX temporary
-	zarr = np.zeros_like(simQSOs['synMag']).reshape(outShape+(-1,))
-	obsFluxData = Table({'obsMag':zarr,
-	                     'obsFlux':zarr})
-	# write feature data to extensions
-	contData = Table({'slopes':simQSOs['continua'].slopes.reshape(outShape+(-1,))})
-	#featureData = [feature.getTable() for feature in features]
-	dataTab = hstack([gridData,fluxData,obsFluxData])
-	featureTab = contData #hstack([contData,])
-	hdr = fits.Header()
-	hdr['SQPARAMS'] = str(simParams)
+	fShape = outShape + (-1,) # shape for a "feature", vector at each point
+	# Primary extension just contains model parameters in header
+	hdr0 = fits.Header()
+	hdr0['SQPARAMS'] = str(simParams)
 	# can be read back as ast.literal_eval(hdr['SQPARAMS'])
-	hdu0 = fits.PrimaryHDU(header=hdr)
+	hdulist = [fits.PrimaryHDU(header=hdr0),]
+	# extension 1 contains the M,z grid and synthetic and observed fluxes
+	if simQSOs is None:
+		dataTab = gridData
+	else:
+		fluxData = Table({'synMag':simQSOs['synMag'].reshape(fShape),
+		                  'synFlux':simQSOs['synFlux'].reshape(fShape)})
+		# XXX temporary
+		zarr = np.zeros_like(simQSOs['synMag']).reshape(outShape+(-1,))
+		obsFluxData = Table({'obsMag':zarr,
+		                     'obsFlux':zarr})
+		dataTab = hstack([gridData,fluxData,obsFluxData])
 	hdu1 = fits.BinTableHDU.from_columns(np.array(dataTab))
-	hdu2 = fits.BinTableHDU.from_columns(np.array(featureTab))
-	hdulist = fits.HDUList([hdu0,hdu1,hdu2])
+	hdulist.append(hdu1)
+	# extension 2 contains feature information (slopes, line widths, etc.)
+	if writeFeatures and simQSOs is not None:
+		hdr2 = fits.Header()
+		contData = simQSOs['continua'].getTable(hdr2)
+		#featureData = [feature.getTable() for feature in features]
+		featureTab = contData #hstack([contData,])
+		hdu2 = fits.BinTableHDU.from_columns(np.array(featureTab))
+		hdu2.header += hdr2
+		hdulist.append(hdu2)
+	hdulist = fits.HDUList(hdulist)
 	hdulist.writeto(simParams['FileName']+'.fits',clobber=True)
 
 
@@ -208,8 +220,9 @@ def qsoSimulation(simParams,saveSpectra=False,
 	timerLog('StartSimulation')
 	try:
 		# simulation data already exists, load the Mz grid
-		gridData = readSimulationData(simParams['FileName'])
-		Mz = grids.MzGridFromData(gridData,simParams['GridParams'])
+		qsoData = readSimulationData(simParams['FileName'])
+		Mz = grids.MzGridFromData(qsoData,simParams['GridParams'])
+		gridData = qsoData['M','z']
 	except IOError:
 		print simParams['FileName']+' output not found'
 		if 'GridFileName' in simParams:
@@ -227,7 +240,7 @@ def qsoSimulation(simParams,saveSpectra=False,
 			Mz = buildMzGrid(simParams['GridParams'])
 		if not forestOnly:
 			gridData = initGridData(simParams,Mz)
-			#gridData.write(simParams['FileName']+'.fits')
+			writeSimulationData(simParams,gridData,None,None)
 	Mz.setCosmology(simParams.get('Cosmology'))
 	#
 	# get the forest transmission spectra, or build if needed

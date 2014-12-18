@@ -2,6 +2,8 @@
 
 import numpy as np
 from astropy import cosmology
+from astropy.table import Table
+from astropy.io.fits import Header
 
 class MzGrid(object):
 	'''
@@ -163,4 +165,11 @@ class GaussianPLContinuumGrid(object):
 		self.slopes = mu + x*sig
 	def get(self,idx):
 		return self.slopes[idx],self.breakpoints
+	def getTable(self,hdr):
+		'''Return a Table of all parameters and header information'''
+		flatgrid = np.product(self.slopes.shape[:-1])
+		t = Table({'slopes':self.slopes.reshape(flatgrid,-1)})
+		hdr.update('CNTBKPTS',','.join(['%.1f' % bkpt 
+		                            for bkpt in self.breakpoints]))
+		return t
 
