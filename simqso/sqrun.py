@@ -89,7 +89,8 @@ def buildForest(wave,z,forestParams):
 	elif forestType == 'Grid':
 		zbins = np.arange(*forestParams['GridzBins'])
 		tgrid = hiforest.generate_grid_spectra(wave,zbins,nlos,**forestParams)
-		forestSpec = hiforest.generate_spectra_from_grid(wave,z,tgrid,**kwargs)
+		forestSpec = hiforest.generate_spectra_from_grid(wave,z,tgrid,
+		                                                 **forestParams)
 	return forestSpec
 
 
@@ -112,6 +113,52 @@ def buildContinuumModels(Mz,continuumParams):
 
 
 
+def buildEmissionLineGrid(Mz,emLineParams):
+	np.random.seed(emLineParams.get('RandomSeed'))
+	if emLineParams['EmissionLineModel'] == 'FixedVdBCompositeLines':
+		emLineGrid = grids.FixedVdBcompositeEMLineGrid(Mz.Mgrid,Mz.zgrid,
+		                             minEW=emLineParams.get('minEW',1.0),
+		                             noFe=emLineParams.get('VdB_noFe',False))
+		# XXX hacky
+		if emLineParams.get('addSBB',False):
+			emLineGrid.addSBB()
+#	elif emLineParams['EmissionLineModel'] == 'FixedLBQSEmissionLines':
+#		emLineGrid = qsotemplates.FixedLBQSemLineGrid(
+#		                                noFe=emLineParams.get('LBQSnoFe',False))
+#	elif emLineParams['EmissionLineModel'] == 'VariedEmissionLineGrid':
+#		gridfn = tmpdatadir+emLineParams.get('EmLineTrends','emlinetrends.pkl')
+#		print 'using emission line trends from ',gridfn
+#		emLineGrid = qsogrid.VariedEmissionLineGrid(Mz.Mgrid,Mz.zgrid,gridfn,
+#		                                  **emLineParams)
+	else:
+		raise ValueError('invalid emission line model: ' +
+		                    emLineParams['EmissionLineModel'])
+	if 'addLines' in emLineParams:
+		for l in emLineParams['addLines']:
+			print 'adding line ',l
+			emLineGrid.addLine(*l)
+	return emLineGrid
+
+class SpectralFeature(object):
+	def __init__(self,grid):
+		self.grid = grid
+
+class EmissionLineFeature(SpectralFeature):
+	def apply_to_spec(self,spec,idx):
+		emlines = self.grid.get(idx)
+		spec.addEmissionLines(emlines)
+
+def buildFeatures(Mz,qsoParams):
+	features = []
+	if 'EmissionLineParams' in qsoParams:
+		emLineGrid = buildEmissionLineGrid(Mz,qsoParams['EmissionLineParams'])
+		emLineFeature = EmissionLineFeature(emLineGrid)
+		features.append(emLineFeature)
+	if 'DustExtinctionParams' in qsoParams:
+		pass
+	return features
+
+
 def buildQSOspectra(wave,Mz,forest,photoMap,qsoParams,
                     featuresIn=None,saveSpectra=False):
 	'''
@@ -129,29 +176,38 @@ def buildQSOspectra(wave,Mz,forest,photoMap,qsoParams,
 	                          'Exponential E(B-V) Distribution'
 	'''
 	if saveSpectra:
-		spectra = []
+		spectra = np.zeros((Mz.Mgrid.size,len(wave)))
 	else:
 		spectra = None
 	nforest = len(forest['wave'])
 	assert np.all(np.abs(forest['wave']-wave[:nforest]<1e-3))
 	continua = buildContinuumModels(Mz,qsoParams['ContinuumParams'])
-	features = None #buildFeatures(qsoParams,continua)
+	features = buildFeatures(Mz,qsoParams)
 	spec = QSOSpectrum(wave)
 	gridShape = Mz.Mgrid.shape
 	synMag = np.zeros(gridShape+(len(photoMap['bandpasses']),))
 	synFlux = np.zeros_like(synMag)
 	photoCache = sqphoto.getPhotoCache(wave,photoMap)
 	for M,z,idx in Mz:
+		i = np.ravel_multi_index(idx,gridShape)
 		spec.setRedshift(z)
+		# start with continuum
 		spec.setPowerLawContinuum(continua.get(idx),
 		                          fluxNorm={'wavelength':1450.,'M_AB':M,
 		                                    'DM':Mz.distMod})
-		T = forest['T'][np.ravel_multi_index(idx,gridShape)]
-		spec.f_lambda[:nforest] *= T
+		# add additional emission/absorption features
+		for feature in features:
+			feature.apply_to_spec(spec,idx)
+		# apply HI forest blanketing
+		spec.f_lambda[:nforest] *= forest['T'][i]
+		# calculate synthetic magnitudes from the spectra through the
+		# specified bandpasses
 		synMag[idx],synFlux[idx] = sqphoto.calcSynPhot(spec,photoMap,
 		                                               photoCache,
 		                                               synMag[idx],
 		                                               synFlux[idx])
+		if saveSpectra:
+			spectra[i] = spec.f_lambda
 	return dict(synMag=synMag,synFlux=synFlux,
 	            continua=continua,features=features,spectra=spectra)
 
@@ -285,4 +341,7 @@ def qsoSimulation(simParams,saveSpectra=False,
 		photoData = None
 	timerLog('Finish')
 	writeSimulationData(simParams,gridData,simQSOs,photoData)
+	if saveSpectra:
+		fits.writeto(simParams['FileName']+'_spectra.fits',
+		             simQSOs['spectra'],clobber=True)
 

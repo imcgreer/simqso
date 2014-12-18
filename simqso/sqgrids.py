@@ -4,6 +4,9 @@ import numpy as np
 from astropy import cosmology
 from astropy.table import Table
 from astropy.io.fits import Header
+from astropy.io import ascii as ascii_io
+
+from .sqbase import datadir
 
 class MzGrid(object):
 	'''
@@ -172,4 +175,53 @@ class GaussianPLContinuumGrid(object):
 		hdr.update('CNTBKPTS',','.join(['%.1f' % bkpt 
 		                            for bkpt in self.breakpoints]))
 		return t
+
+class FixedVdBcompositeEMLineGrid(object):
+	def __init__(self,M,z,minEW=1.0,noFe=False):
+		self.minEW = minEW
+		self.all_lines = ascii_io.read(datadir+
+		                            'VandenBerk2001_AJ122_549_table2.txt')
+		# blended lines are repeated in the table.  
+		l,li = np.unique(self.all_lines['OWave'],return_index=True)
+		self.unique_lines = self.all_lines[li]
+		li = np.where(self.unique_lines['EqWid'] > minEW)[0]
+		self.lines = self.unique_lines[li]
+		if noFe:
+			isFe = self.lines['ID'].find('Fe') == 0
+			self.lines = self.lines[~isFe]
+		print 'using the following lines from VdB template: ',self.lines['ID']
+	def addLine(self,name,rfwave,eqWidth,profileWidth):
+		self.lines = np.resize(self.lines,(self.lines.size+1,))
+		self.lines = self.lines.view(np.recarray)
+		self.lines.OWave[-1] = rfwave
+		self.lines.EqWid[-1] = eqWidth
+		self.lines.Width[-1] = profileWidth
+		self.lines.ID[-1] = name
+	def addSBB(self):
+		# XXX this is a hack!
+		self.addLine('SBBhack',3000.,300.,500.)
+	def _idmap(self,name):
+		if name.startswith('Ly'):
+			return 'Ly'+{'A':'{alpha}','B':'{beta}',
+			             'D':'{delta}','E':'{epsilon}'}[name[-1]]
+		else:
+			return name
+	def set(self,name,**kwargs):
+		li = np.where(self._idmap(name) == self.lines.ID)[0]
+		if len(li) == 0:
+			print self.lines.ID
+			raise ValueError
+		for k,v in kwargs.items():
+			if k == 'width':
+				self.lines['Width'][li] = v
+			elif k == 'eqWidth':
+				self.lines['EqWid'][li] = v
+			elif k == 'wave':
+				self.lines['OWave'][li] = v
+	def __iter__(self):
+		'''returns wave, equivalent width, gaussian sigma'''
+		while True:
+			yield self.get(None)
+	def get(self,idx):
+		return self.lines['OWave'],self.lines['EqWid'],self.lines['Width']
 
