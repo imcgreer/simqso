@@ -2,7 +2,7 @@
 
 import numpy as np
 from astropy.io import fits
-from astropy.table import Table
+from astropy.table import Table,hstack
 
 from . import sqbase
 from . import sqgrids as grids
@@ -138,8 +138,8 @@ def buildQSOspectra(wave,Mz,forest,photoMap,qsoParams,
 	features = None #buildFeatures(qsoParams,continua)
 	spec = QSOSpectrum(wave)
 	gridShape = Mz.Mgrid.shape
-	synMags = np.zeros(gridShape+(len(photoMap['bandpasses']),))
-	synFluxes = np.zeros_like(synMags)
+	synMag = np.zeros(gridShape+(len(photoMap['bandpasses']),))
+	synFlux = np.zeros_like(synMag)
 	photoCache = sqphoto.getPhotoCache(wave,photoMap)
 	for M,z,idx in Mz:
 		spec.setRedshift(z)
@@ -148,33 +148,45 @@ def buildQSOspectra(wave,Mz,forest,photoMap,qsoParams,
 		                                    'DM':Mz.distMod})
 		T = forest['T'][np.ravel_multi_index(idx,gridShape)]
 		spec.f_lambda[:nforest] *= T
-		synMags[idx],synFluxes[idx] = sqphoto.calcSynPhot(spec,photoMap,
-		                                                  photoCache,
-		                                                  synMags[idx],
-		                                                  synFluxes[idx])
-	return dict(synMags=synMags,synFluxes=synFluxes,
+		synMag[idx],synFlux[idx] = sqphoto.calcSynPhot(spec,photoMap,
+		                                               photoCache,
+		                                               synMag[idx],
+		                                               synFlux[idx])
+	return dict(synMag=synMag,synFlux=synFlux,
 	            continua=continua,features=features,spectra=spectra)
 
 
 def timerLog(action):
 	pass
 
+def initGridData(simParams,Mz):
+	return Table({'M':Mz.Mgrid.flatten(),'z':Mz.zgrid.flatten()})
+
 def readSimulationData(fileName):
 	qsoData = fits.getdata(fileName+'.fits',1)
 	return Table(qsoData)
 
-def initGridData(simParams,Mz):
-	return Table({'M':Mz.Mgrid,'z':Mz.zgrid})
-
-def initSimulationData(simParams,gridData,features):
-	featureData = [feature.getTable() for feature in features]
-	return Table(gridData + featureData)
-
-def writeSimulationData(simParams,dataTab):
-	# XXX write params to header
-	# XXX write feature data to extensions
-	fileName = simParams['FileName']
-	dataTab.write(fileName+'.fits')
+def writeSimulationData(simParams,gridData,simQSOs,photoData):
+	outShape = gridData['M'].shape
+	fluxData = Table({'synMag':simQSOs['synMag'].reshape(outShape+(-1,)),
+	                  'synFlux':simQSOs['synFlux'].reshape(outShape+(-1,))})
+	# XXX temporary
+	zarr = np.zeros_like(simQSOs['synMag']).reshape(outShape+(-1,))
+	obsFluxData = Table({'obsMag':zarr,
+	                     'obsFlux':zarr})
+	# write feature data to extensions
+	contData = Table({'slopes':simQSOs['continua'].slopes.reshape(outShape+(-1,))})
+	#featureData = [feature.getTable() for feature in features]
+	dataTab = hstack([gridData,fluxData,obsFluxData])
+	featureTab = contData #hstack([contData,])
+	hdr = fits.Header()
+	hdr['SQPARAMS'] = str(simParams)
+	# can be read back as ast.literal_eval(hdr['SQPARAMS'])
+	hdu0 = fits.PrimaryHDU(header=hdr)
+	hdu1 = fits.BinTableHDU.from_columns(np.array(dataTab))
+	hdu2 = fits.BinTableHDU.from_columns(np.array(featureTab))
+	hdulist = fits.HDUList([hdu0,hdu1,hdu2])
+	hdulist.writeto(simParams['FileName']+'.fits',clobber=True)
 
 
 def qsoSimulation(simParams,saveSpectra=False,
@@ -195,9 +207,9 @@ def qsoSimulation(simParams,saveSpectra=False,
 	wave = buildWaveGrid(simParams)
 	timerLog('StartSimulation')
 	try:
-		# if simulation data already exists, load it and skip to photomap
-		qsoData = readSimulationData(simParams['FileName'])
-		Mz = grids.MzGridFromData(qsoData,simParams['GridParams'])
+		# simulation data already exists, load the Mz grid
+		gridData = readSimulationData(simParams['FileName'])
+		Mz = grids.MzGridFromData(gridData,simParams['GridParams'])
 	except IOError:
 		print simParams['FileName']+' output not found'
 		if 'GridFileName' in simParams:
@@ -209,13 +221,13 @@ def qsoSimulation(simParams,saveSpectra=False,
 				print simParams['GridFileName'],' not found, generating'
 				Mz = buildMzGrid(simParams['GridParams'])
 				gridData = initGridData(simParams,Mz)
-				writeGridData(simParams['GridFileName'],gridData)
+				gridData.write(simParams['GridFileName']+'.fits')
 		else:
 			print 'generating Mz grid'
 			Mz = buildMzGrid(simParams['GridParams'])
 		if not forestOnly:
 			gridData = initGridData(simParams,Mz)
-			writeSimulationData(simParams,gridData)
+			#gridData.write(simParams['FileName']+'.fits')
 	Mz.setCosmology(simParams.get('Cosmology'))
 	#
 	# get the forest transmission spectra, or build if needed
@@ -249,14 +261,15 @@ def qsoSimulation(simParams,saveSpectra=False,
 		simQSOs = buildQSOspectra(wave,Mz,forest,photoMap,
 		                          simParams['QuasarModelParams'],
 		                          saveSpectra=saveSpectra)
-		qsoData = initSimulationData(simParams,gridData,simQSOs)
 	#
 	# map the simulated photometry to observed values with uncertainties
 	#
 	if not noPhotoMap:
 		print 'mapping photometry'
 		timerLog('PhotoMap')
-		qsoData = photoMap.mapObserved(qsoData)
+		photoData = photoMap.mapObserved(simQSOs)
+	else:
+		photoData = None
 	timerLog('Finish')
-	qsotab.writeto(simParams['FileName']+'.fits',clobber=True)
+	writeSimulationData(simParams,gridData,simQSOs,photoData)
 
