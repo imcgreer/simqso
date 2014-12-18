@@ -8,6 +8,7 @@ from . import sqbase
 from . import sqgrids as grids
 from . import hiforest
 from . import sqphoto
+from .spectrum import QSOSpectrum
 
 
 def buildWaveGrid(simParams):
@@ -92,7 +93,7 @@ def buildForest(wave,z,forestParams):
 	return forestSpec
 
 
-def buildContinuumModels(continuumParams):
+def buildContinuumModels(Mz,continuumParams):
 	slopes = continuumParams['PowerLawSlopes'][::2]
 	breakpts = continuumParams['PowerLawSlopes'][1::2]
 	print '... building continuum grid'
@@ -131,15 +132,28 @@ def buildQSOspectra(wave,Mz,forest,photoMap,qsoParams,
 		spectra = []
 	else:
 		spectra = None
-	continua = buildContinuumModels(qsoParams['ContinuumModelParams'])
-	features = buildFeatures(qsoParams)
+	nforest = len(forest['wave'])
+	assert np.all(np.abs(forest['wave']-wave[:nforest]<1e-3))
+	continua = buildContinuumModels(Mz,qsoParams['ContinuumParams'])
+	features = None #buildFeatures(qsoParams,continua)
+	spec = QSOSpectrum(wave)
+	gridShape = Mz.Mgrid.shape
+	synMags = np.zeros(gridShape+(len(photoMap['bandpasses']),))
+	synFluxes = np.zeros_like(synMags)
+	photoCache = sqphoto.getPhotoCache(wave,photoMap)
 	for M,z,idx in Mz:
-		spec.setLuminosity(M,units=Mz.lumUnits)
 		spec.setRedshift(z)
-		spec.setContinuum(continua.get(idx))
-		synMags = spec.calcSynPhot(photoMap)
-	return dict(synMags=synMags,continua=continua,features=features,
-	            spectra=spectra)
+		spec.setPowerLawContinuum(continua.get(idx),
+		                          fluxNorm={'wavelength':1450.,'M_AB':M,
+		                                    'DM':Mz.distMod})
+		T = forest['T'][np.ravel_multi_index(idx,gridShape)]
+		spec.f_lambda[:nforest] *= T
+		synMags[idx],synFluxes[idx] = sqphoto.calcSynPhot(spec,photoMap,
+		                                                  photoCache,
+		                                                  synMags[idx],
+		                                                  synFluxes[idx])
+	return dict(synMags=synMags,synFluxes=synFluxes,
+	            continua=continua,features=features,spectra=spectra)
 
 
 def timerLog(action):
@@ -202,6 +216,7 @@ def qsoSimulation(simParams,saveSpectra=False,
 		if not forestOnly:
 			gridData = initGridData(simParams,Mz)
 			writeSimulationData(simParams,gridData)
+	Mz.setCosmology(simParams.get('Cosmology'))
 	#
 	# get the forest transmission spectra, or build if needed
 	#

@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import numpy as np
+from astropy import cosmology
 
 class MzGrid(object):
 	'''
@@ -41,6 +42,20 @@ class MzGrid(object):
 		return self.Medges
 	def get_zbincenters(self):
 		return self.zbincenters
+	def setCosmology(self,cosmodef):
+		if type(cosmodef) is dict:
+			self.cosmo = cosmology.FlatLambdaCDM(**cosmodef)
+		elif type(cosmodef) is str:
+			# XXX are they indexed by name in astropy?
+			self.cosmo = {'WMAP9':cosmology.WMAP9}[cosmodef]
+		elif isinstance(cosmodef,cosmology.FLRW):
+			self.cosmo = cosmodef
+		elif cosmodef is None:
+			self.cosmo = cosmology.get_current()
+		else:
+			raiseValueError
+	def distMod(self,z):
+		return self.cosmo.distmod(z).value
 
 class MzGridFromData(MzGrid):
 	def __init__(self,mzdata,gridpar):
@@ -140,7 +155,7 @@ class GaussianPLContinuumGrid(object):
 	def __init__(self,M,z,slopeMeans,slopeStds,breakpoints):
 		self.slopeMeans = slopeMeans
 		self.slopeStds = slopeStds
-		self.breakpoints = breakpoints
+		self.breakpoints = np.concatenate([[0,],breakpoints])
 		shape = z.shape+(len(slopeMeans),)
 		x = np.random.randn(*shape)
 		mu = np.asarray(slopeMeans)

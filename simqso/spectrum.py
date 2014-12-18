@@ -3,6 +3,7 @@
 import numpy as np
 #from astropy.convolution import convolve,Gaussian1DKernel
 from scipy.interpolate import interp1d
+from astropy import units as u
 
 class Spectrum(object):
 	#
@@ -70,52 +71,64 @@ class Spectrum(object):
 		ii = np.where((self.wave > w1) & (self.wave < w2))[0]
 		return Spectrum(self.wave[ii],flux=self.f_lambda[ii],z=self.z)
 		return rv
-	#
+
+def _Mtoflam(lam0,M,z,DM):
+	nu0 = (lam0 * u.Angstrom).to(u.Hz,equivalencies=u.spectral()).value
+	m = M + DM(z)
+	fnu0 = 10**(-0.4*(m+48.599934))
+	flam0 = fnu0*(nu0/lam0)
+	return flam0/(1+z)
 
 class QSOSpectrum(Spectrum):
 	def __init__(self,wave,**kwargs):
-		Spectrum.__init__(self,wave,**kwargs)
+		super(QSOSpectrum,self).__init__(wave,**kwargs)
 		self.templates = {}
 	#
 	def setPowerLawContinuum(self,plaws,fluxNorm=None):
 		self.components['PowerLawContinuum'] = plaws
 		w1 = 1
 		self.f_lambda[0] = 1.0
-		z = self.z
-		for plaw in plaws:
-			if plaw[0] > 0:
-				break_wave = plaw[0]*(1+z)
-				w2 = np.searchsorted(self.wave,break_wave,side='right')
-			else:
-				w2 = self.wave.size
+		z1 = 1 + self.z
+		slopes,breakpts = plaws
+		alpha_lams = -(2+slopes) # a_nu --> a_lam
+		breakpts = breakpts.astype(np.float32)
+		wb = np.searchsorted(self.wave,breakpts*z1)
+		ii = np.where((wb>0)&(wb<=len(self.wave)))[0]
+		wb = wb[ii]
+		for alpha_lam,w2 in zip(alpha_lams[ii-1],wb):
 			if w1==w2:
 				break
-			alpha_lam = -(2+plaw[1]) # a_nu --> a_lam
 			self.f_lambda[w1:w2] = \
 			   self.f_lambda[w1-1] * \
 			     (self.wave[w1:w2]/self.wave[w1-1])**alpha_lam
 			w1 = w2
 		if fluxNorm is not None:
 			normwave = fluxNorm['wavelength']
-			if plaws[0][0] > normwave or len(plaws)==1:
-				norm_index = plaws[0][1]
+			wave0 = self.wave[0]/z1
+			# this is a bit messy; what it does is walk through the series
+			# of broken power laws in order to connect the flux at the
+			# normalization wavelength to the flux at the beginning of the
+			# spectrum, which is initialized to 1.0 above
+			if wave0 < normwave:
+				ii = np.where((breakpts>wave0) & (breakpts<normwave))[0]
+				ii = ii[::-1]
+				waves = np.concatenate([[normwave],breakpts[ii],[wave0]])
+				ii0 = np.searchsorted(breakpts,[wave0])-1
+				ii = np.concatenate([ii,ii0])
+			elif wave0 > normwave:
+				ii = np.where((breakpts>normwave) & (breakpts<wave0))[0]
+				waves = np.concatenate([[normwave],breakpts[ii],[wave0]])
+				ii0 = np.searchsorted(breakpts,[normwave])-1
+				ii = np.concatenate([ii0,ii])
 			else:
-				for pp,plaw in enumerate(plaws[1:],start=1):
-					if plaw[0] > normwave:
-						norm_index = plaws[pp-1][1]
-						break
-					elif plaw[0] < 0:
-						norm_index = plaw[1]
-			li = np.abs(self.wave-fluxNorm['wavelength']*(1+z)).argmin()
-			if 'M_AB' in fluxNorm:
-				mAB_off,M_AB_off = cmag.magnitude_AB1450(z,self.f_lambda[li],
-				                            self.wave[li],nu_power=norm_index,
-				                            **def_cosmo)
-				dm = fluxNorm['M_AB'] - M_AB_off
-				self.f_lambda *= 10**(-0.4*dm)
-			else:
-				# normalize to one at the specfied wavelength
-				self.f_lambda /= self.f_lambda[li]
+				ii,waves = [],[None]*2
+			alphas = alpha_lams[ii]
+			fnorm = _Mtoflam(normwave,fluxNorm['M_AB'],self.z,fluxNorm['DM'])
+			f2 = fnorm
+			for wv1,wv2,alpha in zip(waves[:-1],waves[1:],alphas):
+				f1 = f2*(wv1/wv2)**alpha
+				f2 = f1
+			self.f_lambda *= f2
 		self.plcontinuum = self.f_lambda.copy()
 	#
 	def addEmissionLines(self,emlines):
