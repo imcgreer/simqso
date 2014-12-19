@@ -15,7 +15,7 @@ class Spectrum(object):
 		     flux: flux in f_lambda units
 		'''
 		self.wave = wave
-		self.f_lambda = np.zeros_like(self.wave)
+		self.f_lambda = kwargs.get('f_lambda',np.zeros_like(self.wave))
 		self.components = {}
 		self.z = kwargs.get('z',0.0)
 	#
@@ -71,6 +71,11 @@ class Spectrum(object):
 		ii = np.where((self.wave > w1) & (self.wave < w2))[0]
 		return Spectrum(self.wave[ii],flux=self.f_lambda[ii],z=self.z)
 		return rv
+	def resample(self,newWave):
+		newFlux = interp1d(self.wave,self.f_lambda,
+		                   bounds_error=False,fill_value=0.0)
+		self.wave = newWave
+		self.f_lambda = newFlux(newWave)
 
 def _Mtoflam(lam0,M,z,DM):
 	nu0 = (lam0 * u.Angstrom).to(u.Hz,equivalencies=u.spectral()).value

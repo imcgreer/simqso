@@ -141,9 +141,6 @@ def buildEmissionLineGrid(Mz,emLineParams):
 	return emLineGrid
 
 def buildDustGrid(Mz,dustParams):
-	#
-	# dust reddening
-	#
 	print '... building dust extinction grid'
 	np.random.seed(dustParams.get('DustSeed'))
 	if dustParams['DustExtinctionModel'] == 'Fixed E(B-V)':
@@ -158,6 +155,7 @@ def buildDustGrid(Mz,dustParams):
 		                 dustParams['DustExtinctionModel'])
 	return dustGrid
 
+
 class SpectralFeature(object):
 	def __init__(self,grid):
 		self.grid = grid
@@ -169,17 +167,28 @@ class EmissionLineFeature(SpectralFeature):
 		emlines = self.grid.get(idx)
 		spec.addEmissionLines(emlines)
 
+class IronEmissionFeature(SpectralFeature):
+	def apply_to_spec(self,spec,idx):
+		feTemplate = self.grid.get(idx)
+		spec.addTemplate('Fe',feTemplate)
+
 class DustExtinctionFeature(SpectralFeature):
 	def apply_to_spec(self,spec,idx):
 		dustfn = self.grid.get(idx)
 		spec.convolve_restframe(*dustfn)
 
-def buildFeatures(Mz,qsoParams):
+def buildFeatures(Mz,wave,qsoParams):
 	features = []
 	if 'EmissionLineParams' in qsoParams:
 		emLineGrid = buildEmissionLineGrid(Mz,qsoParams['EmissionLineParams'])
 		emLineFeature = EmissionLineFeature(emLineGrid)
 		features.append(emLineFeature)
+	if 'IronEmissionParams' in qsoParams:
+		# only option for now is the VW01 template
+		feGrid = grids.VW01FeTemplateGrid(Mz.Mgrid,Mz.zgrid,wave,
+		           scales=qsoParams['IronEmissionParams'].get('FeScalings'))
+		feFeature = IronEmissionFeature(feGrid)
+		features.append(feFeature)
 	if 'DustExtinctionParams' in qsoParams:
 		dustGrid = buildDustGrid(Mz,qsoParams['DustExtinctionParams'])
 		dustFeature = DustExtinctionFeature(dustGrid)
@@ -211,7 +220,7 @@ def buildQSOspectra(wave,Mz,forest,photoMap,qsoParams,
 	nforest = len(forest['wave'])
 	assert np.all(np.abs(forest['wave']-wave[:nforest]<1e-3))
 	continua = buildContinuumModels(Mz,qsoParams['ContinuumParams'])
-	features = buildFeatures(Mz,qsoParams)
+	features = buildFeatures(Mz,wave,qsoParams)
 	spec = QSOSpectrum(wave)
 	gridShape = Mz.Mgrid.shape
 	synMag = np.zeros(gridShape+(len(photoMap['bandpasses']),))

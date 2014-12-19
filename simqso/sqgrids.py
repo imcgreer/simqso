@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 
 import numpy as np
+from scipy.interpolate import interp1d
+from scipy.integrate import simps
+from scipy.signal import convolve
 from astropy import cosmology
 from astropy.table import Table
 from astropy.io.fits import Header
@@ -228,6 +231,64 @@ class FixedVdBcompositeEMLineGrid(object):
 	def getTable(self,hdr):
 		'''Return a Table of all parameters and header information'''
 		hdr.update('LINEMODL','Fixed Vanden Berk et al. 2001 emission lines')
+		return None
+
+class VW01FeTemplateGrid(object):
+	def __init__(self,M,z,wave,fwhm=5000.,scales=None):
+		self.zbins = np.arange(z.min(),z.max()+0.005,0.005)
+		self.feGrid = np.empty((self.zbins.shape[0],wave.shape[0]))
+		# the Fe template is an equivalent width spectrum
+		wave0,ew0 = self._restFrameFeTemplate(fwhm,scales)
+		for i,zbin in enumerate(self.zbins):
+			# in units of EW - no (1+z) when redshifting
+			rfEW = interp1d(wave0*(1+zbin),ew0,kind='slinear',
+			                bounds_error=False,fill_value=0.0)
+			self.feGrid[i] = rfEW(wave)
+		self.zi = np.searchsorted(self.zbins,z)
+	def _loadVW01Fe(self,wave):
+		fepath = datadir+'VW01_Fe/'
+		feTemplate = np.zeros_like(wave)
+		for fn in ['Fe_UVtemplt_B.asc','Fe2_UV191.asc','Fe3_UV47.asc']:
+			w,f = np.loadtxt(fepath+fn,unpack=True)
+			spec = interp1d(w,f,kind='slinear')
+			w1,w2 = np.searchsorted(wave,[w[0],w[-1]])
+			feTemplate[w1:w2] += spec(wave[w1:w2])
+		# continuum parameters given in VW01 pg. 6
+		a_nu = -1.9
+		fcont = 3.45e-14 * (wave/1500.)**(-2-a_nu)
+		w1 = np.searchsorted(wave,1716.)
+		a_nu = -1.0
+		fcont[w1:] = 3.89e-14 * (wave[w1:]/1500.)**(-2-a_nu)
+		feTemplate /= fcont
+		return feTemplate
+	def _restFrameFeTemplate(self,FWHM_kms,feScalings):
+		wave = np.logspace(np.log(1075.),np.log(3089.),5000,base=np.e)
+		feTemplate = self._loadVW01Fe(wave)
+		# rescale segments of the Fe template
+		if feScalings is None:
+			feScalings = [(0,3500,1.0),]
+		print 'using Fe scales: ',feScalings
+		for w1,w2,fscl in feScalings:
+			wi1,wi2 = np.searchsorted(wave,(w1,w2))
+			feTemplate[wi1:wi2] *= fscl
+		# calculate the total flux (actually, EW since continuum is divided out)
+		flux0 = simps(feTemplate,wave)
+		FWHM_1Zw1 = 900.
+		c_kms = 3e5
+		sigma_conv = np.sqrt(FWHM_kms**2 - FWHM_1Zw1**2) / \
+		                     (2*np.sqrt(2*np.log(2))) / c_kms
+		dloglam = np.log(wave[1]) - np.log(wave[0])
+		x = np.arange(-5*sigma_conv,5*sigma_conv,dloglam)
+		gkern = np.exp(-x**2/(2*sigma_conv**2)) / (np.sqrt(2*np.pi)*sigma_conv)
+		broadenedTemp = convolve(feTemplate,gkern,mode='same')
+		feFlux = broadenedTemp
+		feFlux *= flux0/simps(feFlux,wave)
+		return wave,feFlux
+	def get(self,idx):
+		return self.feGrid[self.zi[idx]]
+	def getTable(self,hdr):
+		'''Return a Table of all parameters and header information'''
+		hdr.update('FETEMPL','Vestergaard & Wilkes 2001 Iron Emission')
 		return None
 
 class FixedDustGrid(object):
