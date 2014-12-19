@@ -146,6 +146,8 @@ class QSOSpectrum(Spectrum):
 				self.templates['EmissionLines'][i1:i2] += \
 				                         self.plcontinuum[i1:i2]*lineprofile
 		self.f_lambda += self.templates['EmissionLines']
+	def convolve_restframe(self,g,*args):
+		self.f_lambda = g(self.wave/(1+self.z),self.f_lambda,*args)
 	def addTemplate(self,name,template):
 		self.templates[name] = self.plcontinuum * template
 		self.f_lambda += self.templates[name]

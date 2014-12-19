@@ -6,9 +6,10 @@ from astropy.table import Table,hstack
 
 from . import sqbase
 from . import sqgrids as grids
-from . import hiforest
-from . import sqphoto
 from .spectrum import QSOSpectrum
+from . import hiforest
+from . import dustextinction
+from . import sqphoto
 
 
 def buildWaveGrid(simParams):
@@ -139,14 +140,39 @@ def buildEmissionLineGrid(Mz,emLineParams):
 			emLineGrid.addLine(*l)
 	return emLineGrid
 
+def buildDustGrid(Mz,dustParams):
+	#
+	# dust reddening
+	#
+	print '... building dust extinction grid'
+	np.random.seed(dustParams.get('DustSeed'))
+	if dustParams['DustExtinctionModel'] == 'Fixed E(B-V)':
+		dustGrid = grids.FixedDustGrid(Mz.Mgrid,Mz.zgrid,
+		                 dustParams['DustModelName'],dustParams['E(B-V)'])
+	elif dustParams['DustExtinctionModel']=='Exponential E(B-V) Distribution':
+		dustGrid = grids.ExponentialDustGrid(Mz.Mgrid,Mz.zgrid,
+		                 dustParams['DustModelName'],dustParams['E(B-V)'],
+		                 fraction=dustParams.get('DustLOSfraction',1.0))
+	else:
+		raise ValueError('invalid dust extinction model: '+
+		                 dustParams['DustExtinctionModel'])
+	return dustGrid
+
 class SpectralFeature(object):
 	def __init__(self,grid):
 		self.grid = grid
+	def getTable(self,hdr):
+		return self.grid.getTable(hdr)
 
 class EmissionLineFeature(SpectralFeature):
 	def apply_to_spec(self,spec,idx):
 		emlines = self.grid.get(idx)
 		spec.addEmissionLines(emlines)
+
+class DustExtinctionFeature(SpectralFeature):
+	def apply_to_spec(self,spec,idx):
+		dustfn = self.grid.get(idx)
+		spec.convolve_restframe(*dustfn)
 
 def buildFeatures(Mz,qsoParams):
 	features = []
@@ -155,6 +181,9 @@ def buildFeatures(Mz,qsoParams):
 		emLineFeature = EmissionLineFeature(emLineGrid)
 		features.append(emLineFeature)
 	if 'DustExtinctionParams' in qsoParams:
+		dustGrid = buildDustGrid(Mz,qsoParams['DustExtinctionParams'])
+		dustFeature = DustExtinctionFeature(dustGrid)
+		features.append(dustFeature)
 		pass
 	return features
 
@@ -222,8 +251,8 @@ def readSimulationData(fileName):
 	qsoData = fits.getdata(fileName+'.fits',1)
 	return Table(qsoData)
 
-def writeSimulationData(simParams,gridData,simQSOs,photoData,
-	                    writeFeatures=False):
+def writeSimulationData(simParams,gridData,simQSOs,photoData,**kwargs):
+	writeFeatures = kwargs.get('writeFeatures',False)
 	outShape = gridData['M'].shape
 	fShape = outShape + (-1,) # shape for a "feature", vector at each point
 	# Primary extension just contains model parameters in header
@@ -248,8 +277,10 @@ def writeSimulationData(simParams,gridData,simQSOs,photoData,
 	if writeFeatures and simQSOs is not None:
 		hdr2 = fits.Header()
 		contData = simQSOs['continua'].getTable(hdr2)
-		#featureData = [feature.getTable() for feature in features]
-		featureTab = contData #hstack([contData,])
+		featureData = [feature.getTable(hdr2) 
+		                  for feature in simQSOs['features']]
+		featureData = [t for t in featureData if t is not None]
+		featureTab = hstack([contData,]+featureData)
 		hdu2 = fits.BinTableHDU.from_columns(np.array(featureTab))
 		hdu2.header += hdr2
 		hdulist.append(hdu2)
@@ -257,8 +288,7 @@ def writeSimulationData(simParams,gridData,simQSOs,photoData,
 	hdulist.writeto(simParams['FileName']+'.fits',clobber=True)
 
 
-def qsoSimulation(simParams,saveSpectra=False,
-                  forestOnly=False,onlyMap=False,noPhotoMap=False):
+def qsoSimulation(simParams,**kwargs):
 	'''
 	Run a complete simulation.
 	1) Construct (M,z) grid of QSOs.
@@ -269,6 +299,10 @@ def qsoSimulation(simParams,saveSpectra=False,
 	5) Transfer the simulated photometry to observed photometry by 
 	   calculating errors and folding them in.
 	'''
+	saveSpectra = kwargs.get('saveSpectra',False)
+	forestOnly = kwargs.get('forestOnly',False)
+	onlyMap = kwargs.get('onlyMap',False)
+	noPhotoMap = kwargs.get('noPhotoMap',False)
 	#
 	# build or restore the grid of (M,z) for each QSO
 	#
@@ -340,8 +374,8 @@ def qsoSimulation(simParams,saveSpectra=False,
 	else:
 		photoData = None
 	timerLog('Finish')
-	writeSimulationData(simParams,gridData,simQSOs,photoData)
+	writeSimulationData(simParams,gridData,simQSOs,photoData,**kwargs)
 	if saveSpectra:
-		fits.writeto(simParams['FileName']+'_spectra.fits',
+		fits.writeto(simParams['FileName']+'_spectra.fits.gz',
 		             simQSOs['spectra'],clobber=True)
 

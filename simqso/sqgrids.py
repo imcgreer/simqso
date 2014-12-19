@@ -7,6 +7,7 @@ from astropy.io.fits import Header
 from astropy.io import ascii as ascii_io
 
 from .sqbase import datadir
+from . import dustextinction
 
 class MzGrid(object):
 	'''
@@ -224,4 +225,47 @@ class FixedVdBcompositeEMLineGrid(object):
 			yield self.get(None)
 	def get(self,idx):
 		return self.lines['OWave'],self.lines['EqWid'],self.lines['Width']
+	def getTable(self,hdr):
+		'''Return a Table of all parameters and header information'''
+		hdr.update('LINEMODL','Fixed Vanden Berk et al. 2001 emission lines')
+		return None
+
+class FixedDustGrid(object):
+	def __init__(self,M,z,dustModel,E_BmV):
+		self.dustModel = dustModel
+		self.E_BmV = E_BmV
+		self.dust_fn = dustextinction.dust_fn[dustModel]
+	def __iter__(self):
+		while True:
+			yield self.dust_fn,self.E_BmV
+	def getTable(self,hdr):
+		'''Return a Table of all parameters and header information'''
+		hdr.update('DUSTMODL',self.dustModel)
+		hdr.update('FIXEDEBV',self.E_BmV)
+		return None
+
+class ExponentialDustGrid(object):
+	def __init__(self,M,z,dustModel,E_BmV_scale,fraction=1):
+		self.dustModel = dustModel
+		self.E_BmV_scale = E_BmV_scale
+		self.dust_fn = dustextinction.dust_fn[dustModel]
+		if fraction==1:
+			self.EBVdist = np.random.exponential(E_BmV_scale,M.shape)
+		else:
+			print 'using dust LOS fraction ',fraction
+			self.EBVdist = np.zeros_like(M).astype(np.float32)
+			N = fraction * M.size
+			ii = np.random.randint(0,M.size,(N,))
+			self.EBVdist.flat[ii] = np.random.exponential(E_BmV_scale,(N,)).astype(np.float32)
+	def __iter__(self):
+		for ebv in self.EBVdist:
+			yield self.dust_fn,ebv
+	def get(self,idx):
+		return self.dust_fn,self.EBVdist[idx]
+	def getTable(self,hdr):
+		'''Return a Table of all parameters and header information'''
+		t = Table({'E(B-V)':self.EBVdist.flatten()})
+		hdr.update('DUSTMODL',self.dustModel)
+		hdr.update('EBVSCALE',self.E_BmV_scale)
+		return t
 
