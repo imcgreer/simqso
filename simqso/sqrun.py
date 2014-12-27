@@ -126,11 +126,9 @@ def buildEmissionLineGrid(Mz,emLineParams):
 #	elif emLineParams['EmissionLineModel'] == 'FixedLBQSEmissionLines':
 #		emLineGrid = qsotemplates.FixedLBQSemLineGrid(
 #		                                noFe=emLineParams.get('LBQSnoFe',False))
-#	elif emLineParams['EmissionLineModel'] == 'VariedEmissionLineGrid':
-#		gridfn = tmpdatadir+emLineParams.get('EmLineTrends','emlinetrends.pkl')
-#		print 'using emission line trends from ',gridfn
-#		emLineGrid = qsogrid.VariedEmissionLineGrid(Mz.Mgrid,Mz.zgrid,gridfn,
-#		                                  **emLineParams)
+	elif emLineParams['EmissionLineModel'] == 'VariedEmissionLineGrid':
+		emLineGrid = grids.VariedEmissionLineGrid(Mz.Mgrid,Mz.zgrid,
+		                                          **emLineParams)
 	else:
 		raise ValueError('invalid emission line model: ' +
 		                    emLineParams['EmissionLineModel'])

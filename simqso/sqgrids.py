@@ -6,7 +6,7 @@ from scipy.integrate import simps
 from scipy.signal import convolve
 from astropy import cosmology
 from astropy.table import Table
-from astropy.io.fits import Header
+from astropy.io.fits import Header,getdata
 from astropy.io import ascii as ascii_io
 
 from .sqbase import datadir
@@ -176,8 +176,8 @@ class GaussianPLContinuumGrid(object):
 		'''Return a Table of all parameters and header information'''
 		flatgrid = np.product(self.slopes.shape[:-1])
 		t = Table({'slopes':self.slopes.reshape(flatgrid,-1)})
-		hdr.update('CNTBKPTS',','.join(['%.1f' % bkpt 
-		                            for bkpt in self.breakpoints]))
+		hdr['CNTBKPTS'] = ','.join(['%.1f' % bkpt 
+		                            for bkpt in self.breakpoints])
 		return t
 
 class FixedVdBcompositeEMLineGrid(object):
@@ -230,7 +230,7 @@ class FixedVdBcompositeEMLineGrid(object):
 		return self.lines['OWave'],self.lines['EqWid'],self.lines['Width']
 	def getTable(self,hdr):
 		'''Return a Table of all parameters and header information'''
-		hdr.update('LINEMODL','Fixed Vanden Berk et al. 2001 emission lines')
+		hdr['LINEMODL'] = 'Fixed Vanden Berk et al. 2001 emission lines'
 		return None
 
 class VW01FeTemplateGrid(object):
@@ -288,8 +288,89 @@ class VW01FeTemplateGrid(object):
 		return self.feGrid[self.zi[idx]]
 	def getTable(self,hdr):
 		'''Return a Table of all parameters and header information'''
-		hdr.update('FETEMPL','Vestergaard & Wilkes 2001 Iron Emission')
+		hdr['FETEMPL'] = 'Vestergaard & Wilkes 2001 Iron Emission'
 		return None
+
+class VariedEmissionLineGrid(object):
+	def __init__(self,M1450,z,**kwargs):
+		trendfn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v5',)
+		self.fixed = kwargs.get('fixLineProfiles',False)
+		self.minEW = kwargs.get('minEW',0.0)
+		indy = kwargs.get('EmLineIndependentScatter',False)
+		# emission line trends are calculated w.r.t. M_i, so
+		#  convert M1450 to M_i(z=0) using Richards+06 eqns. 1 and 3
+		M_i = M1450 - 1.486 + 0.596
+		# load the emission line trend data, and restrict to lines for which
+		# the mean EW trend at the lowest luminosity exceeds minEW
+		t = getdata(datadir+trendfn+'.fits')
+		maxEW = 10**(t['logEW'][:,0,1]+t['logEW'][:,0,0]*M_i.max())
+		ii = np.where(maxEW > self.minEW)[0]
+		self.lineTrends = t[ii]
+		nlines = len(ii)
+		# random deviate used to sample line profile values - if independent
+		# scatter, each line gets its own random scatter, otherwise each 
+		# object gets a single deviation and the lines are perfectly correlated
+		nx = nlines if indy else 1
+		xshape = z.shape + (nx,)
+		# store the line profile values in a structured array with each
+		# element having the same shape as the input grid
+		nf4 = str(z.shape)+'f4'
+		self.lineGrids = np.zeros(nlines,
+		                      dtype=[('name','S15'),('wavelength',nf4),
+		                             ('eqWidth',nf4),('width',nf4)])
+		self.lineGrids['name'] = self.lineTrends['name']
+		# the optional argument 'scaleEWs' allows the caller to arbitrarily
+		# rescale both the output equivalent widths and the input scatter
+		# to the EW distribution for individual lines. construct the
+		# scaling vector here
+		sigscl = np.ones(nlines)
+		ewscl = np.ones(nlines)
+		for line,scl in kwargs.get('scaleEWs',{}).items():
+			i = np.where(self.lineGrids['name']==line)[0][0]
+			if type(scl) is tuple:
+				ewscl[i],sigscl[i] = scl
+			else:
+				ewscl[i] = scl
+		# now loop over the three line profile parameters and obtain the
+		# randomly sampled values using the input trends
+		M = M_i[...,np.newaxis]
+		for k in ['wavelength','logEW','logWidth']:
+			a = self.lineTrends[k][...,0]
+			b = self.lineTrends[k][...,1]
+			meanVal = a[...,0]*M + b[...,0]
+			siglo = a[...,1]*M + b[...,1] - meanVal
+			sighi = a[...,2]*M + b[...,2] - meanVal
+			x = np.random.standard_normal(xshape)
+			sig = np.choose(x<0,[sighi,-siglo])
+			if k=='logEW':
+				sig *= sigscl
+			v = meanVal + x*sig
+			if k.startswith('log'):
+				v[:] = 10**v
+				k2 = {'logEW':'eqWidth','logWidth':'width'}[k]
+			else:
+				k2 = k
+			if k=='logEW':
+				v *= ewscl
+			self.lineGrids[k2] = np.rollaxis(v,-1)
+	def get(self,idx):
+		# shape of lineGrids is (Nlines,)+gridshape, and idx is an index
+		# into the grid, so add a dummy slice along the first axis
+		idx2 = (np.s_[:],)+idx
+		return (self.lineGrids['wavelength'][idx2],
+		        self.lineGrids['eqWidth'][idx2],
+		        self.lineGrids['width'][idx2])
+	def getTable(self,hdr):
+		'''Return a Table of all parameters and header information'''
+		hdr['LINEMODL'] = 'Log-linear trends with luminosity'
+		hdr['LINENAME'] = ','.join(self.lineGrids['name'])
+		flatgrid = np.product(self.lineGrids['wavelength'].shape[1:])
+		def squash(a):
+			return a.reshape(-1,flatgrid).transpose()
+		t = Table({'lineWave':squash(self.lineGrids['wavelength']),
+		           'lineEW':squash(self.lineGrids['eqWidth']),
+		           'lineWidth':squash(self.lineGrids['width']),})
+		return t
 
 class FixedDustGrid(object):
 	def __init__(self,M,z,dustModel,E_BmV):
@@ -301,8 +382,8 @@ class FixedDustGrid(object):
 			yield self.dust_fn,self.E_BmV
 	def getTable(self,hdr):
 		'''Return a Table of all parameters and header information'''
-		hdr.update('DUSTMODL',self.dustModel)
-		hdr.update('FIXEDEBV',self.E_BmV)
+		hdr['DUSTMODL'] = self.dustModel
+		hdr['FIXEDEBV'] = self.E_BmV
 		return None
 
 class ExponentialDustGrid(object):
@@ -326,7 +407,7 @@ class ExponentialDustGrid(object):
 	def getTable(self,hdr):
 		'''Return a Table of all parameters and header information'''
 		t = Table({'E(B-V)':self.EBVdist.flatten()})
-		hdr.update('DUSTMODL',self.dustModel)
-		hdr.update('EBVSCALE',self.E_BmV_scale)
+		hdr['DUSTMODL'] = self.dustModel
+		hdr['EBVSCALE'] = self.E_BmV_scale
 		return t
 
