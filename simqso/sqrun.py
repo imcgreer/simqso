@@ -23,7 +23,7 @@ def buildWaveGrid(simParams):
 	return wave
 
 
-def buildMzGrid(gridPars):
+def buildMzGrid(gridPars,cosmodef):
 	'''
 	Create a grid of points in (M,z) space, each of these points are
 	assigned to an individual simulated quasar.
@@ -52,7 +52,8 @@ def buildMzGrid(gridPars):
 		Mz = grids.FluxRedshiftGrid(np.arange(*gridPars['mRange']),
 		                            np.arange(*gridPars['zRange']),
 		                            gridPars['nPerBin'],
-		                            obsBand=gridPars.get('ObsBand','i'),
+		                            cosmodef,
+		                            obsBand=gridPars.get('ObsBand','SDSS-i'),
 		                            restBand=gridPars.get('RestBand','1450'))
 	elif gridType == 'FixedGrid':
 		Mz = grids.FixedMzGrid(gridPars['fixed_M'],gridPars['fixed_z'])
@@ -157,6 +158,8 @@ def buildDustGrid(Mz,dustParams):
 class SpectralFeature(object):
 	def __init__(self,grid):
 		self.grid = grid
+	def update(self,*args):
+		self.grid.update(*args)
 	def getTable(self,hdr):
 		return self.grid.getTable(hdr)
 
@@ -196,7 +199,7 @@ def buildFeatures(Mz,wave,qsoParams):
 
 
 def buildQSOspectra(wave,Mz,forest,photoMap,qsoParams,
-                    featuresIn=None,saveSpectra=False):
+                    maxIter,saveSpectra=False):
 	'''
 	Assemble the spectral components of each QSO from the input parameters.
 	---
@@ -224,26 +227,40 @@ def buildQSOspectra(wave,Mz,forest,photoMap,qsoParams,
 	synMag = np.zeros(gridShape+(len(photoMap['bandpasses']),))
 	synFlux = np.zeros_like(synMag)
 	photoCache = sqphoto.getPhotoCache(wave,photoMap)
-	for M,z,idx in Mz:
-		i = np.ravel_multi_index(idx,gridShape)
-		spec.setRedshift(z)
-		# start with continuum
-		spec.setPowerLawContinuum(continua.get(idx),
-		                          fluxNorm={'wavelength':1450.,'M_AB':M,
-		                                    'DM':Mz.distMod})
-		# add additional emission/absorption features
-		for feature in features:
-			feature.apply_to_spec(spec,idx)
-		# apply HI forest blanketing
-		spec.f_lambda[:nforest] *= forest['T'][i]
-		# calculate synthetic magnitudes from the spectra through the
-		# specified bandpasses
-		synMag[idx],synFlux[idx] = sqphoto.calcSynPhot(spec,photoMap,
-		                                               photoCache,
-		                                               synMag[idx],
-		                                               synFlux[idx])
-		if saveSpectra:
-			spectra[i] = spec.f_lambda
+	if Mz.units == 'luminosity':
+		nIter = 1
+	else:
+		nIter = maxIter
+		bands = photoMap['bandpasses'].keys()
+		fluxBand = next(j for j in range(len(bands)) if bands[j]==Mz.obsBand)
+		print 'fluxBand is ',fluxBand,bands
+	for iterNum in range(nIter):
+		print 'buildQSOspectra iteration ',iterNum+1,' out of ',nIter
+		for M,z,idx in Mz:
+			i = np.ravel_multi_index(idx,gridShape)
+			spec.setRedshift(z)
+			# start with continuum
+			spec.setPowerLawContinuum(continua.get(idx),
+			                          fluxNorm={'wavelength':1450.,'M_AB':M,
+			                                    'DM':Mz.distMod})
+			# add additional emission/absorption features
+			for feature in features:
+				feature.apply_to_spec(spec,idx)
+			# apply HI forest blanketing
+			spec.f_lambda[:nforest] *= forest['T'][i]
+			# calculate synthetic magnitudes from the spectra through the
+			# specified bandpasses
+			synMag[idx],synFlux[idx] = sqphoto.calcSynPhot(spec,photoMap,
+			                                               photoCache,
+			                                               synMag[idx],
+			                                               synFlux[idx])
+			if saveSpectra and iterNum==nIter-1:
+				spectra[i] = spec.f_lambda
+		if nIter > 1:
+			Mz.updateMags(synMag[...,fluxBand])
+			continua.update(Mz.Mgrid,Mz.zgrid)
+			for feature in features:
+				feature.update(Mz.Mgrid,Mz.zgrid)
 	return dict(synMag=synMag,synFlux=synFlux,
 	            continua=continua,features=features,spectra=spectra)
 
@@ -258,13 +275,14 @@ def readSimulationData(fileName):
 	qsoData = fits.getdata(fileName+'.fits',1)
 	return Table(qsoData)
 
-def writeSimulationData(simParams,gridData,simQSOs,photoData,**kwargs):
+def writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,**kwargs):
 	writeFeatures = kwargs.get('writeFeatures',False)
 	outShape = gridData['M'].shape
 	fShape = outShape + (-1,) # shape for a "feature", vector at each point
 	# Primary extension just contains model parameters in header
 	hdr0 = fits.Header()
 	hdr0['SQPARAMS'] = str(simParams)
+	hdr0['GRIDUNIT'] = Mz.units
 	# can be read back as ast.literal_eval(hdr['SQPARAMS'])
 	hdulist = [fits.PrimaryHDU(header=hdr0),]
 	# extension 1 contains the M,z grid and synthetic and observed fluxes
@@ -318,7 +336,8 @@ def qsoSimulation(simParams,**kwargs):
 	try:
 		# simulation data already exists, load the Mz grid
 		qsoData = readSimulationData(simParams['FileName'])
-		Mz = grids.MzGridFromData(qsoData,simParams['GridParams'])
+		hdr = fits.getheader(simParams['FileName']) # a bit kludgy
+		Mz = grids.MzGridFromData(qsoData,simParams['GridParams'],hdr)
 		gridData = qsoData['M','z']
 	except IOError:
 		print simParams['FileName']+' output not found'
@@ -326,18 +345,21 @@ def qsoSimulation(simParams,**kwargs):
 			print 'restoring MzGrid from ',simParams['GridFileName']
 			try:
 				gridData = fits.getdata(simParams['GridFileName']+'.fits')
-				Mz = qsogrid.MzGridFromData(gridData,simParams['GridParams'])
+				hdr = fits.getheader(simParams['GridFileName']) # again kludgy
+				Mz = qsogrid.MzGridFromData(gridData,simParams['GridParams'],hdr)
 			except IOError:
 				print simParams['GridFileName'],' not found, generating'
-				Mz = buildMzGrid(simParams['GridParams'])
+				Mz = buildMzGrid(simParams['GridParams'],
+				                 simParams.get('Cosmology'))
 				gridData = initGridData(simParams,Mz)
 				gridData.write(simParams['GridFileName']+'.fits')
 		else:
 			print 'generating Mz grid'
-			Mz = buildMzGrid(simParams['GridParams'])
+			Mz = buildMzGrid(simParams['GridParams'],
+			                 simParams.get('Cosmology'))
 		if not forestOnly:
 			gridData = initGridData(simParams,Mz)
-			writeSimulationData(simParams,gridData,None,None)
+			writeSimulationData(simParams,Mz,gridData,None,None)
 	Mz.setCosmology(simParams.get('Cosmology'))
 	#
 	# get the forest transmission spectra, or build if needed
@@ -370,6 +392,7 @@ def qsoSimulation(simParams,**kwargs):
 		timerLog('BuildQuasarSpectra')
 		simQSOs = buildQSOspectra(wave,Mz,forest,photoMap,
 		                          simParams['QuasarModelParams'],
+		                          maxIter=simParams.get('maxFeatureIter',3),
 		                          saveSpectra=saveSpectra)
 	#
 	# map the simulated photometry to observed values with uncertainties
@@ -381,7 +404,7 @@ def qsoSimulation(simParams,**kwargs):
 	else:
 		photoData = None
 	timerLog('Finish')
-	writeSimulationData(simParams,gridData,simQSOs,photoData,**kwargs)
+	writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,**kwargs)
 	if saveSpectra:
 		fits.writeto(simParams['FileName']+'_spectra.fits.gz',
 		             simQSOs['spectra'],clobber=True)

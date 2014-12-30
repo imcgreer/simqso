@@ -9,7 +9,7 @@ from astropy.table import Table
 from astropy.io.fits import Header,getdata
 from astropy.io import ascii as ascii_io
 
-from .sqbase import datadir
+from .sqbase import datadir,mag2lum
 from . import dustextinction
 
 class MzGrid(object):
@@ -54,9 +54,6 @@ class MzGrid(object):
 	def setCosmology(self,cosmodef):
 		if type(cosmodef) is dict:
 			self.cosmo = cosmology.FlatLambdaCDM(**cosmodef)
-		elif type(cosmodef) is str:
-			# XXX are they indexed by name in astropy?
-			self.cosmo = {'WMAP9':cosmology.WMAP9}[cosmodef]
 		elif isinstance(cosmodef,cosmology.FLRW):
 			self.cosmo = cosmodef
 		elif cosmodef is None:
@@ -67,7 +64,8 @@ class MzGrid(object):
 		return self.cosmo.distmod(z).value
 
 class MzGridFromData(MzGrid):
-	def __init__(self,mzdata,gridpar):
+	def __init__(self,mzdata,gridpar,hdr):
+		self.units = hdr['GRIDUNIT']
 		if len(gridpar['mRange'])==3:
 			self.Medges = np.arange(*gridpar['mRange'])
 			self.zedges = np.arange(*gridpar['zRange'])
@@ -94,6 +92,7 @@ class LuminosityRedshiftGrid(MzGrid):
 	def __init__(self,Medges,zedges,nPerBin,lumUnits='M1450'):
 		if lumUnits != 'M1450':
 			raise NotImplementedError('only M1450 supported for now')
+		self.units = 'luminosity'
 		self.Medges = Medges
 		self.zedges = zedges
 		self.nPerBin = nPerBin
@@ -114,13 +113,27 @@ class LuminosityRedshiftGrid(MzGrid):
 		# convert M1450 -> ergs/s/Hz
 		pass
 
-class FluxRedshiftGrid(MzGrid):
+class FluxGrid(MzGrid):
+	def __init__(self,cosmodef,**kwargs):
+		self.obsBand = kwargs.get('obsBand','SDSS-i')
+		self.restBand = kwargs.get('restBand',1450.)
+		self.setCosmology(cosmodef)
+		self.m2M = lambda z: mag2lum(self.obsBand,self.restBand,z,self.cosmo)
+		self.units = 'flux'
+	def updateMags(self,m):
+		dm = m - self.mgrid
+		print '--> delta mag mean = %.7f, rms = %.7f, max = %.7f' % \
+		              (dm.mean(),dm.std(),dm.max())
+		self.Mgrid[:] -= dm
+
+class FluxRedshiftGrid(FluxGrid):
 	'''
 	Construct a grid in (mag,z) having a fixed number of points within each 
 	bin. The bin spacings need not be uniform, as long as they are 
 	monotonically increasing.
 	'''
-	def __init__(self,medges,zedges,nPerBin,obsBand='i',restBand='1450'):
+	def __init__(self,medges,zedges,nPerBin,cosmodef,**kwargs):
+		super(FluxRedshiftGrid,self).__init__(cosmodef,**kwargs)
 		self.medges = medges
 		self.zedges = zedges
 		self.nPerBin = nPerBin
@@ -131,7 +144,6 @@ class FluxRedshiftGrid(MzGrid):
 		self.zbincenters = (zedges[:-1]+zedges[1:])/2
 		dm = np.diff(medges)
 		dz = np.diff(zedges)
-		m2M = sqbase.Mconverter(obsBand,restBand)
 		# distribute quasars into bins of flux 
 		for i in range(self.nM):
 			for j in range(self.nz):
@@ -141,10 +153,10 @@ class FluxRedshiftGrid(MzGrid):
 				self.mgrid[i,j,:] = binm[zi]
 				self.zgrid[i,j,:] = binz[zi]
 		# convert to luminosity
-		self.Mgrid = self.mgrid - m2M(self.zgrid)
+		self.Mgrid = self.mgrid - self.m2M(self.zgrid)
 		self.Medges = np.empty((self.nz,self.nM+1))
 		for j in range(self.nz):
-			self.Medges[j,:] = self.medges - m2M(self.zedges[j])
+			self.Medges[j] = self.medges - self.m2M(self.zedges[j])
 	def get_zrange(self):
 		return self.zedges[0],self.zedges[-1]
 	def resetAbsMag(self,Mgrid):
@@ -154,6 +166,9 @@ class FixedPLContinuumGrid(object):
 	def __init__(self,M,z,slopes,breakpoints):
 		self.slopes = np.asarray(slopes)
 		self.breakpoints = np.asarray(breakpoints)
+	def update(self,M,z):
+		# continuum are fixed in luminosity and redshift
+		return
 	def get(self,*args):
 		return self.slopes,self.breakpoints
 	def __iter__(self):
@@ -170,6 +185,9 @@ class GaussianPLContinuumGrid(object):
 		mu = np.asarray(slopeMeans)
 		sig = np.asarray(slopeStds)
 		self.slopes = mu + x*sig
+	def update(self,M,z):
+		# continuum are fixed in luminosity and redshift
+		return
 	def get(self,idx):
 		return self.slopes[idx],self.breakpoints
 	def getTable(self,hdr):
@@ -194,6 +212,9 @@ class FixedVdBcompositeEMLineGrid(object):
 			isFe = self.lines['ID'].find('Fe') == 0
 			self.lines = self.lines[~isFe]
 		print 'using the following lines from VdB template: ',self.lines['ID']
+	def update(self,M,z):
+		# lines are fixed in luminosity and redshift
+		return
 	def addLine(self,name,rfwave,eqWidth,profileWidth):
 		self.lines = np.resize(self.lines,(self.lines.size+1,))
 		self.lines = self.lines.view(np.recarray)
@@ -284,6 +305,9 @@ class VW01FeTemplateGrid(object):
 		feFlux = broadenedTemp
 		feFlux *= flux0/simps(feFlux,wave)
 		return wave,feFlux
+	def update(self,M,z):
+		# template fixed in luminosity and redshift
+		return
 	def get(self,idx):
 		return self.feGrid[self.zi[idx]]
 	def getTable(self,hdr):
@@ -312,6 +336,9 @@ class VariedEmissionLineGrid(object):
 		# object gets a single deviation and the lines are perfectly correlated
 		nx = nlines if indy else 1
 		xshape = z.shape + (nx,)
+		self.xv = {}
+		for k in ['wavelength','logEW','logWidth']:
+			self.xv[k] = np.random.standard_normal(xshape)
 		# store the line profile values in a structured array with each
 		# element having the same shape as the input grid
 		nf4 = str(z.shape)+'f4'
@@ -323,27 +350,32 @@ class VariedEmissionLineGrid(object):
 		# rescale both the output equivalent widths and the input scatter
 		# to the EW distribution for individual lines. construct the
 		# scaling vector here
-		sigscl = np.ones(nlines)
-		ewscl = np.ones(nlines)
+		self.sigscl = np.ones(nlines)
+		self.ewscl = np.ones(nlines)
 		for line,scl in kwargs.get('scaleEWs',{}).items():
 			i = np.where(self.lineGrids['name']==line)[0][0]
 			if type(scl) is tuple:
-				ewscl[i],sigscl[i] = scl
+				self.ewscl[i],self.sigscl[i] = scl
 			else:
-				ewscl[i] = scl
-		# now loop over the three line profile parameters and obtain the
-		# randomly sampled values using the input trends
+				self.ewscl[i] = scl
+		self.update(M1450,z)
+	def update(self,M1450,z):
+		# derive the line profile parameters using the input luminosities
+		# and redshifts
+		M_i = M1450 - 1.486 + 0.596
 		M = M_i[...,np.newaxis]
+		# loop over the three line profile parameters and obtain the
+		# randomly sampled values using the input trends
 		for k in ['wavelength','logEW','logWidth']:
 			a = self.lineTrends[k][...,0]
 			b = self.lineTrends[k][...,1]
 			meanVal = a[...,0]*M + b[...,0]
 			siglo = a[...,1]*M + b[...,1] - meanVal
 			sighi = a[...,2]*M + b[...,2] - meanVal
-			x = np.random.standard_normal(xshape)
+			x = self.xv[k]
 			sig = np.choose(x<0,[sighi,-siglo])
 			if k=='logEW':
-				sig *= sigscl
+				sig *= self.sigscl
 			v = meanVal + x*sig
 			if k.startswith('log'):
 				v[:] = 10**v
@@ -351,7 +383,7 @@ class VariedEmissionLineGrid(object):
 			else:
 				k2 = k
 			if k=='logEW':
-				v *= ewscl
+				v *= self.ewscl
 			self.lineGrids[k2] = np.rollaxis(v,-1)
 	def get(self,idx):
 		# shape of lineGrids is (Nlines,)+gridshape, and idx is an index
@@ -377,9 +409,11 @@ class FixedDustGrid(object):
 		self.dustModel = dustModel
 		self.E_BmV = E_BmV
 		self.dust_fn = dustextinction.dust_fn[dustModel]
-	def __iter__(self):
-		while True:
-			yield self.dust_fn,self.E_BmV
+	def update(self,M,z):
+		# fixed in luminosity and redshift
+		return
+	def get(self,idx):
+		return self.dust_fn,self.E_BmV
 	def getTable(self,hdr):
 		'''Return a Table of all parameters and header information'''
 		hdr['DUSTMODL'] = self.dustModel
@@ -399,9 +433,9 @@ class ExponentialDustGrid(object):
 			N = fraction * M.size
 			ii = np.random.randint(0,M.size,(N,))
 			self.EBVdist.flat[ii] = np.random.exponential(E_BmV_scale,(N,)).astype(np.float32)
-	def __iter__(self):
-		for ebv in self.EBVdist:
-			yield self.dust_fn,ebv
+	def update(self,M,z):
+		# fixed in luminosity and redshift
+		return
 	def get(self,idx):
 		return self.dust_fn,self.EBVdist[idx]
 	def getTable(self,hdr):

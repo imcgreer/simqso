@@ -14,7 +14,7 @@ class Spectrum(object):
 			 z: redshift of object
 		     flux: flux in f_lambda units
 		'''
-		self.wave = wave
+		self.wave = wave.astype(np.float)
 		self.f_lambda = kwargs.get('f_lambda',np.zeros_like(self.wave))
 		self.components = {}
 		self.z = kwargs.get('z',0.0)
@@ -66,11 +66,10 @@ class Spectrum(object):
 		self.z = -1.0
 		self.components = {}
 	#
-	def waverange(self,w1,w2):
+	def waveslice(self,w1,w2):
 		'''return a cut of the spectrum in a wavelength range'''
 		ii = np.where((self.wave > w1) & (self.wave < w2))[0]
 		return Spectrum(self.wave[ii],flux=self.f_lambda[ii],z=self.z)
-		return rv
 	def resample(self,newWave):
 		newFlux = interp1d(self.wave,self.f_lambda,
 		                   bounds_error=False,fill_value=0.0)
@@ -79,10 +78,9 @@ class Spectrum(object):
 
 def _Mtoflam(lam0,M,z,DM):
 	nu0 = (lam0 * u.Angstrom).to(u.Hz,equivalencies=u.spectral()).value
-	m = M + DM(z)
-	fnu0 = 10**(-0.4*(m+48.599934))
-	flam0 = fnu0*(nu0/lam0)
-	return flam0/(1+z)
+	fnu0 = 10**(-0.4*(M+DM(z)+48.599934))
+	flam0 = nu0*fnu0/lam0
+	return flam0
 
 class QSOSpectrum(Spectrum):
 	def __init__(self,wave,**kwargs):

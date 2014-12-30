@@ -27,3 +27,21 @@ def resample(x1,y1,x2):
 	resampfun = interp1d(x1,y1)
 	return resampfun(x2)
 
+def mag2lum(obsBand,restBand,z,cosmo,alpha_nu=-0.5):
+	'''Convert observed mags to absolute mags using a simple power-law 
+	   k-correction.
+	'''
+	DM = [cosmo.distmod(_z).value for _z in z.flat]
+	DM = np.array(DM).reshape(z.shape)
+	effWave = {'SDSS-g':4670.,'SDSS-i':7471.}
+	obsWave = effWave[obsBand]
+	try:
+		restWave = float(restBand)
+	except:
+		restWave = effWave[restBand]
+	# Following continuum K-corrections given in 
+	#  Richards et al. 2006, AJ 131, 2766
+	kcorr = -2.5*(1+alpha_nu)*np.log10(1+z) - \
+	           2.5*alpha_nu*np.log10(restWave/obsWave)
+	return kcorr + DM
+
