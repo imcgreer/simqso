@@ -31,6 +31,7 @@ def mag2lum(obsBand,restBand,z,cosmo,alpha_nu=-0.5):
 	'''Convert observed mags to absolute mags using a simple power-law 
 	   k-correction.
 	'''
+	z = np.asarray(z)
 	DM = [cosmo.distmod(_z).value for _z in z.flat]
 	DM = np.array(DM).reshape(z.shape)
 	effWave = {'SDSS-g':4670.,'SDSS-i':7471.}

@@ -33,15 +33,13 @@ def buildMzGrid(gridPars,cosmodef):
 	except KeyError:
 		raise ValueError('Must specify a GridType')
 	np.random.seed(gridPars.get('MzSeed'))
-	if gridType == 'LFSampledGrid':
+	if gridType == 'LuminosityFunction':
 		try:
-			lfType = gridPars['LuminosityFunction']
+			qlf = gridPars['QLFmodel']
 		except KeyError:
 			raise ValueError('Must specify a parameterization of the LF')
-		Mz = grids.LFsampledPoints(gridPars['zRange'],gridPars['zRange'],
-		                           lfType,**gridPars.get('LFparams',{}))
-		print 'got ',Mz.zgrid.shape,' (M,z) points'
-		return Mz
+		Mz = grids.LuminosityFunctionFluxGrid(gridPars['mRange'],gridPars['zRange'],
+		                                      qlf,cosmodef,**gridPars['QLFargs'])
 	elif gridType == 'LuminosityRedshiftGrid':
 		Mz = grids.LuminosityRedshiftGrid(np.arange(*gridPars['mRange']),
 		                                  np.arange(*gridPars['zRange']),
@@ -59,7 +57,7 @@ def buildMzGrid(gridPars,cosmodef):
 		Mz = grids.FixedMzGrid(gridPars['fixed_M'],gridPars['fixed_z'])
 	else:
 		raise ValueError('GridType %s unknown' % gridType)
-#	if gridPars.get('Mz_LFtransfer',False):
+#	if gridPars.get('LFSampledGrid',False):
 #		print 'transferring uniform grid to LF-sampled grid...'
 #		qlf = gridPars.get('Mz_QLF','Richards06')
 #		Mz = qsogrid.MzGrid_QLFresample(Mz,gridPars['Mz_i_min'],

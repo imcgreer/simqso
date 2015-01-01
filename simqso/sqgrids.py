@@ -125,6 +125,8 @@ class FluxGrid(MzGrid):
 		print '--> delta mag mean = %.7f, rms = %.7f, max = %.7f' % \
 		              (dm.mean(),dm.std(),dm.max())
 		self.Mgrid[:] -= dm
+	def resetAbsMag(self,Mgrid):
+		self.Mgrid[:] = Mgrid
 
 class FluxRedshiftGrid(FluxGrid):
 	'''
@@ -157,10 +159,15 @@ class FluxRedshiftGrid(FluxGrid):
 		self.Medges = np.empty((self.nz,self.nM+1))
 		for j in range(self.nz):
 			self.Medges[j] = self.medges - self.m2M(self.zedges[j])
-	def get_zrange(self):
-		return self.zedges[0],self.zedges[-1]
-	def resetAbsMag(self,Mgrid):
-		self.Mgrid[:] = Mgrid
+
+class LuminosityFunctionFluxGrid(FluxGrid):
+	def __init__(self,mRange,zRange,qlf,cosmodef,**kwargs):
+		super(LuminosityFunctionFluxGrid,self).__init__(cosmodef,**kwargs)
+		m,z = qlf.sample_from_fluxrange(mRange,zRange,self.m2M,cosmodef,**kwargs)
+		self.mgrid = m
+		self.zgrid = z
+		self.nPerBin = len(z)
+		self.Mgrid = m - self.m2M(z)
 
 class FixedPLContinuumGrid(object):
 	def __init__(self,M,z,slopes,breakpoints):
