@@ -160,6 +160,46 @@ class FluxRedshiftGrid(FluxGrid):
 		for j in range(self.nz):
 			self.Medges[j] = self.medges - self.m2M(self.zedges[j])
 
+class MzGrid_QLFresample(FluxGrid):
+	'''
+	Beginning with an already populated (M,z) grid, transfer the points
+	to a new grid sampled with a luminosity function. The z points remain
+	the same, while M bins are selected to span a range in observed flux
+	at each redshift, such that the number of points within each bin
+	(nperbin) is fixed, but the bin widths shrink as one moves up the
+	luminosity function. The M points are also sampled from the QLF within
+	the bins, so that the overall M distribution follows the QLF smoothly.
+
+	The idea is to reuse a set of forest spectra generated for a previous
+	grid, since the forest spectra depend only on z, not M.
+	'''
+	def __init__(self,grid,qlf,**kwargs):
+		self.m2M = grid.m2M
+		self.nM = grid.nM
+		self.nz = grid.nz
+		self.nPerBin = grid.nPerBin
+		self.zedges = grid.zedges
+		self.zgrid = grid.zgrid
+		self.zbins = self.zedges[:-1] + np.diff(self.zedges)
+		self.obsBand = grid.obsBand
+		self.restBand = grid.restBand
+		self.cosmo = grid.cosmo
+		self.units = grid.units
+		mrange = (grid.medges[0],grid.medges[-1])
+		medges,mgrid = qlf.sample_at_flux_intervals(mrange,self.zbins,
+		                                            self.m2M,self.nM,self.nPerBin)
+		self.medges = medges
+		self.Medges = medges - self.m2M(self.zbins)
+		self.mgrid = mgrid
+		self.Mgrid = mgrid - self.m2M(self.zgrid)
+	def get_Medges(self,zj=None):
+		if zj is None:
+			return self.Medges
+		else:
+			return self.Medges[zj]
+	def get_zrange(self):
+		return self.zedges[0],self.zedges[-1]
+
 class LuminosityFunctionFluxGrid(FluxGrid):
 	def __init__(self,mRange,zRange,qlf,cosmodef,**kwargs):
 		super(LuminosityFunctionFluxGrid,self).__init__(cosmodef,**kwargs)

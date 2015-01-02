@@ -142,7 +142,7 @@ class DoublePowerLawLF(LuminosityFunction):
 		Lcdf /= Lcdf[-1]
 		Lcdf = np.concatenate([[0.,],Lcdf])
 		return interp1d(Lcdf,Mbins)
-	def sample_at_fluxintervals(self,mrange,zbins,m2M,Nintervals,nPerBin,p=()):
+	def sample_at_flux_intervals(self,mrange,zbins,m2M,Nintervals,nPerBin,p=()):
 		_mrange = np.array(mrange[::-1])
 		medges = np.empty((Nintervals+1,len(zbins)))
 		mgrid = np.empty((Nintervals,len(zbins),nPerBin))

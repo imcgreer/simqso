@@ -57,12 +57,14 @@ def buildMzGrid(gridPars,cosmodef):
 		Mz = grids.FixedMzGrid(gridPars['fixed_M'],gridPars['fixed_z'])
 	else:
 		raise ValueError('GridType %s unknown' % gridType)
-#	if gridPars.get('LFSampledGrid',False):
-#		print 'transferring uniform grid to LF-sampled grid...'
-#		qlf = gridPars.get('Mz_QLF','Richards06')
-#		Mz = qsogrid.MzGrid_QLFresample(Mz,gridPars['Mz_i_min'],
-#		                                gridPars['Mz_i_max'],qlf)
-#		print 'done!'
+	if gridPars.get('LFSampledGrid',False):
+		print 'transferring uniform grid to LF-sampled grid...'
+		try:
+			qlf = gridPars['QLFmodel']
+		except KeyError:
+			raise ValueError('Must specify a parameterization of the LF')
+		Mz = grids.MzGrid_QLFresample(Mz,qlf)
+		print 'done!'
 	return Mz
 
 
