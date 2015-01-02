@@ -132,7 +132,7 @@ class DoublePowerLawLF(LuminosityFunction):
 	def sample_from_Lrange(self,Mrange,zrange,cosmo,p=(),**kwargs):
 		_Mrange = lambda z: Mrange
 		return self._sample(_Mrange,zrange,p,cosmo,**kwargs)
-	def _sample_at_intervals(self,Mrange,z,p,Nintervals):
+	def _get_Lcdf_fun(self,Mrange,z,p):
 		nM = 30
 		Mbins = np.linspace(Mrange[0],Mrange[1],nM)
 		logPhiStar,MStar,alpha,beta = self.eval_at_z(z,*p)
@@ -141,12 +141,18 @@ class DoublePowerLawLF(LuminosityFunction):
 		        doublePL_Lintegral(Lbins[0],-alpha,-beta) 
 		Lcdf /= Lcdf[-1]
 		Lcdf = np.concatenate([[0.,],Lcdf])
-		Lcdf_fun = interp1d(Lcdf,Mbins)
-		return Lcdf_fun(np.linspace(0.,1,Nintervals))
-	def sample_at_fluxintervals(self,mrange,zbins,m2M,Nintervals,p=()):
+		return interp1d(Lcdf,Mbins)
+	def sample_at_fluxintervals(self,mrange,zbins,m2M,Nintervals,nPerBin,p=()):
 		_mrange = np.array(mrange[::-1])
-		Mbins = [ self._sample_at_intervals(_mrange-m2M(z),z,p,Nintervals)[::-1] 
-		                + m2M(z)
-		            for z in zbins ]
-		return np.array(Mbins)
+		medges = np.empty((Nintervals+1,len(zbins)))
+		mgrid = np.empty((Nintervals,len(zbins),nPerBin))
+		xedges = np.linspace(0.,1,Nintervals+1)
+		for j,z in enumerate(zbins):
+			Mrange = _mrange - m2M(z)
+			Lcdf_fun = self._get_Lcdf_fun(Mrange,z,p)
+			medges[:,j] = Lcdf_fun(xedges)[::-1] + m2M(z)
+			for i in range(Nintervals):
+				x = xedges[i] + (xedges[i+1]-xedges[i])*np.random.random(nPerBin)
+				mgrid[i,j,:] = Lcdf_fun(x) + m2M(z)
+		return medges,mgrid
 
