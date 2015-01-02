@@ -123,9 +123,6 @@ class DoublePowerLawLF(LuminosityFunction):
 			if ((i+1)%100)==0:
 				print i+1,' out of ',Ntot
 		return M,z
-	def _sample_at_intervals(self,Mrange,z,p,cosmo,Nintervals):
-		# for colorz
-		raise NotImplementedError
 	def sample_from_fluxrange(self,mrange,zrange,m2M,cosmo,p=(),**kwargs):
 		_mrange = mrange[::-1]
 		_Mrange = lambda z: np.array(_mrange) - m2M(z)
@@ -135,4 +132,20 @@ class DoublePowerLawLF(LuminosityFunction):
 	def sample_from_Lrange(self,Mrange,zrange,cosmo,p=(),**kwargs):
 		_Mrange = lambda z: Mrange
 		return self._sample(_Mrange,zrange,p,cosmo,**kwargs)
+	def _sample_at_intervals(self,Mrange,z,p,Nintervals):
+		nM = 30
+		Mbins = np.linspace(Mrange[0],Mrange[1],nM)
+		logPhiStar,MStar,alpha,beta = self.eval_at_z(z,*p)
+		Lbins = 10**(-0.4*(Mbins-MStar))
+		Lcdf = doublePL_Lintegral(Lbins[1:],-alpha,-beta) - \
+		        doublePL_Lintegral(Lbins[0],-alpha,-beta) 
+		Lcdf /= Lcdf[-1]
+		Lcdf = np.concatenate([[0.,],Lcdf])
+		Lcdf_fun = interp1d(Lcdf,Mbins)
+		return Lcdf_fun(np.linspace(0.,1,Nintervals))
+	def sample_at_fluxintervals(self,mrange,zbins,m2M,Nintervals,p=()):
+		_mrange = np.array(mrange[::-1])
+		Mbins = [ self._sample_at_intervals(_mrange-m2M(z),z,p,Nintervals)
+		            for z in zbins ]
+		return np.array(Mbins)
 
