@@ -145,7 +145,8 @@ class DoublePowerLawLF(LuminosityFunction):
 		return Lcdf_fun(np.linspace(0.,1,Nintervals))
 	def sample_at_fluxintervals(self,mrange,zbins,m2M,Nintervals,p=()):
 		_mrange = np.array(mrange[::-1])
-		Mbins = [ self._sample_at_intervals(_mrange-m2M(z),z,p,Nintervals)
+		Mbins = [ self._sample_at_intervals(_mrange-m2M(z),z,p,Nintervals)[::-1] 
+		                + m2M(z)
 		            for z in zbins ]
 		return np.array(Mbins)
 
