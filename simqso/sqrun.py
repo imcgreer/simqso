@@ -79,20 +79,30 @@ def buildForest(wave,z,forestParams):
 	fewer forest computations are needed; individual LOSs are built up
 	in redshift steps as each QSO redshift is iterated.
 	'''
-#	if kwargs.get('verbose',False):
-#		print 'seeding forest generator to ',kwargs['forestSeed']
-	np.random.seed(forestParams.get('ForestSeed'))
+	np.random.seed(forestParams.get('RandomSeed'))
 	forestType = forestParams.get('ForestType','Sightlines')
 	nlos = forestParams.get('NumLinesOfSight',-1)
+	forestFn = forestParams['FileName']
 	if forestType == 'OneToOne':
 		nlos = -1
+	forestSpec = None
+	try:
+		print 'loading forest ',forestFn
+		forestSpec = hiforest.load_spectra(forestFn)
+	except IOError:
+		pass
 	if forestType in ['Sightlines','OneToOne']:
-		forestSpec = hiforest.generate_N_spectra(wave,z,nlos,**forestParams)
+		if forestSpec is None:
+			print '... not found, generating forest'
+			forestSpec = hiforest.generate_N_spectra(wave,z,nlos,
+			                                         **forestParams)
+			hiforest.save_spectra(forestSpec,forestFn)
 	elif forestType == 'Grid':
-		zbins = np.arange(*forestParams['GridzBins'])
-		tgrid = hiforest.generate_grid_spectra(wave,zbins,nlos,**forestParams)
-		forestSpec = hiforest.generate_spectra_from_grid(wave,z,tgrid,
+		if forestSpec is None:
+			raise ValueError('Need to supply a forest grid')
+		forestSpec = hiforest.generate_spectra_from_grid(wave,z,forestSpec,
 		                                                 **forestParams)
+	print 'done!'
 	return forestSpec
 
 
@@ -366,20 +376,8 @@ def qsoSimulation(simParams,**kwargs):
 	#
 	if not onlyMap:
 		timerLog('BuildForest')
-		forestFn = simParams['ForestParams']['FileName']
-		try:
-			print 'loading forest ',
-			forest = hiforest.load_spectra(forestFn)
-		except IOError:
-			print '... not found, generating forest'
-			forest = buildForest(wave,Mz.getRedshifts(),
-			                     simParams['ForestParams'])
-			hiforest.save_spectra(forest,forestFn)
-			print 'done!'
-		if '_scaleTransmission' in simParams:
-			# a debugging hack to rescale the forest transmission levels
-			forest['T'] *= simParams['scaleTransmission']
-			np.clip(forest['T'],0,1,out=forest['T'])
+		forest = buildForest(wave,Mz.getRedshifts(),
+		                     simParams['ForestParams'])
 	if forestOnly:
 		timerLog('Finish')
 		return
@@ -408,4 +406,20 @@ def qsoSimulation(simParams,**kwargs):
 	if saveSpectra:
 		fits.writeto(simParams['FileName']+'_spectra.fits.gz',
 		             simQSOs['spectra'],clobber=True)
+
+def generateForestGrid(simParams,**kwargs):
+	forestParams = simParams['ForestParams']
+	try:
+		tgrid = hiforest.load_spectra(forestParams['FileName'])
+		print 'grid already exists, exiting'
+		return
+	except IOError:
+		pass
+	wave = buildWaveGrid(simParams)
+	zbins = np.arange(*forestParams['GridzBins'])
+	nlos = forestParams['NumLinesOfSight']
+	timerLog('BuildForest')
+	tgrid = hiforest.generate_grid_spectra(wave,zbins,nlos,**forestParams)
+	hiforest.save_spectra(tgrid,forestParams['FileName'])
+	timerLog('Finish')
 

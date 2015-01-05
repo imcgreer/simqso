@@ -2,5 +2,5 @@
 
 __version__ = '0.1.1'
 
-from .sqrun import qsoSimulation
+from .sqrun import qsoSimulation,generateForestGrid
 
