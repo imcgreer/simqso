@@ -20,12 +20,14 @@ def _getlinelistdata():
 	linelist = fits.getdata(datadir+'all_lin.fits')
 	Hlines = np.array([i for i in range(linelist.size) 
 	                       if 'HI' in linelist.ION[i]])
-	LySeries = {}
-	for n in range(Hlines.size):
-		LySeries[n+2] = Hlines[-1-n]
-	return linelist,LySeries
+	transitionParams = {}
+	for n,idx in enumerate(Hlines[::-1],start=2):
+		transitionParams[n] = (linelist.WREST[idx],
+		                       linelist.F[idx],
+		                       linelist.GAMMA[idx])
+	return transitionParams
 
-linelist,LymanSeries = _getlinelistdata()
+transitionParams = _getlinelistdata()
 
 # default is to go up to 32->1
 default_lymanseries_range = (2,33)
@@ -329,9 +331,7 @@ def calc_tau_lambda(wave,los,**kwargs):
 	# now loop over Lyman series transitions and add up Voigt profiles
 	for transition in range(*lymanseries_range):
 		# transition properties
-		lambda0 = linelist.WREST[LymanSeries[transition]]
-		F = linelist.F[LymanSeries[transition]]
-		Gamma = linelist.GAMMA[LymanSeries[transition]]
+		lambda0,F,Gamma = transitionParams[transition]
 		# Doppler width
 		nu_D = b / (lambda0*1e-13)
 		# Voigt a parameter
