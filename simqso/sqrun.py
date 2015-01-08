@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import time
 import numpy as np
 from astropy.io import fits
 from astropy.table import Table,hstack
@@ -275,8 +276,24 @@ def buildQSOspectra(wave,Mz,forest,photoMap,qsoParams,
 	            continua=continua,features=features,spectra=spectra)
 
 
-def timerLog(action):
-	pass
+class TimerLog():
+	def __init__(self):
+		self.stages = ['StartSimulation']
+		self.times = [time.time()]
+	def __call__(self,stage):
+		self.stages.append(stage)
+		self.times.append(time.time())
+	def dump(self):
+		self.__call__('Finish')
+		stages = self.stages[1:]
+		times = np.array(self.times[1:]) - self.times[0]
+		#itimes = np.concatenate([[0,],np.diff(times)]) 
+		itimes = np.diff(self.times)
+		ftimes = itimes / times[-1]
+		print '%20s %8s %8s %8s' % ('stage','time','elapsed','frac')
+		for t in zip(stages,itimes,times,ftimes):
+			print '%20s %8.3f %8.3f %8.3f' % t
+		print
 
 def initGridData(simParams,Mz):
 	return Table({'M':Mz.Mgrid.flatten(),'z':Mz.zgrid.flatten()})
@@ -342,7 +359,7 @@ def qsoSimulation(simParams,**kwargs):
 	# build or restore the grid of (M,z) for each QSO
 	#
 	wave = buildWaveGrid(simParams)
-	timerLog('StartSimulation')
+	timerLog = TimerLog()
 	try:
 		# simulation data already exists, load the Mz grid
 		qsoData = readSimulationData(simParams['FileName'])
@@ -371,37 +388,38 @@ def qsoSimulation(simParams,**kwargs):
 			gridData = initGridData(simParams,Mz)
 			writeSimulationData(simParams,Mz,gridData,None,None)
 	Mz.setCosmology(simParams.get('Cosmology'))
+	timerLog('Initialize Grid')
 	#
 	# get the forest transmission spectra, or build if needed
 	#
 	if not onlyMap:
-		timerLog('BuildForest')
 		forest = buildForest(wave,Mz.getRedshifts(),
 		                     simParams['ForestParams'])
 	if forestOnly:
-		timerLog('Finish')
+		timerLog.dump()
 		return
+	timerLog('Generate Forest')
 	#
 	# Use continuum and emission line distributions to build the components
 	# of the intrinsic QSO spectrum, then calculate photometry
 	#
 	photoMap = sqphoto.load_photo_map(simParams['PhotoMapParams'])
 	if not onlyMap:
-		timerLog('BuildQuasarSpectra')
 		simQSOs = buildQSOspectra(wave,Mz,forest,photoMap,
 		                          simParams['QuasarModelParams'],
 		                          maxIter=simParams.get('maxFeatureIter',3),
 		                          saveSpectra=saveSpectra)
+	timerLog('Build Quasar Spectra')
 	#
 	# map the simulated photometry to observed values with uncertainties
 	#
 	if not noPhotoMap:
 		print 'mapping photometry'
-		timerLog('PhotoMap')
 		photoData = photoMap.mapObserved(simQSOs)
+		timerLog('PhotoMap')
 	else:
 		photoData = None
-	timerLog('Finish')
+	timerLog.dump()
 	writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,**kwargs)
 	if saveSpectra:
 		fits.writeto(simParams['FileName']+'_spectra.fits.gz',
@@ -418,8 +436,9 @@ def generateForestGrid(simParams,**kwargs):
 	wave = buildWaveGrid(simParams)
 	zbins = np.arange(*forestParams['GridzBins'])
 	nlos = forestParams['NumLinesOfSight']
-	timerLog('BuildForest')
+	timerLog = TimerLog()
 	tgrid = hiforest.generate_grid_spectra(wave,zbins,nlos,**forestParams)
+	timerLog('BuildForest')
 	hiforest.save_spectra(tgrid,forestParams['FileName'])
-	timerLog('Finish')
+	timerLog.dump()
 
