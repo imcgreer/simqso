@@ -466,7 +466,6 @@ def generate_spectra_from_grid(wave,z_em,tgrid,**kwargs):
 	   redshifts without having to do the full calculation.
 	'''
 	nhiMin = kwargs.get('gridForestStep_minlogNHI',0)
-	fullCalc = kwargs.get('gridForestStep_fullCalc',True)
 	# XXX these should all come out of the tgrid meta-data
 	forestModel = kwargs.get('ForestModel','Worseck&Prochaska2011')
 	if type(forestModel) is str:
@@ -496,18 +495,20 @@ def generate_spectra_from_grid(wave,z_em,tgrid,**kwargs):
 			zi = np.where(jj-1==j)[0]
 			if len(zi)==0:
 				continue
+			# generate spectra needs emission redshifts to be increasing
+			zs = z_em[ii[zi]].argsort()
+			# only use the absorbers starting at the redshift bin edge
+			los_ii = np.where((los['z'] > tgrid['zbins'][j]) &
+			                  (los['z'] < z_em[ii[zi[zs[-1]]]]) &
+			                   (los['logNHI'] > nhiMin))[0]
+			if len(los_ii) == 0:
+				# no absorption systems to add
+				specAll[ii[zi],:] = T[losNum,j][np.newaxis,:] 
+				continue
 			# add up the absorber spectra and then multiply them into the
 			# spectrum for the redshift bin j
-			if fullCalc:
-				# generate spectra needs emission redshifts to be increasing
-				zs = z_em[ii[zi]].argsort()
-				# only use the absorbers starting at the redshift bin edge
-				los_ii = np.where((los['z'] > tgrid['zbins'][j]) &
-				                   (los['logNHI'] > nhiMin))[0]
-				spec = generate_spectra(wave,z_em[ii[zi[zs]]],los[los_ii],**kwargs)
-				specAll[ii[zi],:] = T[losNum,j][np.newaxis,:] * spec[zs.argsort()]
-			else:
-				specAll[ii[zi],:] = T[losNum,j][np.newaxis,:] 
+			spec = generate_spectra(wave,z_em[ii[zi[zs]]],los[los_ii],**kwargs)
+			specAll[ii[zi],:] = T[losNum,j][np.newaxis,:] * spec[zs.argsort()]
 	return dict(T=specAll,losMap=losMap,z=z_em.copy(),wave=wave.copy())
 
 def save_spectra(spec,forestName):
