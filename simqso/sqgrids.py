@@ -63,31 +63,6 @@ class MzGrid(object):
 	def distMod(self,z):
 		return self.cosmo.distmod(z).value
 
-class MzGridFromData(MzGrid):
-	def __init__(self,mzdata,gridpar,hdr):
-		self.units = hdr['GRIDUNIT']
-		if len(gridpar['mRange'])==3:
-			self.Medges = np.arange(*gridpar['mRange'])
-			self.zedges = np.arange(*gridpar['zRange'])
-			self.nPerBin = gridpar['nPerBin']
-			self.nM = self.Medges.shape[0] - 1
-			self.nz = self.zedges.shape[0] - 1
-			self.zbincenters = (self.zedges[:-1]+self.zedges[1:])/2
-			gridshape = (self.nM,self.nz,self.nPerBin)
-			self.Mgrid = mzdata['M'].copy().reshape(gridshape)
-			self.zgrid = mzdata['z'].copy().reshape(gridshape)
-		else:
-			self.Mgrid = mzdata['M'].copy()
-			self.zgrid = mzdata['z'].copy()
-			self.nM = 1
-			self.nz = 1
-			self.Medges = np.array(gridpar['mRange'])
-			self.zedges = np.array(gridpar['zRange'])
-			self.nPerBin = self.Mgrid.size
-			self.zbincenters = np.mean(self.zedges)
-	def get_zrange(self):
-		return self.zedges[0],self.zedges[-1]
-
 class LuminosityRedshiftGrid(MzGrid):
 	def __init__(self,Medges,zedges,nPerBin,lumUnits='M1450'):
 		if lumUnits != 'M1450':
@@ -197,6 +172,39 @@ class MzGrid_QLFresample(FluxGrid):
 			return self.Medges
 		else:
 			return self.Medges[zj]
+	def get_zrange(self):
+		return self.zedges[0],self.zedges[-1]
+
+# XXX for now this is subclassed from FluxGrid, but shouldn't be...
+class MzGridFromData(FluxGrid):
+	def __init__(self,mzdata,gridpar,cosmodef,**kwargs):
+		super(MzGridFromData,self).__init__(cosmodef,**kwargs)
+		try:
+			# yuck
+			self.obsBand = gridpar['ObsBand']
+			self.restBand = gridpar['RestBand']
+		except KeyError:
+			pass
+		if len(gridpar['mRange'])==3:
+			self.Medges = np.arange(*gridpar['mRange'])
+			self.zedges = np.arange(*gridpar['zRange'])
+			self.nPerBin = gridpar['nPerBin']
+			self.nM = self.Medges.shape[0] - 1
+			self.nz = self.zedges.shape[0] - 1
+			self.zbincenters = (self.zedges[:-1]+self.zedges[1:])/2
+			gridshape = (self.nM,self.nz,self.nPerBin)
+			self.Mgrid = mzdata['M'].copy().reshape(gridshape)
+			self.zgrid = mzdata['z'].copy().reshape(gridshape)
+		else:
+			self.Mgrid = mzdata['M'].copy()
+			self.zgrid = mzdata['z'].copy()
+			self.nM = 1
+			self.nz = 1
+			self.Medges = np.array(gridpar['mRange'])
+			self.zedges = np.array(gridpar['zRange'])
+			self.nPerBin = self.Mgrid.size
+			self.zbincenters = np.mean(self.zedges)
+		self.mgrid = self.Mgrid + self.m2M(self.zgrid)
 	def get_zrange(self):
 		return self.zedges[0],self.zedges[-1]
 
