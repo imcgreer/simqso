@@ -375,6 +375,7 @@ def qsoSimulation(simParams,**kwargs):
 	forestOnly = kwargs.get('forestOnly',False)
 	onlyMap = kwargs.get('onlyMap',False)
 	noPhotoMap = kwargs.get('noPhotoMap',False)
+	noWriteOutput = kwargs.get('noWriteOutput',False)
 	#
 	# build or restore the grid of (M,z) for each QSO
 	#
@@ -406,15 +407,23 @@ def qsoSimulation(simParams,**kwargs):
 			Mz = buildMzGrid(simParams)
 		if not forestOnly:
 			gridData = initGridData(simParams,Mz)
-			writeSimulationData(simParams,Mz,gridData,None,None)
+			if not noWriteOutput:
+				writeSimulationData(simParams,Mz,gridData,None,None)
 	Mz.setCosmology(simParams.get('Cosmology'))
 	timerLog('Initialize Grid')
 	#
 	# get the forest transmission spectra, or build if needed
 	#
 	if not onlyMap:
-		forest = buildForest(wave,Mz.getRedshifts(),
-		                     simParams['ForestParams'])
+		if 'ForestParams' not in simParams:
+			# no forest applied, overrides T to always return one
+			class NullForest(object):
+				def __getitem__(self,i):
+					return 1
+			forest = dict(wave=wave[:2],T=NullForest())
+		else:
+			forest = buildForest(wave,Mz.getRedshifts(),
+			                     simParams['ForestParams'])
 	if forestOnly:
 		timerLog.dump()
 		return
@@ -440,7 +449,8 @@ def qsoSimulation(simParams,**kwargs):
 	else:
 		photoData = None
 	timerLog.dump()
-	writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,**kwargs)
+	if not noWriteOutput:
+		writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,**kwargs)
 	if saveSpectra:
 		fits.writeto(simParams['FileName']+'_spectra.fits.gz',
 		             simQSOs['spectra'],clobber=True)
