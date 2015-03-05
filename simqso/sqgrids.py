@@ -63,6 +63,18 @@ class MzGrid(object):
 	def distMod(self,z):
 		return self.cosmo.distmod(z).value
 
+class FixedMzGrid(MzGrid):
+	def __init__(self,M,z):
+		self.nM = len(M)
+		self.nz = len(z)
+		self.Marr = M
+		self.zarr = z
+		self.Mgrid = np.repeat(M,len(z)).reshape(len(M),len(z),1)
+		self.zgrid = np.tile(z,len(M)).reshape(len(M),len(z),1)
+		self.units = 'luminosity'
+	def get_zrange(self):
+		return self.zarr.min(),self.zarr.max()
+
 class LuminosityRedshiftGrid(MzGrid):
 	def __init__(self,Medges,zedges,nPerBin,lumUnits='M1450'):
 		if lumUnits != 'M1450':
