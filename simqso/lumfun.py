@@ -155,4 +155,12 @@ class DoublePowerLawLF(LuminosityFunction):
 				x = xedges[i] + (xedges[i+1]-xedges[i])*np.random.random(nPerBin)
 				mgrid[i,j,:] = Lcdf_fun(x) + m2M(z)
 		return medges,mgrid
+	def integrate(self,mrange,zrange,m2M,cosmo,p=()):
+		dVdzdO = interp_dVdzdO(zrange,cosmo)
+		Mrange = lambda z: np.array(mrange) - m2M(z)
+		phi_z = lambda z: integrateDPL(Mrange(z),*self.eval_at_z(z,*p)) * \
+		                        dVdzdO(z)
+		nqso,err = quad(phi_z,*zrange)
+		nqso *= 4*np.pi
+		return nqso
 
