@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os
 import time
 import numpy as np
 from astropy.io import fits
@@ -75,7 +76,7 @@ def buildMzGrid(simParams):
 
 
 
-def buildForest(wave,z,forestParams):
+def buildForest(wave,z,forestParams,outputDir):
 	'''
     Create a set of absorbers for a given number of lines-of-sight, 
 	sampled according to the input forest model. Then calculate the
@@ -93,7 +94,7 @@ def buildForest(wave,z,forestParams):
 	forestSpec = None
 	try:
 		print 'loading forest ',forestFn
-		forestSpec = hiforest.load_spectra(forestFn)
+		forestSpec = hiforest.load_spectra(forestFn,outputDir)
 	except IOError:
 		pass
 	if forestType in ['Sightlines','OneToOne']:
@@ -101,7 +102,7 @@ def buildForest(wave,z,forestParams):
 			print '... not found, generating forest'
 			forestSpec = hiforest.generate_N_spectra(wave,z,nlos,
 			                                         **forestParams)
-			hiforest.save_spectra(forestSpec,forestFn)
+			hiforest.save_spectra(forestSpec,forestFn,outputDir)
 	elif forestType == 'Grid':
 		if forestSpec is None:
 			raise ValueError('Need to supply a forest grid')
@@ -308,7 +309,7 @@ class TimerLog():
 def initGridData(simParams,Mz):
 	return Table({'M':Mz.Mgrid.flatten(),'z':Mz.zgrid.flatten()})
 
-def writeGridData(simParams,Mz,gridData):
+def writeGridData(simParams,Mz,gridData,outputDir):
 	hdr0 = fits.Header()
 	hdr0['GRIDPARS'] = str(simParams['GridParams'])
 	hdr0['GRIDUNIT'] = Mz.units
@@ -316,13 +317,15 @@ def writeGridData(simParams,Mz,gridData):
 	hdu1 = fits.BinTableHDU.from_columns(np.array(gridData))
 	hdulist.append(hdu1)
 	hdulist = fits.HDUList(hdulist)
-	hdulist.writeto(simParams['GridFileName']+'.fits',clobber=True)
+	hdulist.writeto(os.path.join(outputDir,simParams['GridFileName']+'.fits'),
+	                clobber=True)
 
 def readSimulationData(fileName):
 	qsoData = fits.getdata(fileName+'.fits',1)
 	return Table(qsoData)
 
-def writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,**kwargs):
+def writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,outputDir,
+                        **kwargs):
 	writeFeatures = kwargs.get('writeFeatures',False)
 	outShape = gridData['M'].shape
 	fShape = outShape + (-1,) # shape for a "feature", vector at each point
@@ -357,7 +360,8 @@ def writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,**kwargs):
 		hdu2.header += hdr2
 		hdulist.append(hdu2)
 	hdulist = fits.HDUList(hdulist)
-	hdulist.writeto(simParams['FileName']+'.fits',clobber=True)
+	hdulist.writeto(os.path.join(outputDir,simParams['FileName']+'.fits'),
+	                clobber=True)
 
 
 def qsoSimulation(simParams,**kwargs):
@@ -376,6 +380,7 @@ def qsoSimulation(simParams,**kwargs):
 	onlyMap = kwargs.get('onlyMap',False)
 	noPhotoMap = kwargs.get('noPhotoMap',False)
 	noWriteOutput = kwargs.get('noWriteOutput',False)
+	outputDir = kwargs.get('outputDir','./')
 	#
 	# build or restore the grid of (M,z) for each QSO
 	#
@@ -401,14 +406,14 @@ def qsoSimulation(simParams,**kwargs):
 				print simParams['GridFileName'],' not found, generating'
 				Mz = buildMzGrid(simParams)
 				gridData = initGridData(simParams,Mz)
-				writeGridData(simParams,Mz,gridData)
+				writeGridData(simParams,Mz,gridData,outputDir)
 		else:
 			print 'generating Mz grid'
 			Mz = buildMzGrid(simParams)
 		if not forestOnly:
 			gridData = initGridData(simParams,Mz)
 			if not noWriteOutput:
-				writeSimulationData(simParams,Mz,gridData,None,None)
+				writeSimulationData(simParams,Mz,gridData,None,None,outputDir)
 	Mz.setCosmology(simParams.get('Cosmology'))
 	timerLog('Initialize Grid')
 	#
@@ -423,7 +428,7 @@ def qsoSimulation(simParams,**kwargs):
 			forest = dict(wave=wave[:2],T=NullForest())
 		else:
 			forest = buildForest(wave,Mz.getRedshifts(),
-			                     simParams['ForestParams'])
+			                     simParams['ForestParams'],outputDir)
 	if forestOnly:
 		timerLog.dump()
 		return
@@ -450,15 +455,18 @@ def qsoSimulation(simParams,**kwargs):
 		photoData = None
 	timerLog.dump()
 	if not noWriteOutput:
-		writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,**kwargs)
+		writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,
+		                    outputDir,**kwargs)
 	if saveSpectra:
-		fits.writeto(simParams['FileName']+'_spectra.fits.gz',
+		fits.writeto(os.path.join(outputDir,
+		                          simParams['FileName']+'_spectra.fits.gz'),
 		             simQSOs['spectra'],clobber=True)
 
 def generateForestGrid(simParams,**kwargs):
 	forestParams = simParams['ForestParams']
+	outputDir = kwargs.get('outputDir','./')
 	try:
-		tgrid = hiforest.load_spectra(forestParams['FileName'])
+		tgrid = hiforest.load_spectra(forestParams['FileName'],outputDir)
 		print 'grid already exists, exiting'
 		return
 	except IOError:
@@ -469,6 +477,6 @@ def generateForestGrid(simParams,**kwargs):
 	timerLog = TimerLog()
 	tgrid = hiforest.generate_grid_spectra(wave,zbins,nlos,**forestParams)
 	timerLog('BuildForest')
-	hiforest.save_spectra(tgrid,forestParams['FileName'])
+	hiforest.save_spectra(tgrid,forestParams['FileName'],outputDir)
 	timerLog.dump()
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os
 import numpy as np
 import scipy.stats as stats
 import scipy.constants as const
@@ -511,7 +512,7 @@ def generate_spectra_from_grid(wave,z_em,tgrid,**kwargs):
 			specAll[ii[zi],:] = T[losNum,j][np.newaxis,:] * spec[zs.argsort()]
 	return dict(T=specAll,losMap=losMap,z=z_em.copy(),wave=wave.copy())
 
-def save_spectra(spec,forestName):
+def save_spectra(spec,forestName,outputDir):
 	'''Save a spectrum to a FITS file.'''
 	wave = spec['wave']
 	npix = len(wave)
@@ -531,11 +532,12 @@ def save_spectra(spec,forestName):
 		hdu.header.update('NLOS',spec['nLOS'])
 		hdu.header.update('ZBINS',','.join('%.3f'%z for z in spec['zbins']))
 		hdu.header.update('GRIDSEED',spec['seed'])
-	hdu.writeto(forestName+'.fits.gz',clobber=True)
+	hdu.writeto(os.path.join(outputDir,forestName+'.fits.gz'),clobber=True)
 
-def load_spectra(forestName):
+def load_spectra(forestName,outputDir):
 	'''Load a spectrum from a FITS file.'''
-	spec,hdr = fits.getdata(forestName+'.fits.gz',header=True)
+	spec,hdr = fits.getdata(os.path.join(outputDir,forestName+'.fits.gz'),
+	                        header=True)
 	nwave = spec['T'].shape[1]
 	wave = np.arange(nwave)
 	logwave = hdr['CRVAL1'] + hdr['CD1_1']*(wave-(hdr['CRPIX1']-1))
