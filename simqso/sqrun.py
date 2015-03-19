@@ -320,13 +320,12 @@ def writeGridData(simParams,Mz,gridData,outputDir):
 	hdulist.writeto(os.path.join(outputDir,simParams['GridFileName']+'.fits'),
 	                clobber=True)
 
-def readSimulationData(fileName):
-	qsoData = fits.getdata(fileName+'.fits',1)
+def readSimulationData(fileName,outputDir):
+	qsoData = fits.getdata(os.path.join(outputDir,fileName+'.fits'),1)
 	return Table(qsoData)
 
 def writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,outputDir,
-                        **kwargs):
-	writeFeatures = kwargs.get('writeFeatures',False)
+                        writeFeatures):
 	outShape = gridData['M'].shape
 	fShape = outShape + (-1,) # shape for a "feature", vector at each point
 	# Primary extension just contains model parameters in header
@@ -380,6 +379,7 @@ def qsoSimulation(simParams,**kwargs):
 	onlyMap = kwargs.get('onlyMap',False)
 	noPhotoMap = kwargs.get('noPhotoMap',False)
 	noWriteOutput = kwargs.get('noWriteOutput',False)
+	writeFeatures = kwargs.get('writeFeatures',False)
 	outputDir = kwargs.get('outputDir','./')
 	#
 	# build or restore the grid of (M,z) for each QSO
@@ -389,7 +389,7 @@ def qsoSimulation(simParams,**kwargs):
 	timerLog = TimerLog()
 	try:
 		# simulation data already exists, load the Mz grid
-		qsoData = readSimulationData(simParams['FileName'])
+		qsoData = readSimulationData(simParams['FileName'],outputDir)
 		# XXX get gridparams from fits header
 		Mz = grids.MzGridFromData(qsoData,simParams['GridParams'],
 		                          simParams.get('Cosmology'))
@@ -399,7 +399,8 @@ def qsoSimulation(simParams,**kwargs):
 		if 'GridFileName' in simParams:
 			print 'restoring MzGrid from ',simParams['GridFileName']
 			try:
-				gridData = fits.getdata(simParams['GridFileName']+'.fits')
+				gridData = fits.getdata(os.path.join(outputDir,
+				                           simParams['GridFileName']+'.fits'))
 				Mz = grids.MzGridFromData(gridData,simParams['GridParams'],
 				                          simParams.get('Cosmology'))
 			except IOError:
@@ -413,7 +414,8 @@ def qsoSimulation(simParams,**kwargs):
 		if not forestOnly:
 			gridData = initGridData(simParams,Mz)
 			if not noWriteOutput:
-				writeSimulationData(simParams,Mz,gridData,None,None,outputDir)
+				writeSimulationData(simParams,Mz,gridData,None,None,
+				                    outputDir,writeFeatures)
 	Mz.setCosmology(simParams.get('Cosmology'))
 	timerLog('Initialize Grid')
 	#
@@ -456,7 +458,7 @@ def qsoSimulation(simParams,**kwargs):
 	timerLog.dump()
 	if not noWriteOutput:
 		writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,
-		                    outputDir,**kwargs)
+		                    outputDir,writeFeatures)
 	if saveSpectra:
 		fits.writeto(os.path.join(outputDir,
 		                          simParams['FileName']+'_spectra.fits.gz'),
