@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import os
+import ast
 import time
 import numpy as np
 from astropy.io import fits
@@ -320,9 +321,14 @@ def writeGridData(simParams,Mz,gridData,outputDir):
 	hdulist.writeto(os.path.join(outputDir,simParams['GridFileName']+'.fits'),
 	                clobber=True)
 
-def readSimulationData(fileName,outputDir):
-	qsoData = fits.getdata(os.path.join(outputDir,fileName+'.fits'),1)
-	return Table(qsoData)
+def readSimulationData(fileName,outputDir,retParams=False):
+	hdr,qsoData = fits.getdata(os.path.join(outputDir,fileName+'.fits'),1,
+	                           header=True)
+	qsoData = Table(qsoData)
+	if retParams:
+		simpars = ast.literal_eval(hdr['SQPARAMS'])
+		return qsoData,simpars
+	return qsoData
 
 def writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,outputDir,
                         writeFeatures):
