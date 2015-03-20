@@ -2,10 +2,12 @@
 
 import os
 import ast
+from copy import copy
 import time
 import numpy as np
 from astropy.io import fits
 from astropy.table import Table,hstack
+from astropy import cosmology
 
 from . import sqbase
 from . import sqgrids as grids
@@ -322,12 +324,16 @@ def writeGridData(simParams,Mz,gridData,outputDir):
 	                clobber=True)
 
 def readSimulationData(fileName,outputDir,retParams=False):
-	hdr,qsoData = fits.getdata(os.path.join(outputDir,fileName+'.fits'),1,
-	                           header=True)
+	qsoData = fits.getdata(os.path.join(outputDir,fileName+'.fits'),1)
 	qsoData = Table(qsoData)
 	if retParams:
-		simpars = ast.literal_eval(hdr['SQPARAMS'])
-		return qsoData,simpars
+		hdr = fits.getheader(os.path.join(outputDir,fileName+'.fits'),0)
+		simPars = ast.literal_eval(hdr['SQPARAMS'])
+		# XXX get it from parameters...
+		simPars['Cosmology'] = {
+		  'WMAP9':cosmology.WMAP9,
+		}[simPars['Cosmology']]
+		return qsoData,simPars
 	return qsoData
 
 def writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,outputDir,
@@ -335,10 +341,12 @@ def writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,outputDir,
 	outShape = gridData['M'].shape
 	fShape = outShape + (-1,) # shape for a "feature", vector at each point
 	# Primary extension just contains model parameters in header
+	simPar = copy(simParams)
+	# XXX need to write parameters out or something...
+	simPar['Cosmology'] = simPar['Cosmology'].name
 	hdr0 = fits.Header()
-	hdr0['SQPARAMS'] = str(simParams)
+	hdr0['SQPARAMS'] = str(simPar)
 	hdr0['GRIDUNIT'] = Mz.units
-	# can be read back as ast.literal_eval(hdr['SQPARAMS'])
 	hdulist = [fits.PrimaryHDU(header=hdr0),]
 	# extension 1 contains the M,z grid and synthetic and observed fluxes
 	if simQSOs is None:
