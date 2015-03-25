@@ -18,14 +18,19 @@ class Interp2DSeries:
 			# inputs are scalars
 			return self.interpFun(x,y).squeeze()
 
-def calcKCorrFromFluxGrid(fileName,outputDir='./',retGridFun=False,bandNum=0):
-	simData,simPars = readSimulationData(fileName,outputDir,retParams=True)
+def getGridBins(simPars):
 	mEdges = np.arange(*simPars['GridParams']['mRange'])
 	zEdges = np.arange(*simPars['GridParams']['zRange'])
-	gridShape = (len(mEdges)-1,len(zEdges)-1,simPars['GridParams']['nPerBin'])
 	mBins = mEdges[:-1] + np.diff(mEdges)/2
 	zBins = zEdges[:-1] + np.diff(zEdges)/2
+	gridShape = mBins.shape + zBins.shape + (simPars['GridParams']['nPerBin'],)
+	return mBins,zBins,gridShape
+
+def calcKCorrFromGrid(fileName,outputDir='./',retGridFun=False,bandNum=0):
+	simData,simPars = readSimulationData(fileName,outputDir,retParams=True)
+	mBins,zBins,gridShape = getGridBins(simPars)
 	DM_z = simPars['Cosmology'].distmod(zBins).value
+	# XXX should be loading sim data reshaped already
 	appMag = simData['synMag'][...,bandNum].reshape(gridShape)
 	absMag = simData['M'].reshape(gridShape)
 	# XXX should just save the DMs that were used?
@@ -36,4 +41,15 @@ def calcKCorrFromFluxGrid(fileName,outputDir='./',retGridFun=False,bandNum=0):
 		return kCorr
 	else:
 		return Interp2DSeries(kCorr)
+
+def calcSelectionFunctionFromGrid(fileName,selector,outputDir='./',
+	                              retGridFun=False):
+	simData,simPars = readSimulationData(fileName,outputDir,retParams=True)
+	mBins,zBins,gridShape = getGridBins(simPars)
+	selGrid = selector(simData['obsFlux'],simData['obsFluxErr'])
+	selFun = RectBivariateSpline(mBins,zBins,selGrid,kx=3,ky=3,s=1)
+	if retGridFun:
+		return selFun
+	else:
+		return Interp2DSeries(selFun)
 
