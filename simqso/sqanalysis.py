@@ -26,7 +26,7 @@ def getGridBins(simPars):
 	gridShape = mBins.shape + zBins.shape + (simPars['GridParams']['nPerBin'],)
 	return mBins,zBins,gridShape
 
-def calcKCorrFromGrid(fileName,outputDir='./',retGridFun=False,bandNum=0):
+def calcKCorrFromGrid(fileName,outputDir='./',retGrid=False,retGridFun=False,bandNum=0):
 	simData,simPars = readSimulationData(fileName,outputDir,retParams=True)
 	mBins,zBins,gridShape = getGridBins(simPars)
 	DM_z = simPars['Cosmology'].distmod(zBins).value
@@ -35,7 +35,9 @@ def calcKCorrFromGrid(fileName,outputDir='./',retGridFun=False,bandNum=0):
 	absMag = simData['M'].reshape(gridShape)
 	# XXX should just save the DMs that were used?
 	kCorrGrid = (appMag - DM_z[np.newaxis,:,np.newaxis]) - absMag
-	kCorrGrid = np.mean(kCorrGrid,axis=-1)
+	kCorrGrid = np.median(kCorrGrid,axis=-1)
+	if retGrid:
+		return kCorrGrid
 	kCorr = RectBivariateSpline(mBins,zBins,kCorrGrid,kx=3,ky=3,s=1)
 	if retGridFun:
 		return kCorr
