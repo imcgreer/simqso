@@ -50,18 +50,9 @@ def buildMzGrid(simParams):
 		                                      qlf,cosmodef,
 		                                      **gridPars['QLFargs'])
 	elif gridType == 'LuminosityRedshiftGrid':
-		Mz = grids.LuminosityRedshiftGrid(np.arange(*gridPars['mRange']),
-		                                  np.arange(*gridPars['zRange']),
-		                                  gridPars['nPerBin'],
-		                                  lumUnits=gridPars.get('LumUnits',
-		                                                        'M1450'))
+		Mz = grids.LuminosityRedshiftGrid(gridPars,cosmodef)
 	elif gridType == 'FluxRedshiftGrid':
-		Mz = grids.FluxRedshiftGrid(np.arange(*gridPars['mRange']),
-		                            np.arange(*gridPars['zRange']),
-		                            gridPars['nPerBin'],
-		                            cosmodef,
-		                            obsBand=gridPars.get('ObsBand','SDSS-i'),
-		                            restBand=gridPars.get('RestBand','1450'))
+		Mz = grids.FluxRedshiftGrid(gridPars,cosmodef)
 	elif gridType == 'FixedGrid':
 		Mz = grids.FixedMzGrid(gridPars['fixed_M'],gridPars['fixed_z'])
 	else:
@@ -125,10 +116,10 @@ def buildContinuumModels(Mz,simParams):
 	if continuumParams['ContinuumModel'] == 'GaussianPLawDistribution':
 		meanSlopes = [s[0] for s in slopes]
 		stdSlopes = [s[1] for s in slopes]
-		continuumGrid = grids.GaussianPLContinuumGrid(Mz.Mgrid,Mz.zgrid,
+		continuumGrid = grids.GaussianPLContinuumGrid(Mz.mGrid,Mz.zGrid,
 		                                     meanSlopes,stdSlopes,breakpts)
 	elif continuumParams['ContinuumModel'] == 'FixedPLawDistribution':
-		continuumGrid = grids.FixedPLContinuumGrid(Mz.Mgrid,Mz.zgrid,
+		continuumGrid = grids.FixedPLContinuumGrid(Mz.mGrid,Mz.zGrid,
 		                                           slopes,breakpts)
 	else:
 		raise ValueError
@@ -140,7 +131,7 @@ def buildEmissionLineGrid(Mz,simParams):
 	emLineParams = simParams['QuasarModelParams']['EmissionLineParams']
 	np.random.seed(emLineParams.get('RandomSeed',simParams.get('RandomSeed')))
 	if emLineParams['EmissionLineModel'] == 'FixedVdBCompositeLines':
-		emLineGrid = grids.FixedVdBcompositeEMLineGrid(Mz.Mgrid,Mz.zgrid,
+		emLineGrid = grids.FixedVdBcompositeEMLineGrid(Mz.mGrid,Mz.zGrid,
 		                             minEW=emLineParams.get('minEW',1.0),
 		                             noFe=emLineParams.get('VdB_noFe',False))
 		# XXX hacky
@@ -150,7 +141,7 @@ def buildEmissionLineGrid(Mz,simParams):
 #		emLineGrid = qsotemplates.FixedLBQSemLineGrid(
 #		                                noFe=emLineParams.get('LBQSnoFe',False))
 	elif emLineParams['EmissionLineModel'] == 'VariedEmissionLineGrid':
-		emLineGrid = grids.VariedEmissionLineGrid(Mz.Mgrid,Mz.zgrid,
+		emLineGrid = grids.VariedEmissionLineGrid(Mz.mGrid,Mz.zGrid,
 		                                          **emLineParams)
 	else:
 		raise ValueError('invalid emission line model: ' +
@@ -166,10 +157,10 @@ def buildDustGrid(Mz,simParams):
 	dustParams = simParams['QuasarModelParams']['DustExtinctionParams']
 	np.random.seed(dustParams.get('RandomSeed',simParams.get('RandomSeed')))
 	if dustParams['DustExtinctionModel'] == 'Fixed E(B-V)':
-		dustGrid = grids.FixedDustGrid(Mz.Mgrid,Mz.zgrid,
+		dustGrid = grids.FixedDustGrid(Mz.mGrid,Mz.zGrid,
 		                 dustParams['DustModelName'],dustParams['E(B-V)'])
 	elif dustParams['DustExtinctionModel']=='Exponential E(B-V) Distribution':
-		dustGrid = grids.ExponentialDustGrid(Mz.Mgrid,Mz.zgrid,
+		dustGrid = grids.ExponentialDustGrid(Mz.mGrid,Mz.zGrid,
 		                 dustParams['DustModelName'],dustParams['E(B-V)'],
 		                 fraction=dustParams.get('DustLOSfraction',1.0))
 	else:
@@ -211,7 +202,7 @@ def buildFeatures(Mz,wave,simParams):
 	if 'IronEmissionParams' in qsoParams:
 		# only option for now is the VW01 template
 		scalings = qsoParams['IronEmissionParams'].get('FeScalings')
-		feGrid = grids.VW01FeTemplateGrid(Mz.Mgrid,Mz.zgrid,wave,
+		feGrid = grids.VW01FeTemplateGrid(Mz.mGrid,Mz.zGrid,wave,
 		                                  scales=scalings)
 		feFeature = IronEmissionFeature(feGrid)
 		features.append(feFeature)
@@ -240,7 +231,7 @@ def buildQSOspectra(wave,Mz,forest,photoMap,simParams,
 	                          'Exponential E(B-V) Distribution'
 	'''
 	if saveSpectra:
-		spectra = np.zeros((Mz.Mgrid.size,len(wave)))
+		spectra = np.zeros((Mz.mGrid.size,len(wave)))
 	else:
 		spectra = None
 	nforest = len(forest['wave'])
@@ -248,10 +239,11 @@ def buildQSOspectra(wave,Mz,forest,photoMap,simParams,
 	continua = buildContinuumModels(Mz,simParams)
 	features = buildFeatures(Mz,wave,simParams)
 	spec = QSOSpectrum(wave)
-	gridShape = Mz.Mgrid.shape
+	gridShape = Mz.mGrid.shape
 	synMag = np.zeros(gridShape+(len(photoMap['bandpasses']),))
 	synFlux = np.zeros_like(synMag)
 	photoCache = sqphoto.getPhotoCache(wave,photoMap)
+	print 'units are ',Mz.units
 	if Mz.units == 'luminosity':
 		nIter = 1
 	else:
@@ -281,11 +273,15 @@ def buildQSOspectra(wave,Mz,forest,photoMap,simParams,
 			                                               synFlux[idx])
 			if saveSpectra and iterNum==nIter-1:
 				spectra[i] = spec.f_lambda
+###		print 'before: ',Mz.mGrid,synMag[...,-1]
 		if nIter > 1:
-			Mz.updateMags(synMag[...,fluxBand])
-			continua.update(Mz.Mgrid,Mz.zgrid)
+			dmagMax = Mz.updateMags(synMag[...,fluxBand])
+			continua.update(Mz.mGrid,Mz.zGrid)
 			for feature in features:
-				feature.update(Mz.Mgrid,Mz.zgrid)
+				feature.update(Mz.mGrid,Mz.zGrid)
+###			print 'after: ',Mz.mGrid,synMag[...,-1]
+			if dmagMax < 0.01:
+				break
 	return dict(synMag=synMag,synFlux=synFlux,
 	            continua=continua,features=features,spectra=spectra)
 
@@ -310,7 +306,11 @@ class TimerLog():
 		print
 
 def initGridData(simParams,Mz):
-	return Table({'M':Mz.Mgrid.flatten(),'z':Mz.zgrid.flatten()})
+	if Mz.units == 'flux':
+		return Table({'M':Mz.mGrid.flatten(),'z':Mz.zGrid.flatten(),
+		              'appMag':Mz.appMagGrid.flatten()})
+	else:
+		return Table({'M':Mz.mGrid.flatten(),'z':Mz.zGrid.flatten()})
 
 def writeGridData(simParams,Mz,gridData,outputDir):
 	hdr0 = fits.Header()
@@ -338,7 +338,7 @@ def readSimulationData(fileName,outputDir,retParams=False):
 
 def writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,outputDir,
                         writeFeatures):
-	outShape = gridData['M'].shape
+	outShape = gridData['z'].shape
 	fShape = outShape + (-1,) # shape for a "feature", vector at each point
 	# Primary extension just contains model parameters in header
 	simPar = copy(simParams)
@@ -404,19 +404,29 @@ def qsoSimulation(simParams,**kwargs):
 	try:
 		# simulation data already exists, load the Mz grid
 		qsoData = readSimulationData(simParams['FileName'],outputDir)
-		# XXX get gridparams from fits header
-		Mz = grids.MzGridFromData(qsoData,simParams['GridParams'],
-		                          simParams.get('Cosmology'))
-		gridData = qsoData['M','z']
+		if simParams['GridParams']['GridType'].startswith('Flux'):
+			Mz = grids.FluxGridFromData(qsoData,simParams['GridParams'],
+			                            simParams.get('Cosmology'))
+			gridData = qsoData['M','z','appMag']
+			#gridData = qsoData['appMag','z']
+		else:
+			Mz = grids.LuminosityGridFromData(qsoData,simParams['GridParams'],
+			                                  simParams.get('Cosmology'))
+			gridData = qsoData['M','z']
 	except IOError:
 		print simParams['FileName']+' output not found'
 		if 'GridFileName' in simParams:
 			print 'restoring MzGrid from ',simParams['GridFileName']
 			try:
 				gridData = fits.getdata(os.path.join(outputDir,
-				                           simParams['GridFileName']+'.fits'))
-				Mz = grids.MzGridFromData(gridData,simParams['GridParams'],
-				                          simParams.get('Cosmology'))
+				                        simParams['GridFileName']+'.fits'))
+				if simParams['GridParams']['GridType'].startswith('Flux'):
+					Mz = grids.FluxGridFromData(gridData,simParams['GridParams'],
+					                            simParams.get('Cosmology'))
+				else:
+					Mz = grids.LuminosityGridFromData(gridData,
+					                                  simParams['GridParams'],
+					                                  simParams.get('Cosmology'))
 			except IOError:
 				print simParams['GridFileName'],' not found, generating'
 				Mz = buildMzGrid(simParams)
@@ -471,6 +481,7 @@ def qsoSimulation(simParams,**kwargs):
 		photoData = None
 	timerLog.dump()
 	if not noWriteOutput:
+		gridData['M'] = Mz.mGrid.flatten()
 		writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,
 		                    outputDir,writeFeatures)
 	if saveSpectra:

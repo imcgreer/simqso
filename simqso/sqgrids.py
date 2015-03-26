@@ -20,15 +20,29 @@ class MzGrid(object):
 	The grid can be iterated to obtain (M,z) pairs spanning the full grid. 
 	Individual cells can be accessed with grid.bin(i,j).
 	'''
+	def __init__(self,gridPar,cosmodef):
+		if len(gridPar['mRange'])==2:
+			self.mEdges = np.array(gridPar['mRange'])
+		else:
+			self.mEdges = np.arange(*gridPar['mRange'])
+		if len(gridPar['zRange'])==2:
+			self.zEdges = np.array(gridPar['zRange'])
+		else:
+			self.zEdges = np.arange(*gridPar['zRange'])
+		self.nPerBin = gridPar['nPerBin']
+		self.nM = self.mEdges.shape[0] - 1
+		self.nz = self.zEdges.shape[0] - 1
+		self.zbincenters = (self.zEdges[:-1]+self.zEdges[1:])/2
+		self.setCosmology(cosmodef)
 	def __iter__(self):
-		itM = np.nditer(self.Mgrid,flags=['multi_index'])
-		itz = np.nditer(self.zgrid)
+		itM = np.nditer(self.mGrid,flags=['multi_index'])
+		itz = np.nditer(self.zGrid)
 		while not itM.finished:
 			yield itM[0],itz[0],itM.multi_index
 			itM.iternext()
 			itz.iternext()
 	def getRedshifts(self,sorted=False,return_index=False):
-		zv = self.zgrid.flatten()
+		zv = self.zGrid.flatten()
 		if sorted:
 			zi = zv.argsort()
 			if return_index:
@@ -38,17 +52,19 @@ class MzGrid(object):
 		else:
 			return zv
 	def bin(self,i,j):
-		return self.Mgrid[i,j,:],self.zgrid[i,j,:]
+		return self.mGrid[i,j,:],self.zGrid[i,j,:]
 	def get(self,i):
 		if type(i) is tuple:
 			idx = i
 		else:
-			idx = np.unravel_index(i,self.Mgrid.shape)
-		return self.Mgrid[idx],self.zgrid[idx]
+			idx = np.unravel_index(i,self.mGrid.shape)
+		return self.mGrid[idx],self.zGrid[idx]
 	def numQSO(self):
-		return self.Mgrid.size
-	def get_Medges(self):
-		return self.Medges
+		return self.mGrid.size
+	def get_mEdges(self):
+		return self.mEdges
+	def get_zrange(self):
+		return self.zEdges[0],self.zEdges[-1]
 	def get_zbincenters(self):
 		return self.zbincenters
 	def setCosmology(self,cosmodef):
@@ -63,57 +79,56 @@ class MzGrid(object):
 	def distMod(self,z):
 		return self.cosmo.distmod(z).value
 
+class LuminosityGrid(MzGrid):
+	def __init__(self,gridPar,cosmodef):
+		super(LuminosityGrid,self).__init__(gridPar,cosmodef)
+		if gridPar['LumUnits'] != 'M1450':
+			raise NotImplementedError('only M1450 supported for now')
+		self.units = 'luminosity'
+
+# XXX need to update
 class FixedMzGrid(MzGrid):
 	def __init__(self,M,z):
 		self.nM = len(M)
 		self.nz = len(z)
 		self.Marr = M
 		self.zarr = z
-		self.Mgrid = np.repeat(M,len(z)).reshape(len(M),len(z),1)
-		self.zgrid = np.tile(z,len(M)).reshape(len(M),len(z),1)
-		self.units = 'luminosity'
+		self.mGrid = np.repeat(M,len(z)).reshape(len(M),len(z),1)
+		self.zGrid = np.tile(z,len(M)).reshape(len(M),len(z),1)
 	def get_zrange(self):
 		return self.zarr.min(),self.zarr.max()
 
-class LuminosityRedshiftGrid(MzGrid):
-	def __init__(self,Medges,zedges,nPerBin,lumUnits='M1450'):
-		if lumUnits != 'M1450':
-			raise NotImplementedError('only M1450 supported for now')
-		self.units = 'luminosity'
-		self.Medges = Medges
-		self.zedges = zedges
-		self.nPerBin = nPerBin
-		self.nM = Medges.shape[0] - 1
-		self.nz = zedges.shape[0] - 1
-		self.Mgrid = np.zeros((self.nM,self.nz,nPerBin))
-		self.zgrid = np.zeros((self.nM,self.nz,nPerBin))
-		dM = np.diff(Medges)
-		dz = np.diff(zedges)
+class LuminosityRedshiftGrid(LuminosityGrid):
+	def __init__(self,gridPar,cosmodef):
+		super(LuminosityRedshiftGrid,self).__init__(gridPar,cosmodef)
+		self.mGrid = np.zeros((self.nM,self.nz,self.nPerBin))
+		self.zGrid = np.zeros((self.nM,self.nz,self.nPerBin))
+		dM = np.diff(self.mEdges)
+		dz = np.diff(self.zEdges)
 		for i in range(self.nM):
 			for j in range(self.nz):
-				binM = Medges[i] + dM[i]*np.random.rand(nPerBin)
-				binz = zedges[j] + dz[j]*np.random.rand(nPerBin)
+				binM = self.mEdges[i] + dM[i]*np.random.rand(self.nPerBin)
+				binz = self.zEdges[j] + dz[j]*np.random.rand(self.nPerBin)
 				zi = binz.argsort()
-				self.Mgrid[i,j,:] = binM[zi]
-				self.zgrid[i,j,:] = binz[zi]
+				self.mGrid[i,j,:] = binM[zi]
+				self.zGrid[i,j,:] = binz[zi]
 	def getLuminosities(self,units='ergs/s/Hz'):
 		# convert M1450 -> ergs/s/Hz
 		pass
 
 class FluxGrid(MzGrid):
-	def __init__(self,cosmodef,**kwargs):
+	def __init__(self,gridPar,cosmodef,**kwargs):
+		super(FluxGrid,self).__init__(gridPar,cosmodef)
 		self.obsBand = kwargs.get('obsBand','SDSS-i')
 		self.restBand = kwargs.get('restBand',1450.)
-		self.setCosmology(cosmodef)
 		self.m2M = lambda z: mag2lum(self.obsBand,self.restBand,z,self.cosmo)
 		self.units = 'flux'
 	def updateMags(self,m):
-		dm = m - self.mgrid
-		print '--> delta mag mean = %.7f, rms = %.7f, max = %.7f' % \
-		              (dm.mean(),dm.std(),dm.max())
-		self.Mgrid[:] -= dm
-	def resetAbsMag(self,Mgrid):
-		self.Mgrid[:] = Mgrid
+		dm = m - self.appMagGrid
+		print '--> delta mag mean = %.7f, rms = %.7f, |max| = %.7f' % \
+		              (dm.mean(),dm.std(),np.abs(dm).max())
+		self.mGrid[:] -= dm
+		return np.abs(dm).max()
 
 class FluxRedshiftGrid(FluxGrid):
 	'''
@@ -121,32 +136,23 @@ class FluxRedshiftGrid(FluxGrid):
 	bin. The bin spacings need not be uniform, as long as they are 
 	monotonically increasing.
 	'''
-	def __init__(self,medges,zedges,nPerBin,cosmodef,**kwargs):
-		super(FluxRedshiftGrid,self).__init__(cosmodef,**kwargs)
-		self.medges = medges
-		self.zedges = zedges
-		self.nPerBin = nPerBin
-		self.nM = medges.shape[0] - 1
-		self.nz = zedges.shape[0] - 1
-		self.mgrid = np.zeros((self.nM,self.nz,nPerBin))
-		self.zgrid = np.zeros((self.nM,self.nz,nPerBin))
-		self.zbincenters = (zedges[:-1]+zedges[1:])/2
-		dm = np.diff(medges)
-		dz = np.diff(zedges)
+	def __init__(self,gridPar,cosmodef,**kwargs):
+		super(FluxRedshiftGrid,self).__init__(gridPar,cosmodef,**kwargs)
+		self.appMagGrid = np.zeros((self.nM,self.nz,self.nPerBin))
+		self.zGrid = np.zeros((self.nM,self.nz,self.nPerBin))
+		dm = np.diff(self.mEdges)
+		dz = np.diff(self.zEdges)
 		# distribute quasars into bins of flux 
 		for i in range(self.nM):
 			for j in range(self.nz):
-				binm = medges[i] + dm[i]*np.random.rand(nPerBin)
-				binz = zedges[j] + dz[j]*np.random.rand(nPerBin)
+				binm = self.mEdges[i] + dm[i]*np.random.rand(self.nPerBin)
+				binz = self.zEdges[j] + dz[j]*np.random.rand(self.nPerBin)
 				zi = binz.argsort()
-				self.mgrid[i,j,:] = binm[zi]
-				self.zgrid[i,j,:] = binz[zi]
-		# convert to luminosity
-		self.Mgrid = self.mgrid - self.m2M(self.zgrid)
-		self.Medges = np.empty((self.nz,self.nM+1))
-		for j in range(self.nz):
-			self.Medges[j] = self.medges - self.m2M(self.zedges[j])
+				self.appMagGrid[i,j,:] = binm[zi]
+				self.zGrid[i,j,:] = binz[zi]
+		self.mGrid = self.appMagGrid - self.m2M(self.zGrid)
 
+# XXX needs updating
 class MzGrid_QLFresample(FluxGrid):
 	'''
 	Beginning with an already populated (M,z) grid, transfer the points
@@ -165,69 +171,49 @@ class MzGrid_QLFresample(FluxGrid):
 		self.nM = grid.nM
 		self.nz = grid.nz
 		self.nPerBin = grid.nPerBin
-		self.zedges = grid.zedges
-		self.zgrid = grid.zgrid
-		self.zbins = self.zedges[:-1] + np.diff(self.zedges)
+		self.zEdges = grid.zEdges
+		self.zGrid = grid.zGrid
+		self.zbins = self.zEdges[:-1] + np.diff(self.zEdges)
 		self.obsBand = grid.obsBand
 		self.restBand = grid.restBand
 		self.cosmo = grid.cosmo
 		self.units = grid.units
-		mrange = (grid.medges[0],grid.medges[-1])
+		mrange = (grid.mEdges[0],grid.mEdges[-1])
 		medges,mgrid = qlf.sample_at_flux_intervals(mrange,self.zbins,
 		                                            self.m2M,self.nM,self.nPerBin)
-		self.medges = medges
-		self.Medges = medges - self.m2M(self.zbins)
+		self.mEdges = medges
+		self.mEdges = medges - self.m2M(self.zbins)
 		self.mgrid = mgrid
-		self.Mgrid = mgrid - self.m2M(self.zgrid)
+		self.mGrid = mgrid - self.m2M(self.zGrid)
 	def get_Medges(self,zj=None):
 		if zj is None:
-			return self.Medges
+			return self.mEdges
 		else:
-			return self.Medges[zj]
-	def get_zrange(self):
-		return self.zedges[0],self.zedges[-1]
+			return self.mEdges[zj]
 
-# XXX for now this is subclassed from FluxGrid, but shouldn't be...
-class MzGridFromData(FluxGrid):
-	def __init__(self,mzdata,gridpar,cosmodef,**kwargs):
-		super(MzGridFromData,self).__init__(cosmodef,**kwargs)
-		try:
-			# yuck
-			self.obsBand = gridpar['ObsBand']
-			self.restBand = gridpar['RestBand']
-		except KeyError:
-			pass
-		if len(gridpar['mRange'])==3:
-			self.Medges = np.arange(*gridpar['mRange'])
-			self.zedges = np.arange(*gridpar['zRange'])
-			self.nPerBin = gridpar['nPerBin']
-			self.nM = self.Medges.shape[0] - 1
-			self.nz = self.zedges.shape[0] - 1
-			self.zbincenters = (self.zedges[:-1]+self.zedges[1:])/2
-			gridshape = (self.nM,self.nz,self.nPerBin)
-			self.Mgrid = mzdata['M'].copy().reshape(gridshape)
-			self.zgrid = mzdata['z'].copy().reshape(gridshape)
-		else:
-			self.Mgrid = mzdata['M'].copy()
-			self.zgrid = mzdata['z'].copy()
-			self.nM = 1
-			self.nz = 1
-			self.Medges = np.array(gridpar['mRange'])
-			self.zedges = np.array(gridpar['zRange'])
-			self.nPerBin = self.Mgrid.size
-			self.zbincenters = np.mean(self.zedges)
-		self.mgrid = self.Mgrid + self.m2M(self.zgrid)
-	def get_zrange(self):
-		return self.zedges[0],self.zedges[-1]
+class FluxGridFromData(FluxGrid):
+	def __init__(self,mzdata,gridPar,cosmodef):
+		super(FluxGridFromData,self).__init__(gridPar,cosmodef)
+		gridshape = (self.nM,self.nz,self.nPerBin)
+		self.mGrid = mzdata['M'].copy().reshape(gridshape)
+		self.zGrid = mzdata['z'].copy().reshape(gridshape)
+		self.appMagGrid = mzdata['appMag'].copy().reshape(gridshape)
+
+class LuminosityGridFromData(LuminosityGrid):
+	def __init__(self,mzdata,gridPar,cosmodef,**kwargs):
+		super(LuminosityGridFromData,self).__init__(gridPar,cosmodef,**kwargs)
+		gridshape = (self.nM,self.nz,self.nPerBin)
+		self.mGrid = mzdata['M'].copy().reshape(gridshape)
+		self.zGrid = mzdata['z'].copy().reshape(gridshape)
 
 class LuminosityFunctionFluxGrid(FluxGrid):
 	def __init__(self,mRange,zRange,qlf,cosmodef,**kwargs):
 		super(LuminosityFunctionFluxGrid,self).__init__(cosmodef,**kwargs)
 		m,z = qlf.sample_from_fluxrange(mRange,zRange,self.m2M,cosmodef,**kwargs)
 		self.mgrid = m
-		self.zgrid = z
+		self.zGrid = z
 		self.nPerBin = len(z)
-		self.Mgrid = m - self.m2M(z)
+		self.mGrid = m - self.m2M(z)
 
 class FixedPLContinuumGrid(object):
 	def __init__(self,M,z,slopes,breakpoints):
