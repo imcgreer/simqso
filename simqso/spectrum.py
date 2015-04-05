@@ -80,7 +80,7 @@ def _Mtoflam(lam0,M,z,DM):
 	nu0 = (lam0 * u.Angstrom).to(u.Hz,equivalencies=u.spectral()).value
 	fnu0 = 10**(-0.4*(M+DM(z)+48.599934))
 	flam0 = nu0*fnu0/lam0
-	return flam0
+	return flam0/(1+z)
 
 class QSOSpectrum(Spectrum):
 	def __init__(self,wave,**kwargs):
@@ -107,31 +107,24 @@ class QSOSpectrum(Spectrum):
 			w1 = w2
 		if fluxNorm is not None:
 			normwave = fluxNorm['wavelength']
-			wave0 = self.wave[0]/z1
-			# this is a bit messy; what it does is walk through the series
-			# of broken power laws in order to connect the flux at the
-			# normalization wavelength to the flux at the beginning of the
-			# spectrum, which is initialized to 1.0 above
-			if wave0 < normwave:
-				ii = np.where((breakpts>wave0) & (breakpts<normwave))[0]
-				ii = ii[::-1]
-				waves = np.concatenate([[normwave],breakpts[ii],[wave0]])
-				ii0 = np.searchsorted(breakpts,[wave0])-1
-				ii = np.concatenate([ii,ii0])
-			elif wave0 > normwave:
-				ii = np.where((breakpts>normwave) & (breakpts<wave0))[0]
-				waves = np.concatenate([[normwave],breakpts[ii],[wave0]])
-				ii0 = np.searchsorted(breakpts,[normwave])-1
-				ii = np.concatenate([ii0,ii])
-			else:
-				ii,waves = [],[None]*2
-			alphas = alpha_lams[ii]
+			wave0 = self.wave/z1
 			fnorm = _Mtoflam(normwave,fluxNorm['M_AB'],self.z,fluxNorm['DM'])
-			f2 = fnorm
-			for wv1,wv2,alpha in zip(waves[:-1],waves[1:],alphas):
-				f1 = f2*(wv1/wv2)**alpha
-				f2 = f1
-			self.f_lambda *= f2
+			if wave0[0] > normwave:
+				raise NotImplementedError
+				# XXX come back to this; for normalizing the flux when the norm
+				#     wavelength is outside of the spectral range
+				for alam,bkpt in zip(alpha_lams,breakpts):
+					if bkpt > normwave:
+						fnorm *= (normwave/bkpt)**alam
+					if bkpt > wave0[0]:
+						break
+			elif wave0[-1] < normwave:
+				raise NotImplementedError
+			else:
+				# ... to be strictly correct, would need to account for power law
+				#     slope within the pixel
+				fscale = fnorm/self.f_lambda[np.searchsorted(wave0,normwave)]
+			self.f_lambda *= fscale
 		self.plcontinuum = self.f_lambda.copy()
 	#
 	def addEmissionLines(self,emlines):
