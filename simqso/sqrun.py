@@ -249,7 +249,11 @@ def buildQSOspectra(wave,Mz,forest,photoMap,simParams,
 	else:
 		nIter = maxIter
 		bands = photoMap['bandpasses'].keys()
-		fluxBand = next(j for j in range(len(bands)) if bands[j]==Mz.obsBand)
+		try:
+			fluxBand = next(j for j in range(len(bands)) 
+			                              if bands[j]==Mz.obsBand)
+		except:
+			raise ValueError('band ',Mz.obsBand,' not found in ',bands)
 		print 'fluxBand is ',fluxBand,bands
 	for iterNum in range(nIter):
 		print 'buildQSOspectra iteration ',iterNum+1,' out of ',nIter
@@ -421,12 +425,13 @@ def qsoSimulation(simParams,**kwargs):
 				gridData = fits.getdata(os.path.join(outputDir,
 				                        simParams['GridFileName']+'.fits'))
 				if simParams['GridParams']['GridType'].startswith('Flux'):
-					Mz = grids.FluxGridFromData(gridData,simParams['GridParams'],
+					Mz = grids.FluxGridFromData(gridData,
+					                            simParams['GridParams'],
 					                            simParams.get('Cosmology'))
 				else:
 					Mz = grids.LuminosityGridFromData(gridData,
 					                                  simParams['GridParams'],
-					                                  simParams.get('Cosmology'))
+					                                simParams.get('Cosmology'))
 			except IOError:
 				print simParams['GridFileName'],' not found, generating'
 				Mz = buildMzGrid(simParams)
