@@ -354,11 +354,15 @@ def writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,outputDir,
 	else:
 		fluxData = Table({'synMag':simQSOs['synMag'].reshape(fShape),
 		                  'synFlux':simQSOs['synFlux'].reshape(fShape)})
-		# XXX temporary
-		zarr = np.zeros_like(simQSOs['synMag']).reshape(outShape+(-1,))
-		obsFluxData = Table({'obsMag':zarr,
-		                     'obsFlux':zarr})
-		dataTab = hstack([gridData,fluxData,obsFluxData])
+		#### XXX temporary
+		###zarr = np.zeros_like(simQSOs['synMag']).reshape(outShape+(-1,))
+		###obsFluxData = Table({'obsMag':zarr,
+		###                     'obsFlux':zarr})
+		###dataTab = hstack([gridData,fluxData,obsFluxData])
+		if photoData is not None:
+			dataTab = hstack([gridData,fluxData,photoData])
+		else:
+			dataTab = hstack([gridData,fluxData])
 	hdu1 = fits.BinTableHDU.from_columns(np.array(dataTab))
 	hdulist.append(hdu1)
 	# extension 2 contains feature information (slopes, line widths, etc.)
@@ -475,7 +479,7 @@ def qsoSimulation(simParams,**kwargs):
 	#
 	if not noPhotoMap:
 		print 'mapping photometry'
-		photoData = photoMap.mapObserved(simQSOs)
+		photoData = sqphoto.calcObsPhot(simQSOs['synFlux'],photoMap)
 		timerLog('PhotoMap')
 	else:
 		photoData = None
