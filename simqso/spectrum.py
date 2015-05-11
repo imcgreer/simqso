@@ -110,7 +110,7 @@ class QSOSpectrum(Spectrum):
 			wave0 = self.wave/z1
 			fnorm = _Mtoflam(normwave,fluxNorm['M_AB'],self.z,fluxNorm['DM'])
 			if wave0[0] > normwave:
-				raise NotImplementedError
+				raise NotImplementedError('outside of wave range: ',wave0[0],normwave)
 				# XXX come back to this; for normalizing the flux when the norm
 				#     wavelength is outside of the spectral range
 				for alam,bkpt in zip(alpha_lams,breakpts):

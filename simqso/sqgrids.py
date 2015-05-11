@@ -117,10 +117,10 @@ class LuminosityRedshiftGrid(LuminosityGrid):
 		pass
 
 class FluxGrid(MzGrid):
-	def __init__(self,gridPar,cosmodef,**kwargs):
+	def __init__(self,gridPar,cosmodef):
 		super(FluxGrid,self).__init__(gridPar,cosmodef)
-		self.obsBand = kwargs.get('obsBand','SDSS-i')
-		self.restBand = kwargs.get('restBand',1450.)
+		self.obsBand = gridPar.get('ObsBand','SDSS-i')
+		self.restBand = gridPar.get('RestBand',1450.)
 		self.m2M = lambda z: mag2lum(self.obsBand,self.restBand,z,self.cosmo)
 		self.units = 'flux'
 	def updateMags(self,m):
@@ -136,8 +136,8 @@ class FluxRedshiftGrid(FluxGrid):
 	bin. The bin spacings need not be uniform, as long as they are 
 	monotonically increasing.
 	'''
-	def __init__(self,gridPar,cosmodef,**kwargs):
-		super(FluxRedshiftGrid,self).__init__(gridPar,cosmodef,**kwargs)
+	def __init__(self,gridPar,cosmodef):
+		super(FluxRedshiftGrid,self).__init__(gridPar,cosmodef)
 		self.appMagGrid = np.zeros((self.nM,self.nz,self.nPerBin))
 		self.zGrid = np.zeros((self.nM,self.nz,self.nPerBin))
 		dm = np.diff(self.mEdges)
@@ -207,8 +207,8 @@ class LuminosityGridFromData(LuminosityGrid):
 		self.zGrid = mzdata['z'].copy().reshape(gridshape)
 
 class LuminosityFunctionFluxGrid(FluxGrid):
-	def __init__(self,mRange,zRange,qlf,cosmodef,**kwargs):
-		super(LuminosityFunctionFluxGrid,self).__init__(cosmodef,**kwargs)
+	def __init__(self,mRange,zRange,qlf,cosmodef):
+		super(LuminosityFunctionFluxGrid,self).__init__(gridPar,cosmodef)
 		m,z = qlf.sample_from_fluxrange(mRange,zRange,self.m2M,cosmodef,**kwargs)
 		self.mgrid = m
 		self.zGrid = z

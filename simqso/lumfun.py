@@ -3,6 +3,7 @@
 import inspect
 from collections import OrderedDict
 import numpy as np
+import astropy.units as u
 from scipy.interpolate import interp1d
 from scipy.integrate import quad
 from scipy.special import hyp2f1
@@ -69,12 +70,21 @@ def doublePL_Lintegral(x,a,b):
 	          hyp2f1(1.,(a-1)/(a-b),(a-1)/(a-b)+1,-x**(b-a)) + b) / 
 	           ((a-1)*(a-b)))
 
+# handy conversions are given in Hopkins, Richards, & Hernquist 2007
+# eqns. 6-8
 def integrateDPL(Mrange,logPhiStar,MStar,alpha,beta):
 	PhiStar_M = 10**logPhiStar
 	MM = np.asarray(Mrange)
 	L_min,L_max = 10**(-0.4*(MM-MStar))
-	Lsum = doublePL_Lintegral(L_max,-alpha,-beta) - \
-	        doublePL_Lintegral(L_min,-alpha,-beta) 
+	try:
+		Lsum = doublePL_Lintegral(L_max,-alpha,-beta) - \
+		        doublePL_Lintegral(L_min,-alpha,-beta) 
+	except:
+		Lsum = np.inf # proceed to the failure case below
+	if not np.isfinite(Lsum):
+		# if the analytic function failed to evaluate, revert to a numerical
+		# integration
+		Lsum,err = quad(lambda x: 1/(x**-alpha + x**-beta), L_min, L_max)
 	return 1.0857 * PhiStar_M * Lsum
 
 class DoublePowerLawLF(LuminosityFunction):
@@ -163,4 +173,24 @@ class DoublePowerLawLF(LuminosityFunction):
 		nqso,err = quad(phi_z,*zrange)
 		nqso *= 4*np.pi
 		return nqso
+	def ionizing_emissivity(self,z,Mrange,p=(),**kwargs):
+		logPhiStar,MStar,alpha,beta = self.eval_at_z(z,*p)
+		# phi(L) integral is over (L/L*)^-alpha
+		# Lphi(L) integral is over (L/L*)^-alpha-1, so send (alpha+1)
+		x = integrateDPL(Mrange,logPhiStar,MStar,alpha+1,beta+1)
+		if True:
+			# until astropy provides AB mag -> Lnu conversion
+			c = 4.*np.pi*(10*u.pc.to(u.cm))**2
+			LStar_nu = c * 10**(-0.4*(MStar + 48.6))
+		if True:
+			# until I get something more flexible in here
+			# ... use the power-law conversion in .spectrum
+			break_wave = kwargs.get('break_wave',1100.)
+			alpha1 = kwargs.get('alpha1',-0.5)
+			alpha2 = kwargs.get('alpha2',-1.5)
+			#print 'warning: using SED model (%.2f,%.1f,%.2f)' % \
+			#       (alpha2,break_wave,alpha1)
+			l912 = (1450./break_wave)**alpha1 * (break_wave/912.)**alpha2
+		# for now return e1450, e912
+		return LStar_nu * x, LStar_nu * l912 * x
 
