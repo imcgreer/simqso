@@ -358,13 +358,10 @@ def writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,outputDir,
 	else:
 		fluxData = Table({'synMag':simQSOs['synMag'].reshape(fShape),
 		                  'synFlux':simQSOs['synFlux'].reshape(fShape)})
-		#### XXX temporary
-		###zarr = np.zeros_like(simQSOs['synMag']).reshape(outShape+(-1,))
-		###obsFluxData = Table({'obsMag':zarr,
-		###                     'obsFlux':zarr})
-		###dataTab = hstack([gridData,fluxData,obsFluxData])
 		if photoData is not None:
-			dataTab = hstack([gridData,fluxData,photoData])
+			_photoData = Table({ field:arr.reshape(fShape) 
+			                        for field,arr in photoData.items() })
+			dataTab = hstack([gridData,fluxData,_photoData])
 		else:
 			dataTab = hstack([gridData,fluxData])
 	hdu1 = fits.BinTableHDU.from_columns(np.array(dataTab))

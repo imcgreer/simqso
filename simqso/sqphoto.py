@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 
 import numpy as np
-from astropy.io import fits
 from collections import OrderedDict
 from scipy.interpolate import interp1d
 from scipy.integrate import simps
 from scipy.constants import c
 c_Angs = c*1e10
+
+from astropy.io import fits
 
 from .sqbase import datadir
 
@@ -21,8 +22,9 @@ _default_bands = {
 def load_photo_map(params):
 	bandpasses = OrderedDict()
 	filterdata = fits.open(datadir+'filtercurves.fits')
+	photoBands = params.get('PhotoBands',_default_bands)
 	for photsys in params['PhotoSystems']:
-		bands = params.get('PhotoBands',_default_bands).get(photsys)
+		bands = photoBands.get(photsys,_default_bands[photsys])
 		for band in bands:
 			bpname = photsys+'-'+band
 			fdat = filterdata[bpname].data
@@ -31,7 +33,17 @@ def load_photo_map(params):
 			# precompute the bandpass normalization
 			norm = simps(fdat.Rlam/fdat.lam, fdat.lam)
 			bandpasses[bpname] = dict(Rlam=fcurv,norm=norm,data=fdat)
-	mapObserved = None
+	#
+	cdfmap = fits.getdata(datadir+'photomap_cdfs.fits')
+	mapObserved = {}
+	for photsys,errmodel in params['PhotoErrorModel'].items():
+		bands = photoBands.get(photsys,_default_bands[photsys])
+		for band in bands:
+			bpname = photsys+'-'+band
+			bppfx = '_'.join([photsys,errmodel,band])
+			iend = np.where(cdfmap[bppfx+'_cdf']>=1)[0][0]
+			mapObserved[bpname] = interp1d(cdfmap[bppfx+'_cdf'][:iend+1],
+			                               cdfmap[bppfx+'_df'][:iend+1])
 	return dict(bandpasses=bandpasses,mapObserved=mapObserved)
 
 def getPhotoCache(wave,photoMap):
@@ -72,5 +84,20 @@ def calcSynPhot(spec,photoMap,photoCache=None,mags=None,fluxes=None):
 	fluxes *= 1e9 # nanomaggies
 	return mags,fluxes
 
-
+def calcObsPhot(synFlux,photoMap):
+	x = np.random.random(synFlux.shape)
+	obsFlux = np.empty_like(synFlux)
+	obsFluxErr = np.empty_like(synFlux)
+	gridShape = synFlux.shape[:-1]
+	for j,b in enumerate(photoMap['bandpasses']):
+		obsFluxErr[...,j] = photoMap['mapObserved'][b](x[...,j])
+		obsFlux[...,j] = synFlux[...,j] + \
+		                   obsFluxErr[...,j]*np.random.randn(*gridShape)
+	obsMag = 99.99 + np.zeros_like(obsFlux)
+	obsMagErr = np.zeros_like(obsFlux)
+	ii = np.where(obsFlux>0)
+	obsMag[ii] = 22.5 - 2.5*np.log10(obsFlux[ii])
+	obsMagErr[ii] = 1.0856*(obsFluxErr[ii]/obsFlux[ii])
+	return {'obsFlux':obsFlux,'obsFluxErr':obsFluxErr,
+	        'obsMag':obsMag,'obsMagErr':obsMagErr}
 
