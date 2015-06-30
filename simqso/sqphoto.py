@@ -153,6 +153,23 @@ class sdssStripe82PhotoUnc(empiricalPhotoUnc):
 		# calibration uncertainty floor
 		self.err_floor = 0.015
 
+class cfhtlsWidePhotoUnc(empiricalPhotoUnc):
+	'''as with Stripe82, not valid at bright magnitudes (m<~19)'''
+	def __init__(self,b):
+		cfhtlswideterms = np.array([[0.16191,4.4005,0.037],
+                                    [0.15508,4.3392,0.034],
+                                    [0.15902,4.3399,0.015],
+                                    [0.15721,4.2786,0.028],
+                                    [0.16092,4.1967,0.034]])
+		self.b = b
+		i = 'ugriz'.find(b)
+		self.a,self.b,self.scatter_b = cfhtlswideterms[i]
+		# ignoring magnitude-dependent scatter since all useful fluxes are
+		# in the sky-dominated regime
+		self.scatter_a = 0.0
+		# calibration uncertainty floor
+		self.err_floor = 0.015
+
 def load_photo_map(params):
 	bandpasses = OrderedDict()
 	filterdata = fits.open(datadir+'filtercurves.fits')
@@ -198,6 +215,11 @@ def load_photo_map(params):
 			for band in bands:
 				bpName = '-'.join([photSys,survey,band])
 				mapObserved[bpName] = ukidsslasPhotoUnc(band) 
+				magSys[bpName] = 'AB'
+		elif photSys == 'CFHT' and survey == 'CFHTLSWide':
+			for band in bands:
+				bpName = '-'.join([photSys,survey,band])
+				mapObserved[bpName] = cfhtlsWidePhotoUnc(band) 
 				magSys[bpName] = 'AB'
 		else:
 			for band in bands:
