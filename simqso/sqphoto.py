@@ -63,7 +63,7 @@ _sdss_phot_pars = {
   'nMgyPerCount':[ 0.00981, 0.00378, 0.00507, 0.00662, 0.0337, ],
 }
 
-def sdss_photo_unc(b,f_nmgy):
+class sdssPhotoUnc(object):
 	'''sdss_photo_unc(b,f_nmgy)
 	   In a given SDSS band b, provide the uncertainty for a given flux in 
 	   nanomaggies (f_nmgy) based on the distribution of observing conditions.
@@ -72,25 +72,86 @@ def sdss_photo_unc(b,f_nmgy):
 		   to higher values for sky, nEff, etc.
 	   see http://classic.sdss.org/dr7/algorithms/fluxcal.html for details
 	'''
-	i = 'ugriz'.find(b)
-	shape = f_nmgy.shape
-	pixArea = 0.396**2 # pix -> arcsec^2
-	gain = _sdss_phot_pars['gain'][i]
-	darkVar = _sdss_phot_pars['darkVariance'][i]
-	sky_nmgy_asec2 = np.clip(np.random.normal(_sdss_phot_pars['sky'][i],
-	              {'u':0.4,'g':0.4,'r':1.2,'i':2.0,'z':5.0}[b],shape),
-	              {'u':0.6,'g':1.0,'r':2.2,'i':3.2,'z':8.3}[b],np.inf)
-	skyErr_nmgy = _sdss_phot_pars['skyErr'][i] # not used...
-	# nEffPsf distribution is roughly similar in all bands
-	npix = np.clip(np.random.normal(_sdss_phot_pars['nEffPsf'][i],5.0,shape),
-	               10.0,np.inf)
-	c2f = np.clip(np.random.normal(_sdss_phot_pars['nMgyPerCount'][i],
-	        {'u':2.3e-3,'g':3.9e-4,'r':2.7e-4,'i':3.7e-4,'z':5.6e-3}[b],shape),
-	        {'u':5.7e-3,'g':2.3e-3,'r':3.5e-3,'i':4.7e-3,'z':1.4e-2}[b],np.inf)
-	df = np.sqrt( f_nmgy*(c2f/gain) + 
-	               sky_nmgy_asec2*pixArea*npix*(c2f/gain) +
-	                darkVar*npix*(c2f/gain)**2 )
-	return df
+	def __init__(self,b):
+		i = 'ugriz'.find(b)
+		self.pixArea = 0.396**2 # pix -> arcsec^2
+		self.gain = _sdss_phot_pars['gain'][i]
+		self.darkVar = _sdss_phot_pars['darkVariance'][i]
+		self.skyMean = _sdss_phot_pars['sky'][i]
+		self.skyStd = {'u':0.4,'g':0.4,'r':1.2,'i':2.0,'z':5.0}[b]
+		self.skyMin = {'u':0.6,'g':1.0,'r':2.2,'i':3.2,'z':8.3}[b]
+		#skyErr_nmgy = _sdss_phot_pars['skyErr'][i] # not used...
+		# nEffPsf distribution is roughly similar in all bands
+		self.npixMean = _sdss_phot_pars['nEffPsf'][i]
+		self.npixStd = 5.0
+		self.npixMin = 10.0
+		self.c2fMean = _sdss_phot_pars['nMgyPerCount'][i]
+		self.c2fStd = {'u':2.3e-3,'g':3.9e-4,'r':2.7e-4,
+		               'i':3.7e-4,'z':5.6e-3}[b]
+		self.c2fMin = {'u':5.7e-3,'g':2.3e-3,'r':3.5e-3,
+		               'i':4.7e-3,'z':1.4e-2}[b]
+		# add in a global photometric calibration error term
+		self.calibrationError = 0.015
+	def __call__(self,f_nmgy):
+		shape = f_nmgy.shape
+		gain = self.gain
+		pixArea = self.pixArea
+		darkVar = self.darkVar
+		sky_nmgy_asec2 = np.clip(np.random.normal(self.skyMean,
+		                                          self.skyStd,shape),
+		                         self.skyMin,np.inf)
+		npix = np.clip(np.random.normal(self.npixMean,self.npixStd,shape),
+		               self.npixMin,np.inf)
+		c2f = np.clip(np.random.normal(self.c2fMean,self.c2fStd,shape),
+		              self.c2fMin,np.inf)
+		df = np.sqrt( f_nmgy*(c2f/gain) + 
+		               sky_nmgy_asec2*pixArea*npix*(c2f/gain) +
+		                darkVar*npix*(c2f/gain)**2 +
+		                 (self.calibrationError*f_nmgy)**2 )
+		return df
+
+class empiricalPhotoUnc(object):
+	'''approximation only valid in sky-dominated regime'''
+	def __call__(self,f_nmgy):
+		shape = f_nmgy.shape
+		magAB = nmgy2abmag(self.b,f_nmgy)
+		scatter = np.clip(self.scatter_a*magAB + self.scatter_b, 0.01, np.inf)
+		b = self.b + scatter*np.random.normal(size=shape)
+		log_dm = 2.5*(self.a*magAB - b)
+		dm = np.clip(10**log_dm, self.err_floor, np.inf)
+		return f_nmgy * dm / 1.0857
+
+class ukidsslasPhotoUnc(empiricalPhotoUnc):
+	def __init__(self,b):
+		UKIDSS_LAS_terms = np.array([[0.13616,3.1360,0.029],
+		                             [0.14665,3.3081,0.043],
+		                             [0.14429,3.2105,0.040],
+		                             [0.15013,3.3053,0.028]])
+		self.b = b
+		i = 'YJHK'.find(b)
+		self.a,self.b,self.scatter_b = UKIDSS_LAS_terms[i]
+		# ignoring magnitude-dependent scatter since all useful fluxes are
+		# in the sky-dominated regime
+		self.scatter_a = 0.0
+		# scatter seems to be slightly overestimated
+		self.scatter_b *= 0.9
+		# calibration uncertainty floor
+		self.err_floor = 0.015
+
+class sdssStripe82PhotoUnc(empiricalPhotoUnc):
+	'''this fails at m<~18 when SDSS detections are no longer sky-dominated,
+	   but not really interested in bright objects on the Stripe...'''
+	def __init__(self,b):
+		stripe82terms = np.array([[0.15127,3.8529,0.00727,-0.1308],
+                                  [0.15180,4.0233,0.00486,-0.0737],
+                                  [0.14878,3.8970,0.00664,-0.1077],
+                                  [0.14780,3.8024,0.00545,-0.0678],
+                                  [0.14497,3.5437,0.00715,-0.1121]])
+		self.b = b
+		i = 'ugriz'.find(b)
+		self.a,self.b,self.scatter_a,self.scatter_b = stripe82terms[i]
+		# calibration uncertainty floor
+		self.err_floor = 0.015
 
 def load_photo_map(params):
 	bandpasses = OrderedDict()
@@ -126,8 +187,18 @@ def load_photo_map(params):
 		if photSys == 'SDSS' and survey == 'Legacy':
 			for band in bands:
 				bpName = '-'.join([photSys,survey,band])
-				mapObserved[bpName] = lambda flux: sdss_photo_unc(band,flux)
+				mapObserved[bpName] = sdssPhotoUnc(band) 
 				magSys[bpName] = 'asinh'
+		elif photSys == 'SDSS' and survey == 'Stripe82':
+			for band in bands:
+				bpName = '-'.join([photSys,survey,band])
+				mapObserved[bpName] = sdssStripe82PhotoUnc(band) 
+				magSys[bpName] = 'AB'
+		elif photSys == 'UKIDSS' and survey == 'LAS':
+			for band in bands:
+				bpName = '-'.join([photSys,survey,band])
+				mapObserved[bpName] = ukidsslasPhotoUnc(band) 
+				magSys[bpName] = 'AB'
 		else:
 			for band in bands:
 				bpName = '-'.join([photSys,survey,band])
