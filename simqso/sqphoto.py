@@ -11,14 +11,6 @@ from astropy.io import fits
 
 from .sqbase import datadir
 
-_default_bands = {
-  'SDSS':list('ugriz'),
-  'CFHT':list('ugriz'),
-  'UKIDSS':list('YJHK'),
-  'WISE':['W1','W2','W3','W4'],
-  'GALEX':list('fn'),
-}
-
 softening_parameter = np.array([1.4,0.9,1.2,1.8,7.4])*1e-10
 
 def nmgy2abmag(_b,f,df=None):
@@ -138,9 +130,27 @@ class ukidsslasPhotoUnc(empiricalPhotoUnc):
 		# calibration uncertainty floor
 		self.err_floor = 0.015
 
+class ukidssdxsPhotoUnc(empiricalPhotoUnc):
+	'''as with Stripe82, not valid at bright magnitudes (m<~20)'''
+	def __init__(self,b):
+		UKIDSS_DXS_terms = np.array([[0.13408,3.3978,0.016],
+                                     [0.14336,3.5461,0.023]])
+		self.b = b
+		i = 'JK'.find(b)
+		self.a,self.b,self.scatter_b = UKIDSS_DXS_terms[i]
+		# ignoring magnitude-dependent scatter since all useful fluxes are
+		# in the sky-dominated regime
+		self.scatter_a = 0.0
+		# scatter seems to be slightly overestimated again (?)
+		self.scatter_b *= 0.8
+		# calibration uncertainty floor
+		self.err_floor = 0.015
+
 class sdssStripe82PhotoUnc(empiricalPhotoUnc):
 	'''this fails at m<~18 when SDSS detections are no longer sky-dominated,
-	   but not really interested in bright objects on the Stripe...'''
+	   but not really interested in bright objects on the Stripe...
+	   also, dominated by calibration uncertainty for bright objects anyway
+    '''
 	def __init__(self,b):
 		stripe82terms = np.array([[0.15127,3.8529,0.00727,-0.1308],
                                   [0.15180,4.0233,0.00486,-0.0737],
@@ -170,67 +180,51 @@ class cfhtlsWidePhotoUnc(empiricalPhotoUnc):
 		# calibration uncertainty floor
 		self.err_floor = 0.015
 
+supported_photo_systems = {
+  'SDSS':{
+    'Legacy':{'bands':'ugriz','magSys':'asinh','uncMap':sdssPhotoUnc},
+    'Stripe82':{'bands':'ugriz','magSys':'AB','uncMap':sdssStripe82PhotoUnc},
+  },
+  'CFHT':{
+    'CFHTLS_Wide':{'bands':'ugriz','magSys':'AB','uncMap':cfhtlsWidePhotoUnc},
+  },
+  'UKIRT':{
+    'UKIDSS_LAS':{'bands':'YJHK','magSys':'AB','uncMap':ukidsslasPhotoUnc},
+    'UKIDSS_DXS':{'bands':'JHK','magSys':'AB','uncMap':ukidssdxsPhotoUnc},
+  },
+}
+
 def load_photo_map(params):
 	bandpasses = OrderedDict()
 	filterdata = fits.open(datadir+'filtercurves.fits')
+	mapObserved = {}
+	magSys = {}
 	for photDesc in params['PhotoSystems']:
 		try:
-			photSys,survey,bands = photDesc
+			photSysName,survey,bands = photDesc
 		except ValueError:
-			photSys,survey = photDesc
-			try:
-				bands = _default_bands[photSys]
-			except:
-				raise ValueError('%s not a valid photo system' % photSys)
+			photSysName,survey = photDesc
+			bands = None
+		try:
+			photSys = supported_photo_systems[photSysName][survey]
+		except:
+			raise ValueError('%s-%s not a valid photo system' % 
+			                 (photSysName,survey))
+		if bands is None:
+			bands = photSys['bands']
 		for band in bands:
-			bpName = '-'.join([photSys,survey,band])
-			bpExt = '-'.join([photSys,band])
+			bpName = '-'.join([photSysName,survey,band])
+			# a workaround for the naming of the extension in the filter file
+			_photSysName = {'UKIRT':'UKIDSS'}.get(photSysName,photSysName)
+			bpExt = '-'.join([_photSysName,band])
 			fdat = filterdata[bpExt].data
 			fcurv = interp1d(fdat.lam,fdat.Rlam,
 			                 bounds_error=False,fill_value=0.0,kind='slinear')
 			# precompute the bandpass normalization
 			norm = simps(fdat.Rlam/fdat.lam, fdat.lam)
 			bandpasses[bpName] = dict(Rlam=fcurv,norm=norm,data=fdat)
-	# XXX this loop is repeated until I converge on a mapping framework
-	cdfmap = fits.getdata(datadir+'photomap_cdfs.fits')
-	mapObserved = {}
-	magSys = {}
-	for photDesc in params['PhotoSystems']:
-		try:
-			photSys,survey,bands = photDesc
-		except ValueError:
-			photSys,survey = photDesc
-			bands = _default_bands[photSys]
-		if photSys == 'SDSS' and survey == 'Legacy':
-			for band in bands:
-				bpName = '-'.join([photSys,survey,band])
-				mapObserved[bpName] = sdssPhotoUnc(band) 
-				magSys[bpName] = 'asinh'
-		elif photSys == 'SDSS' and survey == 'Stripe82':
-			for band in bands:
-				bpName = '-'.join([photSys,survey,band])
-				mapObserved[bpName] = sdssStripe82PhotoUnc(band) 
-				magSys[bpName] = 'AB'
-		elif photSys == 'UKIDSS' and survey == 'LAS':
-			for band in bands:
-				bpName = '-'.join([photSys,survey,band])
-				mapObserved[bpName] = ukidsslasPhotoUnc(band) 
-				magSys[bpName] = 'AB'
-		elif photSys == 'CFHT' and survey == 'CFHTLSWide':
-			for band in bands:
-				bpName = '-'.join([photSys,survey,band])
-				mapObserved[bpName] = cfhtlsWidePhotoUnc(band) 
-				magSys[bpName] = 'AB'
-		else:
-			for band in bands:
-				bpName = '-'.join([photSys,survey,band])
-				bppfx = '_'.join([photSys,survey,band])
-				iend = np.where(cdfmap[bppfx+'_cdf']>=1)[0][0]
-				cdffun = interp1d(cdfmap[bppfx+'_cdf'][:iend+1],
-				                  cdfmap[bppfx+'_df'][:iend+1])
-				mapObserved[bpName] = \
-				       lambda flux: cdffun(np.random.random(flux.shape))
-				magSys[bpName] = 'AB'
+			mapObserved[bpName] = photSys['uncMap'](band)
+			magSys[bpName] = photSys['magSys']
 	return dict(bandpasses=bandpasses,mapObserved=mapObserved,magSys=magSys)
 
 def getPhotoCache(wave,photoMap):
