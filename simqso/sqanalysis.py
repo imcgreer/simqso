@@ -44,15 +44,25 @@ def calcKCorrFromGrid(fileName,outputDir='./',retGrid=False,retGridFun=False,ban
 	else:
 		return Interp2DSeries(kCorr)
 
+class ClippedFunction(object):
+	def __init__(self,fun,minval=0.0,maxval=1.0):
+		self.fun = fun
+		self.minval = minval
+		self.maxval = maxval
+	def __call__(self,*args,**kwargs):
+		return self.fun(*args,**kwargs).clip(self.minval,self.maxval)
+
 def calcSelectionFunctionFromGrid(fileName,selector,outputDir='./',
 	                              retGridFun=False):
 	simData,simPars = readSimulationData(fileName,outputDir,retParams=True)
 	mBins,zBins,gridShape = getGridBins(simPars)
-	selGrid = selector(simData['obsMag'],simData['obsMagErr'],
-	                   simData['obsFlux'],simData['obsFluxErr'])
+	is_selected = selector(simData['obsMag'],simData['obsMagErr'],
+	                       simData['obsFlux'],simData['obsFluxErr'])
+	is_selected = is_selected.reshape(gridShape)
+	selGrid = np.sum(is_selected,axis=-1).astype(np.float32) / gridShape[-1]
 	selFun = RectBivariateSpline(mBins,zBins,selGrid,kx=3,ky=3,s=1)
 	if retGridFun:
-		return selFun
+		return ClippedFunction(selFun)
 	else:
-		return Interp2DSeries(selFun)
+		return ClippedFunction(Interp2DSeries(selFun))
 
