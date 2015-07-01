@@ -48,7 +48,8 @@ def calcSelectionFunctionFromGrid(fileName,selector,outputDir='./',
 	                              retGridFun=False):
 	simData,simPars = readSimulationData(fileName,outputDir,retParams=True)
 	mBins,zBins,gridShape = getGridBins(simPars)
-	selGrid = selector(simData['obsFlux'],simData['obsFluxErr'])
+	selGrid = selector(simData['obsMag'],simData['obsMagErr'],
+	                   simData['obsFlux'],simData['obsFluxErr'])
 	selFun = RectBivariateSpline(mBins,zBins,selGrid,kx=3,ky=3,s=1)
 	if retGridFun:
 		return selFun
