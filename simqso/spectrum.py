@@ -110,7 +110,8 @@ class QSOSpectrum(Spectrum):
 			wave0 = self.wave/z1
 			fnorm = _Mtoflam(normwave,fluxNorm['M_AB'],self.z,fluxNorm['DM'])
 			if wave0[0] > normwave:
-				raise NotImplementedError('outside of wave range: ',wave0[0],normwave)
+				raise NotImplementedError("outside of wave range: ",
+				                          wave0[0],normwave)
 				# XXX come back to this; for normalizing the flux when the norm
 				#     wavelength is outside of the spectral range
 				for alam,bkpt in zip(alpha_lams,breakpts):
@@ -119,7 +120,8 @@ class QSOSpectrum(Spectrum):
 					if bkpt > wave0[0]:
 						break
 			elif wave0[-1] < normwave:
-				raise NotImplementedError
+				raise NotImplementedError("%.1f (%.1f) outside lower "
+				 "wavelength bound %.1f" % (wave0[-1],self.wave[-1],normwave))
 			else:
 				# ... to be strictly correct, would need to account for power law
 				#     slope within the pixel

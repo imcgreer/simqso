@@ -70,7 +70,7 @@ def buildMzGrid(simParams):
 
 
 
-def buildForest(wave,z,forestParams,outputDir):
+def buildForest(wave,z,simParams,outputDir):
 	'''
     Create a set of absorbers for a given number of lines-of-sight, 
 	sampled according to the input forest model. Then calculate the
@@ -79,7 +79,9 @@ def buildForest(wave,z,forestParams,outputDir):
 	fewer forest computations are needed; individual LOSs are built up
 	in redshift steps as each QSO redshift is iterated.
 	'''
-	np.random.seed(forestParams.get('RandomSeed'))
+	forestParams = simParams['ForestParams']
+	np.random.seed(forestParams.get('RandomSeed',
+	               simParams.get('RandomSeed')))
 	forestType = forestParams.get('ForestType','Sightlines')
 	nlos = forestParams.get('NumLinesOfSight',-1)
 	forestFn = forestParams['FileName']
@@ -248,10 +250,11 @@ def buildQSOspectra(wave,Mz,forest,photoMap,simParams,
 		nIter = 1
 	else:
 		nIter = maxIter
+		# this should be pushed up to something like photoMap.getIndex(band)
 		bands = photoMap['bandpasses'].keys()
 		try:
 			fluxBand = next(j for j in range(len(bands)) 
-			                              if bands[j]==Mz.obsBand)
+			                    if photoMap['filtName'][bands[j]]==Mz.obsBand)
 		except:
 			raise ValueError('band ',Mz.obsBand,' not found in ',bands)
 		print 'fluxBand is ',fluxBand,bands
@@ -404,7 +407,6 @@ def qsoSimulation(simParams,**kwargs):
 	# build or restore the grid of (M,z) for each QSO
 	#
 	wave = buildWaveGrid(simParams)
-	np.random.seed(simParams.get('RandomSeed'))
 	timerLog = TimerLog()
 	try:
 		# simulation data already exists, load the Mz grid
@@ -459,8 +461,7 @@ def qsoSimulation(simParams,**kwargs):
 					return 1
 			forest = dict(wave=wave[:2],T=NullForest())
 		else:
-			forest = buildForest(wave,Mz.getRedshifts(),
-			                     simParams['ForestParams'],outputDir)
+			forest = buildForest(wave,Mz.getRedshifts(),simParams,outputDir)
 	if forestOnly:
 		timerLog.dump()
 		return
@@ -469,7 +470,6 @@ def qsoSimulation(simParams,**kwargs):
 	# Use continuum and emission line distributions to build the components
 	# of the intrinsic QSO spectrum, then calculate photometry
 	#
-	np.random.seed(simParams.get('RandomSeed')) # XXX do it here again?
 	photoMap = sqphoto.load_photo_map(simParams['PhotoMapParams'])
 	if not onlyMap:
 		simQSOs = buildQSOspectra(wave,Mz,forest,photoMap,simParams,
@@ -481,6 +481,8 @@ def qsoSimulation(simParams,**kwargs):
 	#
 	if not noPhotoMap:
 		print 'mapping photometry'
+		np.random.seed(simParams['PhotoMapParams'].get('RandomSeed',
+		               simParams.get('RandomSeed')))
 		photoData = sqphoto.calcObsPhot(simQSOs['synFlux'],photoMap)
 		timerLog('PhotoMap')
 	else:

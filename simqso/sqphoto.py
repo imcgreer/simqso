@@ -194,11 +194,13 @@ supported_photo_systems = {
   },
 }
 
+# should find a better container / organization for this
 def load_photo_map(params):
 	bandpasses = OrderedDict()
 	filterdata = fits.open(datadir+'filtercurves.fits')
 	mapObserved = {}
 	magSys = {}
+	filtName = {} # ugh
 	for photDesc in params['PhotoSystems']:
 		try:
 			photSysName,survey,bands = photDesc
@@ -225,7 +227,9 @@ def load_photo_map(params):
 			bandpasses[bpName] = dict(Rlam=fcurv,norm=norm,data=fdat)
 			mapObserved[bpName] = photSys['uncMap'](band)
 			magSys[bpName] = photSys['magSys']
-	return dict(bandpasses=bandpasses,mapObserved=mapObserved,magSys=magSys)
+			filtName[bpName] = bpExt
+	return dict(bandpasses=bandpasses,mapObserved=mapObserved,
+	            magSys=magSys,filtName=filtName)
 
 def getPhotoCache(wave,photoMap):
 	photoCache = {}
