@@ -106,12 +106,15 @@ class empiricalPhotoUnc(object):
 	'''approximation only valid in sky-dominated regime'''
 	def __call__(self,f_nmgy):
 		shape = f_nmgy.shape
-		magAB = nmgy2abmag(self.b,f_nmgy)
+		# set the flux for non-detections to be at d(mag) = 1.0
+		magLim = self.b / self.a
+		magAB = np.clip(nmgy2abmag(self.b,f_nmgy),0,magLim)
 		scatter = np.clip(self.scatter_a*magAB + self.scatter_b, 0.01, np.inf)
 		b = self.b + scatter*np.random.normal(size=shape)
 		log_dm = 2.5*(self.a*magAB - b)
 		dm = np.clip(10**log_dm, self.err_floor, np.inf)
-		return f_nmgy * dm / 1.0857
+		f = np.clip(f_nmgy,abmag2nmgy(self.band,magLim),np.inf)
+		return f * dm / 1.0857
 
 class ukidsslasPhotoUnc(empiricalPhotoUnc):
 	def __init__(self,b):
@@ -119,7 +122,7 @@ class ukidsslasPhotoUnc(empiricalPhotoUnc):
 		                             [0.14665,3.3081,0.043],
 		                             [0.14429,3.2105,0.040],
 		                             [0.15013,3.3053,0.028]])
-		self.b = b
+		self.band = b
 		i = 'YJHK'.find(b)
 		self.a,self.b,self.scatter_b = UKIDSS_LAS_terms[i]
 		# ignoring magnitude-dependent scatter since all useful fluxes are
@@ -135,7 +138,7 @@ class ukidssdxsPhotoUnc(empiricalPhotoUnc):
 	def __init__(self,b):
 		UKIDSS_DXS_terms = np.array([[0.13408,3.3978,0.016],
                                      [0.14336,3.5461,0.023]])
-		self.b = b
+		self.band = b
 		i = 'JK'.find(b)
 		self.a,self.b,self.scatter_b = UKIDSS_DXS_terms[i]
 		# ignoring magnitude-dependent scatter since all useful fluxes are
@@ -157,7 +160,7 @@ class sdssStripe82PhotoUnc(empiricalPhotoUnc):
                                   [0.14878,3.8970,0.00664,-0.1077],
                                   [0.14780,3.8024,0.00545,-0.0678],
                                   [0.14497,3.5437,0.00715,-0.1121]])
-		self.b = b
+		self.band = b
 		i = 'ugriz'.find(b)
 		self.a,self.b,self.scatter_a,self.scatter_b = stripe82terms[i]
 		# calibration uncertainty floor
@@ -171,7 +174,7 @@ class cfhtlsWidePhotoUnc(empiricalPhotoUnc):
                                     [0.15902,4.3399,0.015],
                                     [0.15721,4.2786,0.028],
                                     [0.16092,4.1967,0.034]])
-		self.b = b
+		self.band = b
 		i = 'ugriz'.find(b)
 		self.a,self.b,self.scatter_b = cfhtlswideterms[i]
 		# ignoring magnitude-dependent scatter since all useful fluxes are
