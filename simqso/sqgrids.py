@@ -207,10 +207,26 @@ class LuminosityGridFromData(LuminosityGrid):
 		self.zGrid = mzdata['z'].copy().reshape(gridshape)
 
 class LuminosityFunctionFluxGrid(FluxGrid):
-	def __init__(self,mRange,zRange,qlf,cosmodef):
-		super(LuminosityFunctionFluxGrid,self).__init__(gridPar,cosmodef)
-		m,z = qlf.sample_from_fluxrange(mRange,zRange,self.m2M,cosmodef,**kwargs)
+	def __init__(self,mRange,zRange,qlf,cosmodef,gridPar,**kwargs):
+		# XXX the constructor is set up to handle grids, but don't have
+		#     nPerBin yet... reasonable to skip it?
+		#super(LuminosityFunctionFluxGrid,self).__init__(gridPar,cosmodef)
+		# things from the base constructor...
+		self.nM = 1
+		self.nz = 1
+		self.mEdges = np.array(mRange)
+		self.zEdges = np.array(zRange)
+		self.obsBand = gridPar.get('ObsBand','SDSS-i')
+		self.restBand = gridPar.get('RestBand',1450.)
+		self.m2M = lambda z: mag2lum(self.obsBand,self.restBand,z,self.cosmo)
+		self.units = 'flux'
+		self.setCosmology(cosmodef)
+		# XXX
+		m,z = qlf.sample_from_fluxrange(mRange,zRange,self.m2M,
+		                                cosmodef,**kwargs)
+		# XXX what is going on here?
 		self.mgrid = m
+		self.appMagGrid = m
 		self.zGrid = z
 		self.nPerBin = len(z)
 		self.mGrid = m - self.m2M(z)
