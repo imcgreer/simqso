@@ -207,25 +207,16 @@ class LuminosityGridFromData(LuminosityGrid):
 		self.zGrid = mzdata['z'].copy().reshape(gridshape)
 
 class LuminosityFunctionFluxGrid(FluxGrid):
-	def __init__(self,mRange,zRange,qlf,cosmodef,gridPar,**kwargs):
-		# XXX the constructor is set up to handle grids, but don't have
-		#     nPerBin yet... reasonable to skip it?
-		#super(LuminosityFunctionFluxGrid,self).__init__(gridPar,cosmodef)
-		# things from the base constructor...
-		self.nM = 1
-		self.nz = 1
-		self.mEdges = np.array(mRange)
-		self.zEdges = np.array(zRange)
-		self.obsBand = gridPar.get('ObsBand','SDSS-i')
-		self.restBand = gridPar.get('RestBand',1450.)
-		self.m2M = lambda z: mag2lum(self.obsBand,self.restBand,z,self.cosmo)
-		self.units = 'flux'
-		self.setCosmology(cosmodef)
-		# XXX
-		m,z = qlf.sample_from_fluxrange(mRange,zRange,self.m2M,
-		                                cosmodef,**kwargs)
-		# XXX what is going on here?
-		self.mgrid = m
+	def __init__(self,gridPar,qlf,cosmodef,**kwargs):
+		# workaround -- base constructor needs this value, but we don't have
+		# it until we've done the sampling from the LF
+		gridPar['nPerBin'] = 0
+		super(LuminosityFunctionFluxGrid,self).__init__(gridPar,cosmodef)
+		m,z = qlf.sample_from_fluxrange(gridPar['mRange'],gridPar['zRange'],
+		                                self.m2M,cosmodef,**kwargs)
+		# and need to set it into the parameter list so that it gets saved
+		# properly with the simulation output
+		gridPar['nPerBin'] = len(z)
 		self.appMagGrid = m
 		self.zGrid = z
 		self.nPerBin = len(z)

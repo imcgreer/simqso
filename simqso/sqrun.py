@@ -45,9 +45,7 @@ def buildMzGrid(simParams):
 			qlf = gridPars['QLFmodel']
 		except KeyError:
 			raise ValueError('Must specify a parameterization of the LF')
-		Mz = grids.LuminosityFunctionFluxGrid(gridPars['mRange'],
-		                                      gridPars['zRange'],
-		                                      qlf,cosmodef,gridPars,
+		Mz = grids.LuminosityFunctionFluxGrid(gridPars,qlf,cosmodef,
 		                                      **gridPars['QLFargs'])
 	elif gridType == 'LuminosityRedshiftGrid':
 		Mz = grids.LuminosityRedshiftGrid(gridPars,cosmodef)
