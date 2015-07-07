@@ -201,6 +201,10 @@ class FluxGridFromData(FluxGrid):
 
 class LuminosityGridFromData(LuminosityGrid):
 	def __init__(self,mzdata,gridPar,cosmodef,**kwargs):
+		# XXX hacks to deal with nPerBin,LumUnits not set for LFFluxGrids
+		gridPar.setdefault('nPerBin',0)
+		gridPar.setdefault('LumUnits','M1450')
+		# XXX b/c really they should be FluxGridFromData...
 		super(LuminosityGridFromData,self).__init__(gridPar,cosmodef,**kwargs)
 		gridshape = (self.nM,self.nz,self.nPerBin)
 		self.mGrid = mzdata['M'].copy().reshape(gridshape)

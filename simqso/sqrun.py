@@ -318,14 +318,21 @@ def initGridData(simParams,Mz):
 		return Table({'M':Mz.mGrid.flatten(),'z':Mz.zGrid.flatten()})
 
 def writeGridData(simParams,Mz,gridData,outputDir):
+	simPar = copy(simParams)
+	# XXX need to write parameters out or something...
+	simPar['Cosmology'] = simPar['Cosmology'].name
+	try:
+		del simPar['GridParams']['QLFmodel']
+	except:
+		pass
 	hdr0 = fits.Header()
-	hdr0['GRIDPARS'] = str(simParams['GridParams'])
+	hdr0['GRIDPARS'] = str(simPar['GridParams'])
 	hdr0['GRIDUNIT'] = Mz.units
 	hdulist = [fits.PrimaryHDU(header=hdr0),]
 	hdu1 = fits.BinTableHDU.from_columns(np.array(gridData))
 	hdulist.append(hdu1)
 	hdulist = fits.HDUList(hdulist)
-	hdulist.writeto(os.path.join(outputDir,simParams['GridFileName']+'.fits'),
+	hdulist.writeto(os.path.join(outputDir,simPar['GridFileName']+'.fits'),
 	                clobber=True)
 
 def readSimulationData(fileName,outputDir,retParams=False):
@@ -349,6 +356,10 @@ def writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,outputDir,
 	simPar = copy(simParams)
 	# XXX need to write parameters out or something...
 	simPar['Cosmology'] = simPar['Cosmology'].name
+	try:
+		del simPar['GridParams']['QLFmodel']
+	except:
+		pass
 	hdr0 = fits.Header()
 	hdr0['SQPARAMS'] = str(simPar)
 	hdr0['GRIDUNIT'] = Mz.units
@@ -408,7 +419,15 @@ def qsoSimulation(simParams,**kwargs):
 	timerLog = TimerLog()
 	try:
 		# simulation data already exists, load the Mz grid
-		qsoData = readSimulationData(simParams['FileName'],outputDir)
+		print simParams
+		try:
+			# XXX a hack until figuring out how to save this in header
+			qlf = simParams['GridParams']['QLFmodel']
+		except:
+			qlf = None
+		qsoData,simParams = readSimulationData(simParams['FileName'],
+		                                       outputDir,retParams=True)
+		simParams['GridParams']['QLFmodel'] = qlf
 		if simParams['GridParams']['GridType'].startswith('Flux'):
 			Mz = grids.FluxGridFromData(qsoData,simParams['GridParams'],
 			                            simParams.get('Cosmology'))
