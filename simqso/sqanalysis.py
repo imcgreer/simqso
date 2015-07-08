@@ -27,8 +27,13 @@ def getGridBins(simPars):
 	return mBins,zBins,gridShape
 
 def calcKCorrFromGrid(fileName,outputDir='./',retGrid=False,retGridFun=False,bandNum=0):
+	from astropy import cosmology
 	simData,simPars = readSimulationData(fileName,outputDir,retParams=True)
 	mBins,zBins,gridShape = getGridBins(simPars)
+	# XXX have to map name to object...
+	simPars['Cosmology'] = {
+	  'WMAP9':cosmology.WMAP9,
+	}[simPars['Cosmology']]
 	DM_z = simPars['Cosmology'].distmod(zBins).value
 	# XXX should be loading sim data reshaped already
 	appMag = simData['synMag'][...,bandNum].reshape(gridShape)

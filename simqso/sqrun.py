@@ -420,10 +420,10 @@ def qsoSimulation(simParams,**kwargs):
 	timerLog = TimerLog()
 	try:
 		# simulation data already exists, load the Mz grid
+		cosmo = simParams['Cosmology'] # XXX
 		try:
 			# XXX a hack until figuring out how to save this in header
 			qlf = simParams['GridParams']['QLFmodel']
-			cosmo = simParams['Cosmology']
 		except:
 			qlf = None
 		qsoData,simParams = readSimulationData(simParams['FileName'],
@@ -482,6 +482,8 @@ def qsoSimulation(simParams,**kwargs):
 			forest = dict(wave=wave[:2],T=NullForest())
 		else:
 			forest = buildForest(wave,Mz.getRedshifts(),simParams,outputDir)
+		# make sure that the forest redshifts actually match the grid
+		assert np.allclose(forest['z'],Mz.zGrid.flatten())
 	if forestOnly:
 		timerLog.dump()
 		return
