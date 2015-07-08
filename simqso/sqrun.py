@@ -21,7 +21,7 @@ def buildWaveGrid(simParams):
 	dispersionScale = simParams.get('DispersionScale','logarithmic')
 	if dispersionScale == 'logarithmic':
 		lam1,lam2 = simParams['waveRange']
-		R = simParams['SpecResolution']
+		R = simParams['SpecDispersion']
 		wave = sqbase.fixed_R_dispersion(lam1,lam2,R)
 	else:
 		raise ValueError('Dispersion scale %s not supported' % dispersionScale)
