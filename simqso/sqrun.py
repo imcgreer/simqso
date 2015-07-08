@@ -363,6 +363,7 @@ def writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,outputDir,
 	hdr0 = fits.Header()
 	hdr0['SQPARAMS'] = str(simPar)
 	hdr0['GRIDUNIT'] = Mz.units
+	hdr0['GRIDDIM'] = str(outShape)
 	hdulist = [fits.PrimaryHDU(header=hdr0),]
 	# extension 1 contains the M,z grid and synthetic and observed fluxes
 	if simQSOs is None:
@@ -419,7 +420,6 @@ def qsoSimulation(simParams,**kwargs):
 	timerLog = TimerLog()
 	try:
 		# simulation data already exists, load the Mz grid
-		print simParams
 		try:
 			# XXX a hack until figuring out how to save this in header
 			qlf = simParams['GridParams']['QLFmodel']

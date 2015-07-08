@@ -130,7 +130,7 @@ class DoublePowerLawLF(LuminosityFunction):
 			N_M = np.sum(Msamp)
 			Mfun = interp1d(np.cumsum(Msamp)/N_M,Mbins)
 			M[i] = Mfun(y[i])
-			if ((i+1)%100)==0:
+			if ((i+1)%(Ntot//10))==0:
 				print i+1,' out of ',Ntot
 		return M,z
 	def sample_from_fluxrange(self,mrange,zrange,m2M,cosmo,p=(),**kwargs):

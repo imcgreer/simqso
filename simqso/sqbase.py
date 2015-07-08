@@ -35,7 +35,7 @@ def mag2lum(obsBand,restBand,z,cosmo,alpha_nu=-0.5):
 	DM = [cosmo.distmod(_z).value for _z in z.flat]
 	DM = np.array(DM).reshape(z.shape)
 	# CFHT: http://www.cfht.hawaii.edu/Science/mswg/filters.html
-	effWave = {'SDSS-g':4670.,'SDSS-i':7471.,
+	effWave = {'SDSS-g':4670.,'SDSS-r':6165.,'SDSS-i':7471.,
 	           'CFHT-g':4770.,'CFHT-r':6230.,'CFHT-i':7630.}
 	obsWave = effWave[obsBand]
 	try:
