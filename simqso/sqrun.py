@@ -342,9 +342,9 @@ def readSimulationData(fileName,outputDir,retParams=False):
 		hdr = fits.getheader(os.path.join(outputDir,fileName+'.fits'),0)
 		simPars = ast.literal_eval(hdr['SQPARAMS'])
 		# XXX get it from parameters...
-		simPars['Cosmology'] = {
-		  'WMAP9':cosmology.WMAP9,
-		}[simPars['Cosmology']]
+###		simPars['Cosmology'] = {
+###		  'WMAP9':cosmology.WMAP9,
+###		}[simPars['Cosmology']]
 		return qsoData,simPars
 	return qsoData
 
@@ -423,11 +423,14 @@ def qsoSimulation(simParams,**kwargs):
 		try:
 			# XXX a hack until figuring out how to save this in header
 			qlf = simParams['GridParams']['QLFmodel']
+			cosmo = simParams['Cosmology']
 		except:
 			qlf = None
 		qsoData,simParams = readSimulationData(simParams['FileName'],
 		                                       outputDir,retParams=True)
+		# XXX hack copy back in
 		simParams['GridParams']['QLFmodel'] = qlf
+		simParams['Cosmology'] = cosmo
 		if simParams['GridParams']['GridType'].startswith('Flux'):
 			Mz = grids.FluxGridFromData(qsoData,simParams['GridParams'],
 			                            simParams.get('Cosmology'))
