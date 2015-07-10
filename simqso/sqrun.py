@@ -130,6 +130,14 @@ def buildContinuumModels(Mz,simParams):
 def buildEmissionLineGrid(Mz,simParams):
 	emLineParams = simParams['QuasarModelParams']['EmissionLineParams']
 	np.random.seed(emLineParams.get('RandomSeed',simParams.get('RandomSeed')))
+	try:
+		# if the user has passed in a model, instantiate it
+		emLineGrid = emLineParams['EmissionLineModel'](Mz.mGrid,Mz.zGrid,
+		                                               **emLineParams)
+		return emLineGrid
+	except TypeError:
+		pass
+	# otherwise construct a model from the existing set
 	if emLineParams['EmissionLineModel'] == 'FixedVdBCompositeLines':
 		emLineGrid = grids.FixedVdBcompositeEMLineGrid(Mz.mGrid,Mz.zGrid,
 		                             minEW=emLineParams.get('minEW',1.0),
