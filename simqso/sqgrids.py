@@ -394,11 +394,11 @@ class VariedEmissionLineGrid(object):
 		maxEW = 10**(t['logEW'][:,0,1]+t['logEW'][:,0,0]*M_i.max())
 		ii = np.where(maxEW > self.minEW)[0]
 		self.lineTrends = t[ii]
-		nlines = len(ii)
+		self.nLines = len(ii)
 		# random deviate used to sample line profile values - if independent
 		# scatter, each line gets its own random scatter, otherwise each 
 		# object gets a single deviation and the lines are perfectly correlated
-		nx = nlines if indy else 1
+		nx = self.nLines if indy else 1
 		xshape = z.shape + (nx,)
 		self.xv = {}
 		for k in ['wavelength','logEW','logWidth']:
@@ -406,23 +406,25 @@ class VariedEmissionLineGrid(object):
 		# store the line profile values in a structured array with each
 		# element having the same shape as the input grid
 		nf4 = str(z.shape)+'f4'
-		self.lineGrids = np.zeros(nlines,
+		self.lineGrids = np.zeros(self.nLines,
 		                      dtype=[('name','S15'),('wavelength',nf4),
 		                             ('eqWidth',nf4),('width',nf4)])
 		self.lineGrids['name'] = self.lineTrends['name']
+		self._edit_trends(**kwargs)
+		self.update(M1450,z)
+	def _edit_trends(self,**kwargs):
 		# the optional argument 'scaleEWs' allows the caller to arbitrarily
 		# rescale both the output equivalent widths and the input scatter
 		# to the EW distribution for individual lines. construct the
 		# scaling vector here
-		self.sigscl = np.ones(nlines)
-		self.ewscl = np.ones(nlines)
+		self.sigscl = np.ones(self.nLines)
+		self.ewscl = np.ones(self.nLines)
 		for line,scl in kwargs.get('scaleEWs',{}).items():
 			i = np.where(self.lineGrids['name']==line)[0][0]
 			if type(scl) is tuple:
 				self.ewscl[i],self.sigscl[i] = scl
 			else:
 				self.ewscl[i] = scl
-		self.update(M1450,z)
 	def update(self,M1450,z):
 		# derive the line profile parameters using the input luminosities
 		# and redshifts
