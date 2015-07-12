@@ -183,6 +183,51 @@ class cfhtlsWidePhotoUnc(empiricalPhotoUnc):
 		# calibration uncertainty floor
 		self.err_floor = 0.015
 
+
+# WISE photometric model
+# need to find original reference, values updated to AllWISE by Feige
+
+_wise_phot_pars = {
+  'n':{'W1':1.27638929691e-08, 'W2':5.3381013093e-08,
+       'W3':4.4392921685e-06, 'W4':0.000104547518424 },
+  'n_lo':{'W1':5.40478552e-09, 'W2':2.71540849e-08, },
+  'n_hi':{'W1':2.01230005e-08, 'W2':7.96079411e-08, },
+  'a':{'W1':0.0225179020701, 'W2':0.0190291650915,
+       'W3':0.01, 'W4':0.01},
+  'a_lo':{'W1':0.0206696329, 'W2':0.0188475527, },
+  'a_hi':{'W1':0.0243661712, 'W2':0.0192107775, },
+  # http://wise2.ipac.caltech.edu/docs/release/prelim/expsup/sec4_3g.html#WISEZMA
+  'ABtoVega':{'W1':2.699,'W2':3.339,'W3':5.174,'W4':6.620},
+}
+
+class allwisePhotoUnc(object):
+	def __init__(self,b):
+		self.band = b
+		self.n = _wise_phot_pars['n'][b]
+		self.n_lo = _wise_phot_pars['n_lo'][b]
+		self.n_hi = _wise_phot_pars['n_hi'][b]
+		self.a = _wise_phot_pars['a'][b]
+		self.a_lo = _wise_phot_pars['a_lo'][b]
+		self.a_hi = _wise_phot_pars['a_hi'][b]
+		self.vegaConv = _wise_phot_pars['ABtoVega'][b]
+	def __call__(self,f_nmgy):
+		vegaMag = nmgy2abmag(self.band,f_nmgy) - self.vegaConv
+		sig_m = self.a + 1.0857*self.n/(10**(-0.4*vegaMag))
+		s = f_nmgy.shape
+		try:
+			# this is legacy code for approximating the depth variations
+			# over the sky, not really sure how valid it is
+			sig_m_lo = self.a_lo + 1.0857*self.n_lo/(10**(-0.4*vegaMag))
+			sig_m_hi = self.a_hi + 1.0857*self.n_hi/(10**(-0.4*vegaMag))
+			lo = np.abs(np.random.normal(scale=0.5*(sig_m-sig_m_lo),size=s))
+			hi = np.abs(np.random.normal(scale=0.5*(sig_m_hi-sig_m),size=s))
+			x = np.random.random(size=s)
+			sig_m += np.choose(x<0.5,[hi,-lo])
+		except:
+			pass
+		sig_m = np.clip(sig_m,0.03,np.inf)
+		return sig_m * f_nmgy / 1.0857
+
 supported_photo_systems = {
   'SDSS':{
     'Legacy':{'bands':'ugriz','magSys':'asinh','uncMap':sdssPhotoUnc},
@@ -194,6 +239,9 @@ supported_photo_systems = {
   'UKIRT':{
     'UKIDSS_LAS':{'bands':'YJHK','magSys':'AB','uncMap':ukidsslasPhotoUnc},
     'UKIDSS_DXS':{'bands':'JHK','magSys':'AB','uncMap':ukidssdxsPhotoUnc},
+  },
+  'WISE':{
+    'AllWISE':{'bands':['W1','W2'],'magSys':'AB','uncMap':allwisePhotoUnc},
   },
 }
 
