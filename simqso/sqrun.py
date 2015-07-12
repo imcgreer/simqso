@@ -413,6 +413,19 @@ def qsoSimulation(simParams,**kwargs):
 	4) Build simulated spectra and derive photometry.
 	5) Transfer the simulated photometry to observed photometry by 
 	   calculating errors and folding them in.
+	...
+	Keyword arguments:
+	  saveSpectra: save the simulated spectra, not just the photometry.
+	        Beware! filt could be quite large (Nqso x Npixels) [default:False]
+	  forestOnly: only generate the forest transmission spectra [default:False]
+      onlyMap: only do the simulation of observed photometry, assuming 
+	           synthetic photometry has already been generated [default:False]
+	  noPhotoMap: skip the simulation of observed photometry [default:False]
+	  writeFeatures: in addition to photometry, save all of the individual
+	                 spectral features for each object (continuum slopes,
+	                 emission line parameters, etc.), sufficient to reproduce
+	                 spectra from output files [default:False]
+	  outputDir: write files to this directory [default:'./']
 	'''
 	saveSpectra = kwargs.get('saveSpectra',False)
 	forestOnly = kwargs.get('forestOnly',False)
