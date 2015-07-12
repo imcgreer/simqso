@@ -103,8 +103,47 @@ WP11_model = {
             'bsig':24.0},
 }
 
+McG13hiz_model = {
+ 'forest1':{'zrange':(1.5,6.1),
+            'logNHrange':(12.0,14.5),
+            'gamma':3.5,
+            'beta':1.50,
+            'N0':8.5 * 1.1,
+            'brange':(10.,100.),
+            'bsig':24.0},
+ 'forest2':{'zrange':(1.5,6.1),
+            'logNHrange':(14.5,17.2),
+            'gamma':3.5,
+            'beta':1.70,
+            'N0':0.33 * 1.1,
+            'brange':(10.,100.),
+            'bsig':24.0},
+     'LLS':{'zrange':(1.5,6.1),
+            'logNHrange':(17.2,20.3),
+            'gamma':2.0,
+            'beta':1.3,
+            'N0':0.13 * 1.1,
+            'brange':(10.,100.),
+            'bsig':24.0},
+  'subDLA':{'zrange':(0.0,6.1),
+            'logNHrange':(20.3,21.0),
+            'N0':0.13 / 7.5 * 1.1,
+            'gamma':1.70,
+            'beta':1.28,
+            'brange':(10.,100.),
+            'bsig':24.0},
+     'DLA':{'zrange':(0.0,6.1),
+            'logNHrange':(21.0,22.0),
+            'N0':0.13 / 33 * 1.1,
+            'gamma':2.0,
+            'beta':1.40,
+            'brange':(10.,100.),
+            'bsig':24.0},
+}
+
 forestModels = {'Fan1999':Fan99_model,
-                'Worseck&Prochaska2011':WP11_model}
+                'Worseck&Prochaska2011':WP11_model,
+                'McGreer+2013':McG13hiz_model}
 
 def generate_los(model,zmin,zmax):
 	'''Given a model for the distribution of absorption systems, generate
