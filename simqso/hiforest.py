@@ -472,7 +472,8 @@ def generate_N_spectra(wave,z_em,nlos,**kwargs):
 		zi = z_em[ii].argsort()
 		spec = generate_spectra(wave,z_em[ii[zi]],los,**kwargs)
 		specAll[ii,:] = spec[zi.argsort()]
-		if ((losNum+1) % (len(linesofsight)//10) == 0):
+		if ( len(linesofsight)>100 and 
+		      ((losNum+1) % (len(linesofsight)//10) == 0) ):
 			print 'finished LOS #%d' % (losNum+1)
 	return dict(T=specAll,losMap=losMap,z=z_em.copy(),wave=wave.copy())
 

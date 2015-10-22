@@ -284,7 +284,7 @@ def buildQSOspectra(wave,Mz,forest,photoMap,simParams,
 			                                               photoCache,
 			                                               synMag[idx],
 			                                               synFlux[idx])
-			if saveSpectra and iterNum==nIter-1:
+			if saveSpectra:
 				spectra[i] = spec.f_lambda
 ###		print 'before: ',Mz.mGrid,synMag[...,-1]
 		if nIter > 1:
