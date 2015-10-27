@@ -84,7 +84,7 @@ simParams = {
   # Monte Carlo realizations of absorption systems
   'ForestParams':{
     # filename to save the forest transmission spectra
-    'FileName':'boss_dr7qlf_forest',
+    'FileName':'boss_dr9qlf_forest',
     # name of the model for the distribution of absorbers [only WP11 for now]
     'ForestModel':'Worseck&Prochaska2011', 
     # redshift range over which to sample absorbers
@@ -95,7 +95,7 @@ simParams = {
     # the number of independent sightlines to generate
     # WP11 suggest a minimum of 2000 to properly sample the scatter
     #'NumLinesOfSight':2000,
-    'NumLinesOfSight':100, # however, 100 will run a lot faster for testing
+    'NumLinesOfSight':200, # however, 200 will run a lot faster for testing
     # the minimum spectral dispersion to use when generating the transmission
     # spectra; R=30000 => 10 km/s is a good value to capture the weak systems
     'Rmin':30000.,
