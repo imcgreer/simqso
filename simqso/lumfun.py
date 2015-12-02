@@ -21,8 +21,8 @@ class LuminosityFunction(object):
 		self.nargs = {}
 	def logPhi(self,M,z,*args):
 		raise NotImplementedError
-	def __call__(self,*args):
-		raise NotImplementedError
+#	def __call__(self,*args):
+#		raise NotImplementedError
 	def logPhi(self,M,z,*args):
 		raise NotImplementedError
 	def Phi(self,M,z,*args):
@@ -40,10 +40,14 @@ class LuminosityFunction(object):
 		return self.scale
 	def set_param_evol(self,paramName,z_evol):
 		'''first argument of z_evol must be z'''
-		if type(z_evol) is float:
+		if z_evol is None:
+			# used for fitting - parameter is a free value
+			self.paramEvol[paramName] = lambda z,val: val
+		elif type(z_evol) is float:
 			# constant with redshift
 			self.paramEvol[paramName] = lambda z: z_evol
 		else:
+			# redshift evolution supplied by user
 			self.paramEvol[paramName] = z_evol
 		argspec = inspect.getargspec(self.paramEvol[paramName])
 		self.nargs[paramName] = len(argspec[0]) - 1
@@ -88,9 +92,9 @@ def integrateDPL(Mrange,logPhiStar,MStar,alpha,beta):
 	return 1.0857 * PhiStar_M * Lsum
 
 class DoublePowerLawLF(LuminosityFunction):
-	def __init__(self,logPhiStar,MStar,alpha,beta):
+	def __init__(self,logPhiStar=None,MStar=None,alpha=None,beta=None):
 		super(DoublePowerLawLF,self).__init__()
-		self.scale = 'log'
+		self.set_scale('log')
 		self.set_param_evol('logPhiStar',logPhiStar)
 		self.set_param_evol('MStar',MStar)
 		self.set_param_evol('alpha',alpha)
