@@ -3,6 +3,13 @@
 from astropy.cosmology import FlatLambdaCDM
 from simqso import qsoSimulation,lumfun
 
+def BOSS_DR9_PLE(which=1):
+	if which==1:
+		row = -1.16,-3.37,-22.85,1.241,-0.249,-5.96
+	alpha,beta,MStar0,k1,k2,logPhiStar = row
+	MStar = lambda z: MStar0 - 2.5*(k1*z + k2*z**2)
+	return lumfun.DoublePowerLawLF(logPhiStar,MStar,alpha,beta)
+
 def BOSS_DR9_LEDE():
 	c1,c2 = -0.689, -0.809
 	logPhiStar22 = -5.83
