@@ -540,6 +540,13 @@ def qsoSimulation(simParams,**kwargs):
 		                          simParams['FileName']+'_spectra.fits.gz'),
 		             simQSOs['spectra'],clobber=True)
 
+def load_spectra(simFileName,outputDir='.'):
+	simdat,par = readSimulationData(simFileName,outputDir,retParams=True)
+	sp = fits.getdata(os.path.join(outputDir,simFileName+'_spectra.fits.gz'))
+	simdat['spec'] = sp
+	wave = buildWaveGrid(par)
+	return wave,simdat
+
 def generateForestGrid(simParams,**kwargs):
 	forestParams = simParams['ForestParams']
 	outputDir = kwargs.get('outputDir','./')
