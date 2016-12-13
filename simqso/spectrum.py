@@ -94,7 +94,9 @@ class QSOSpectrum(Spectrum):
 		z1 = 1 + self.z
 		slopes,breakpts = plaws
 		alpha_lams = -(2+slopes) # a_nu --> a_lam
-		breakpts = breakpts.astype(np.float32)
+		# add a breakpoint beyond the red edge of the spectrum in order
+		# to fill using the last power law slope if necessary
+		breakpts = np.concatenate([breakpts,[self.wave[-1]+1]])
 		wb = np.searchsorted(self.wave,breakpts*z1)
 		ii = np.where((wb>0)&(wb<=len(self.wave)))[0]
 		wb = wb[ii]
