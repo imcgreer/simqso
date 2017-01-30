@@ -94,8 +94,7 @@ class QSOSpectrum(Spectrum):
 		z1 = 1 + self.z
 		slopes,breakpts = plaws
 		alpha_lams = -(2+slopes) # a_nu --> a_lam
-		# add a breakpoint beyond the red edge of the spectrum in order
-		# to fill using the last power law slope if necessary
+		#breakpts = breakpts.astype(np.float32)
 		breakpts = np.concatenate([breakpts,[self.wave[-1]+1]])
 		wb = np.searchsorted(self.wave,breakpts*z1)
 		ii = np.where((wb>0)&(wb<=len(self.wave)))[0]
@@ -107,6 +106,7 @@ class QSOSpectrum(Spectrum):
 			   self.f_lambda[w1-1] * \
 			     (self.wave[w1:w2]/self.wave[w1-1])**alpha_lam
 			w1 = w2
+		
 		if fluxNorm is not None:
 			normwave = fluxNorm['wavelength']
 			wave0 = self.wave/z1
@@ -127,6 +127,11 @@ class QSOSpectrum(Spectrum):
 			else:
 				# ... to be strictly correct, would need to account for power law
 				#     slope within the pixel
+				
+				# SUPERHACK TO prevent self.f_lambda from being 0.0
+				if self.f_lambda[np.searchsorted(wave0,normwave)] <1e-16:
+				    self.f_lambda[np.searchsorted(wave0,normwave)] = 1e-17
+				    
 				fscale = fnorm/self.f_lambda[np.searchsorted(wave0,normwave)]
 			self.f_lambda *= fscale
 		self.plcontinuum = self.f_lambda.copy()

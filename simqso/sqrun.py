@@ -536,8 +536,11 @@ def qsoSimulation(simParams,**kwargs):
 		writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,
 		                    outputDir,writeFeatures)
 	if saveSpectra:
+		#fits.writeto(os.path.join(outputDir,
+		                          #simParams['FileName']+'_spectra.fits.gz'),
+		             #simQSOs['spectra'],clobber=True)
 		fits.writeto(os.path.join(outputDir,
-		                          simParams['FileName']+'_spectra.fits.gz'),
+		                          simParams['FileName']+'_spectra.fits'),
 		             simQSOs['spectra'],clobber=True)
 
 def load_spectra(simFileName,outputDir='.'):

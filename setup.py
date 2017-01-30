@@ -8,7 +8,7 @@ except ImportError:  # Python 2.x
     from distutils.command.build_py import build_py
 
 setup(name='simqso',
-      version='0.1.1',
+      version='0.1.4',
       description='Simulated Quasar Spectra',
       author='Ian McGreer',
       author_email='imcgreer@gmail.com,',

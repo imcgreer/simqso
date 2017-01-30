@@ -104,35 +104,35 @@ WP11_model = {
 }
 
 McG13hiz_model = {
- 'forest1':{'zrange':(1.5,6.1),
+ 'forest1':{'zrange':(1.5,10.1),
             'logNHrange':(12.0,14.5),
             'gamma':3.5,
             'beta':1.50,
             'N0':8.5 * 1.1,
             'brange':(10.,100.),
             'bsig':24.0},
- 'forest2':{'zrange':(1.5,6.1),
+ 'forest2':{'zrange':(1.5,10.1),
             'logNHrange':(14.5,17.2),
             'gamma':3.5,
             'beta':1.70,
             'N0':0.33 * 1.1,
             'brange':(10.,100.),
             'bsig':24.0},
-     'LLS':{'zrange':(1.5,6.1),
+     'LLS':{'zrange':(1.5,10.1),
             'logNHrange':(17.2,20.3),
             'gamma':2.0,
             'beta':1.3,
             'N0':0.13 * 1.1,
             'brange':(10.,100.),
             'bsig':24.0},
-  'subDLA':{'zrange':(0.0,6.1),
+  'subDLA':{'zrange':(0.0,10.1),
             'logNHrange':(20.3,21.0),
             'N0':0.13 / 7.5 * 1.1,
             'gamma':1.70,
             'beta':1.28,
             'brange':(10.,100.),
             'bsig':24.0},
-     'DLA':{'zrange':(0.0,6.1),
+     'DLA':{'zrange':(0.0,10.1),
             'logNHrange':(21.0,22.0),
             'N0':0.13 / 33 * 1.1,
             'gamma':2.0,
@@ -573,11 +573,14 @@ def save_spectra(spec,forestName,outputDir):
 		hdu.header.update('NLOS',spec['nLOS'])
 		hdu.header.update('ZBINS',','.join('%.3f'%z for z in spec['zbins']))
 		hdu.header.update('GRIDSEED',spec['seed'])
-	hdu.writeto(os.path.join(outputDir,forestName+'.fits.gz'),clobber=True)
+	#hdu.writeto(os.path.join(outputDir,forestName+'.fits.gz'),clobber=True)
+	hdu.writeto(os.path.join(outputDir,forestName+'.fits'),clobber=True)
 
 def load_spectra(forestName,outputDir):
 	'''Load a spectrum from a FITS file.'''
-	spec,hdr = fits.getdata(os.path.join(outputDir,forestName+'.fits.gz'),
+	#spec,hdr = fits.getdata(os.path.join(outputDir,forestName+'.fits.gz'),
+	                        #header=True)
+	spec,hdr = fits.getdata(os.path.join(outputDir,forestName+'.fits'),
 	                        header=True)
 	nwave = spec['T'].shape[1]
 	wave = np.arange(nwave)

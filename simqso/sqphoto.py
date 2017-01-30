@@ -57,7 +57,7 @@ _sdss_phot_pars = {
 
 class sdssPhotoUnc(object):
 	'''sdss_photo_unc(b,f_nmgy)
-	   In a given SDSS band b, provide the uncertainty for a given flux in 
+	   In a given SDSS band b, provide the uncertainty for a given flux in
 	   nanomaggies (f_nmgy) based on the distribution of observing conditions.
 	   --> Currently underestimates true scatter by using gaussians for the
 	       scatter, whereas the true distributions generally have long tails
@@ -96,7 +96,7 @@ class sdssPhotoUnc(object):
 		               self.npixMin,np.inf)
 		c2f = np.clip(np.random.normal(self.c2fMean,self.c2fStd,shape),
 		              self.c2fMin,np.inf)
-		df = np.sqrt( f_nmgy*(c2f/gain) + 
+		df = np.sqrt( f_nmgy*(c2f/gain) +
 		               sky_nmgy_asec2*pixArea*npix*(c2f/gain) +
 		                darkVar*npix*(c2f/gain)**2 +
 		                 (self.calibrationError*f_nmgy)**2 )
@@ -188,14 +188,14 @@ class cfhtlsWidePhotoUnc(empiricalPhotoUnc):
 # need to find original reference, values updated to AllWISE by Feige
 
 _wise_phot_pars = {
-  'n':{'W1':1.27638929691e-08, 'W2':5.3381013093e-08,
+  'n':{'W1':1.10688849e-08, 'W2':4.80175292e-08,
        'W3':4.4392921685e-06, 'W4':0.000104547518424 },
-  'n_lo':{'W1':5.40478552e-09, 'W2':2.71540849e-08, },
-  'n_hi':{'W1':2.01230005e-08, 'W2':7.96079411e-08, },
-  'a':{'W1':0.0225179020701, 'W2':0.0190291650915,
+  'n_lo':{'W1':8.54987472e-09, 'W2':3.69296068e-08, },
+  'n_hi':{'W1':1.35878952e-08, 'W2':5.91054515e-08, },
+  'a':{'W1':2.22977172e-02, 'W2':1.92250161e-02,
        'W3':0.01, 'W4':0.01},
-  'a_lo':{'W1':0.0206696329, 'W2':0.0188475527, },
-  'a_hi':{'W1':0.0243661712, 'W2':0.0192107775, },
+  'a_lo':{'W1':2.18542185e-02, 'W2':1.89920736e-02, },
+  'a_hi':{'W1':2.27412159e-02, 'W2':1.94579587e-02, },
   # http://wise2.ipac.caltech.edu/docs/release/prelim/expsup/sec4_3g.html#WISEZMA
   'ABtoVega':{'W1':2.699,'W2':3.339,'W3':5.174,'W4':6.620},
 }
@@ -219,14 +219,51 @@ class allwisePhotoUnc(object):
 			# over the sky, not really sure how valid it is
 			sig_m_lo = self.a_lo + 1.0857*self.n_lo/(10**(-0.4*vegaMag))
 			sig_m_hi = self.a_hi + 1.0857*self.n_hi/(10**(-0.4*vegaMag))
-			lo = np.abs(np.random.normal(scale=0.5*(sig_m-sig_m_lo),size=s))
-			hi = np.abs(np.random.normal(scale=0.5*(sig_m_hi-sig_m),size=s))
+			lo = np.abs(np.random.normal(scale=1.0*(sig_m-sig_m_lo),size=s))
+			hi = np.abs(np.random.normal(scale=1.0*(sig_m_hi-sig_m),size=s))
 			x = np.random.random(size=s)
 			sig_m += np.choose(x<0.5,[hi,-lo])
 		except:
 			pass
-		sig_m = np.clip(sig_m,0.03,np.inf)
+		sig_m = np.clip(sig_m,0.02,np.inf)
 		return sig_m * f_nmgy / 1.0857
+
+_tmass_phot_pars = {
+	'x0':{'J':14.47706168, 'H':13.74112897,
+	 'K':13.10023926 },
+	'y0':{'J':-3.56813635, 'H':-3.51598265,
+	 'K':-3.60406916 },
+	'k':{'J':0.69856564, 'H':0.75697424,
+         'K':0.79939991 },
+	'c':{'J':0.21028606, 'H':0.30856437,
+         'K':0.28210028 },
+	'ABtoVega':{'J':0.894,'H':1.374,'K':1.84}
+}
+
+def piecewise_linear(x, x0, y0, k):
+    return np.piecewise(x, [x < x0], [lambda x: y0, lambda x:k*x + y0-k*x0])
+
+
+class tmassPhotoUnc(object):
+	def __init__(self,b):
+		self.band = b
+		self.x0 = _tmass_phot_pars['x0'][b]
+		self.y0 = _tmass_phot_pars['y0'][b]
+		self.k = _tmass_phot_pars['k'][b]
+		self.c = _tmass_phot_pars['c'][b]
+		self.vegaConv = _tmass_phot_pars['ABtoVega'][b]
+
+	def __call__(self,f_nmgy):
+		abMag = nmgy2abmag(self.band,f_nmgy)
+		vegaMag = abMag - self.vegaConv
+		sig_m = piecewise_linear(vegaMag,self.x0,self.y0,self.k)
+		s = f_nmgy.shape
+		sig_m_scatter = np.random.normal(scale=0.5*self.c,size=s)
+		sig_m +=sig_m_scatter
+		# sig_flux = np.exp(sig_m)
+		# sig_flux = (-0.4*np.log(10) * sig_m * np.power(10,-0.4*abMag) * 3631)
+		sig_m = np.exp(sig_m)
+		return sig_m * f_nmgy /1.0857
 
 supported_photo_systems = {
   'SDSS':{
@@ -242,6 +279,9 @@ supported_photo_systems = {
   },
   'WISE':{
     'AllWISE':{'bands':['W1','W2'],'magSys':'AB','uncMap':allwisePhotoUnc},
+  },
+  'TMASS':{
+    'Allsky':{'bands':['J','H','K'],'magSys':'AB','uncMap':tmassPhotoUnc},
   },
 }
 
@@ -261,7 +301,7 @@ def load_photo_map(params):
 		try:
 			photSys = supported_photo_systems[photSysName][survey]
 		except:
-			raise ValueError('%s-%s not a valid photo system' % 
+			raise ValueError('%s-%s not a valid photo system' %
 			                 (photSysName,survey))
 		if bands is None:
 			bands = photSys['bands']
@@ -312,7 +352,7 @@ def calcSynPhot(spec,photoMap,photoCache=None,mags=None,fluxes=None):
 		lamRlamdlam = photoCache[b]['lam_Rlam_dlam']
 		flam = spec.f_lambda[i1:i2]
 		flux = np.sum(flam*lamRlamdlam) / fnorm
-		fluxes[j] = flux * conv_Slam_to_Snu 
+		fluxes[j] = flux * conv_Slam_to_Snu
 		if fluxes[j] == 0:
 			mags[j] = 99.99
 		else:
@@ -340,4 +380,3 @@ def calcObsPhot(synFlux,photoMap):
 			raise ValueError
 	return {'obsFlux':obsFlux,'obsFluxErr':obsFluxErr,
 	        'obsMag':obsMag,'obsMagErr':obsMagErr}
-
