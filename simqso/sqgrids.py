@@ -333,7 +333,8 @@ class VW01FeTemplateGrid(object):
 	def _loadVW01Fe(self,wave):
 		fepath = datadir+'VW01_Fe/'
 		feTemplate = np.zeros_like(wave)
-		for fn in ['Fe_UVtemplt_B.asc','Fe2_UV191.asc','Fe3_UV47.asc']:
+		#for fn in ['Fe_UVtemplt_B.asc','Fe2_UV191.asc','Fe3_UV47.asc']:
+		for fn in ['Fe_UVOPT_V01_T06_BR92.asc','Fe2_UV191.asc','Fe3_UV47.asc']:
 			w,f = np.loadtxt(fepath+fn,unpack=True)
 			spec = interp1d(w,f,kind='slinear')
 			w1,w2 = np.searchsorted(wave,[w[0],w[-1]])
@@ -347,11 +348,13 @@ class VW01FeTemplateGrid(object):
 		feTemplate /= fcont
 		return feTemplate
 	def _restFrameFeTemplate(self,FWHM_kms,feScalings):
-		wave = np.logspace(np.log(1075.),np.log(3089.),5000,base=np.e)
+		#wave = np.logspace(np.log(1075.),np.log(3089.),5000,base=np.e)
+		wave = np.logspace(np.log(1075.),np.log(7500.),5000,base=np.e)
 		feTemplate = self._loadVW01Fe(wave)
 		# rescale segments of the Fe template
 		if feScalings is None:
-			feScalings = [(0,3500,1.0),]
+			#feScalings = [(0,3500,1.0),]
+			feScalings = [(0,7500,1.0),]
 		print 'using Fe scales: ',feScalings
 		for w1,w2,fscl in feScalings:
 			wi1,wi2 = np.searchsorted(wave,(w1,w2))
@@ -381,7 +384,8 @@ class VW01FeTemplateGrid(object):
 
 class VariedEmissionLineGrid(object):
 	def __init__(self,M1450,z,**kwargs):
-		trendfn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v5',)
+		#trendfn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v5',)
+		trendfn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v6',)
 		self.fixed = kwargs.get('fixLineProfiles',False)
 		self.minEW = kwargs.get('minEW',0.0)
 		indy = kwargs.get('EmLineIndependentScatter',False)
