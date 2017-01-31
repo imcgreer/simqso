@@ -24,7 +24,7 @@ simParams = {
   # filename for simulation output (".fits" is appended)
   'FileName':'boss_dr9qlf_sim',
   # wavelength range of simulated spectra in Angstroms
-  'waveRange':(3000.,3.0e4),
+  'waveRange':(3000.,3.0e5),
   # constant spectral dispersion per pixel as R = d(log(lam))
   'SpecDispersion':500,
   # dispersion scale is logarithmic [only option for now]
@@ -124,6 +124,35 @@ simParams = {
       # UKIDSS YJHK with an error model for the Large Area Survey
       ('UKIRT','UKIDSS_LAS'),
     ]
+  },
+}
+
+# this was the 'expdust' model described in Ross+13
+bossdr9_expdust_model = {
+  'ContinuumParams':{
+    'ContinuumModel':'GaussianPLawDistribution',
+    'PowerLawSlopes':[(-0.5,0.2),1100,(-0.3,0.2),
+                      5700,(-0.78,0.3),10850,(-1.81,0.3),22300,(-1.03,0.3)],
+  },
+  'EmissionLineParams':{
+    'EmissionLineModel':'VariedEmissionLineGrid',
+    'fixLineProfiles':False,
+    'minEW':0.0,
+    'EmLineIndependentScatter':False,
+    'scaleEWs':{'LyAb':1.1,'LyAn':1.1,
+                'CIVb':0.75,'CIVn':0.75,
+                'CIII]b':0.8,'CIII]n':0.8,
+                'MgIIb':0.8,'MgIIn':0.8},
+  },
+  'IronEmissionParams':{
+    'FeScalings':[(0,1540,0.5),(1540,1680,2.0),(1680,1868,1.6),
+                  (1868,2140,1.0),(2140,3500,1.0)],
+  },
+  'DustExtinctionParams':{
+    'DustExtinctionModel':'Exponential E(B-V) Distribution',
+    'DustModelName':'SMC',
+    'E(B-V)':0.033,
+    #'DustLOSfraction':1.0,
   },
 }
 
