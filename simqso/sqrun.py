@@ -545,7 +545,7 @@ def qsoSimulation(simParams,**kwargs):
 
 def load_spectra(simFileName,outputDir='.'):
 	simdat,par = readSimulationData(simFileName,outputDir,retParams=True)
-	sp = fits.getdata(os.path.join(outputDir,simFileName+'_spectra.fits.gz'))
+	sp = fits.getdata(os.path.join(outputDir,simFileName+'_spectra.fits'))
 	simdat['spec'] = sp
 	wave = buildWaveGrid(par)
 	return wave,simdat
