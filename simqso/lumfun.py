@@ -63,9 +63,13 @@ class QlfEvolParam(object):
 			self.fix(i)
 	def get(self):
 		return self.par.compressed()
-	def fix(self,i):
+	def fix(self,i=None):
+		if i is None:
+			i = np.s_[:]
 		self.par[i] = np.ma.masked
-	def free(self,i):
+	def free(self,i=None):
+		if i is None:
+			i = np.s_[:]
 		self.par[i] = self.par.data[i]
 	def _extract_par(self,par):
 		rv = self.par.data.copy()
