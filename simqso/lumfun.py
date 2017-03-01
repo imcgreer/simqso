@@ -57,10 +57,13 @@ class QlfEvolParam(object):
 	def __str__(self):
 		return ','.join([self._tostr(p,m) 
 		             for p,m in zip(self.par.data,self.par.mask)])
-	def set(self,i,par,fixed=False):
-		self.par.data[i] = par
-		if fixed:
-			self.fix(i)
+	def set(self,val,i=None):
+		if self.par.mask.all():
+			return
+		if i is None:
+			i = np.where(~self.par.mask)[0]
+		n = 1 if np.isscalar(i) else len(i)
+		self.par.data[i] = [ val.pop(0) for j in range(n) ]
 	def get(self):
 		return self.par.compressed()
 	def fix(self,i=None):
@@ -137,6 +140,10 @@ class DoublePowerLawLF(LuminosityFunction):
 			yield p
 	def getpar(self):
 		return np.concatenate([ p.get() for p in self._iterpars() ])
+	def setpar(self,par):
+		par = list(par)
+		for p in self._iterpars():
+			p.set(par)
 	def logPhi(self,M,z,par=None):
 		if par is not None:
 			par = list(par)
