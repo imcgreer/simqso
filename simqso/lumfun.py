@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from copy import copy
+from copy import deepcopy
 from collections import OrderedDict
 import numpy as np
 import astropy.units as u
@@ -92,7 +92,7 @@ class LuminosityFunction(object):
 	def __str__(self):
 		s = ''
 		for pname,p in self.params.items():
-			s += 'Parameter %15s:  %s\n' % (pname,str(p))
+			s += '%15s:  %s\n' % (pname,str(p))
 		return s
 	def logPhi(self,M,z,*args):
 		raise NotImplementedError
@@ -108,6 +108,8 @@ class LuminosityFunction(object):
 			self._call = self.logPhi
 		else:
 			self._call = self.Phi
+	def copy(self):
+		return deepcopy(self)
 
 class DoublePowerLawLF(LuminosityFunction):
 	def __init__(self,logPhiStar=None,MStar=None,alpha=None,beta=None):
@@ -133,7 +135,7 @@ class DoublePowerLawLF(LuminosityFunction):
 		return np.concatenate([ p.get() for p in self._iterpars() ])
 	def logPhi(self,M,z,par=None):
 		if par is not None:
-			par = copy(list(par))
+			par = list(par)
 		logPhiStar,Mstar,alpha,beta = [ p.eval_at_z(z,par)
 		                                   for p in self._iterpars() ]
 		if par is not None and len(par) > 0:
