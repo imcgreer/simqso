@@ -131,13 +131,12 @@ class DoublePowerLawLF(LuminosityFunction):
 		                 10**(0.4*( beta+1)*(M-Mstar)))
 	__call__ = logPhi
 	def _sample(self,Mrange,zrange,p,cosmo,**kwargs):
+		# XXX make this more sensible
 		nz = 100
 		nM = 30
 		skyfrac = kwargs.get('skyArea',skyDeg2) / skyDeg2
-		Mmin = Mrange(zrange[0])[0]
-		Mmax = Mrange(zrange[1])[1]
 		dVdzdO = interp_dVdzdO(zrange,cosmo)
-		phi_z = lambda z: integrateDPL((Mmin,Mmax),*self.eval_at_z(z,*p)) * \
+		phi_z = lambda z: integrateDPL(Mrange(z),*self.eval_at_z(z,*p)) * \
 		                        dVdzdO(z)
 		zbins = np.linspace(zrange[0],zrange[1],nz)
 		zsamp = [quad(phi_z,*zr)[0] for zr in zip(zbins[:-1],zbins[1:])]
