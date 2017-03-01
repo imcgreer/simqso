@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import inspect
+from copy import copy
 from collections import OrderedDict
 import numpy as np
 import astropy.units as u
@@ -14,59 +14,6 @@ def interp_dVdzdO(zrange,cosmo):
 	zz = np.arange(zrange[0]-0.01,zrange[1]+0.0251,0.025)
 	diff_co_vol = [cosmo.differential_comoving_volume(z).value for z in zz]
 	return interp1d(zz,diff_co_vol)
-
-class LuminosityFunction(object):
-	def __init__(self):
-		self.paramEvol = OrderedDict()
-		self.nargs = {}
-	def logPhi(self,M,z,*args):
-		raise NotImplementedError
-#	def __call__(self,*args):
-#		raise NotImplementedError
-	def logPhi(self,M,z,*args):
-		raise NotImplementedError
-	def Phi(self,M,z,*args):
-		return 10**self.logPhi(M,z,*args)
-	def set_scale(self,scale):
-		if scale == 'log':
-			self.__call__ = self.logPhi
-			self.scale = 'log'
-		elif scale == 'linear':
-			self.__call__ = self.Phi
-			self.scale = 'linear'
-		else:
-			raise ValueError
-	def get_scale(self):
-		return self.scale
-	def set_param_evol(self,paramName,z_evol):
-		'''first argument of z_evol must be z'''
-		if z_evol is None:
-			# used for fitting - parameter is a free value
-			self.paramEvol[paramName] = lambda z,val: val
-		elif type(z_evol) is float:
-			# constant with redshift
-			self.paramEvol[paramName] = lambda z: z_evol
-		else:
-			# redshift evolution supplied by user
-			self.paramEvol[paramName] = z_evol
-		argspec = inspect.getargspec(self.paramEvol[paramName])
-		self.nargs[paramName] = len(argspec[0]) - 1
-	def set_param_values(self,p):
-		self.paramVals = p
-	def eval_at_z(self,z,*args):
-		argnum = 0
-		vals = []
-		for p in self.paramEvol:
-			if len(args) > 0:
-				pp = args[argnum:argnum+self.nargs[p]]
-			else:
-				if self.nargs[p]==0:
-					pp = ()
-				else:
-					pp = self.paramVals[argnum:argnum+self.nargs[p]]
-			vals.append(self.paramEvol[p](z,*pp))
-			argnum += self.nargs[p]
-		return vals
 
 def doublePL_Lintegral(x,a,b):
 	return (b*x**(1-a) / ((a-1)*(a-b)) - 
@@ -91,16 +38,94 @@ def integrateDPL(Mrange,logPhiStar,MStar,alpha,beta):
 		Lsum,err = quad(lambda x: 1/(x**-alpha + x**-beta), L_min, L_max)
 	return 1.0857 * PhiStar_M * Lsum
 
+class QlfEvolParam(object):
+	def __init__(self,par,fixed=False,z0=0.):
+		'''par: initial values
+		   fixed: False means none, True means all, otherwise same shape as x
+		   z0: evaluate at z+z0; i.e., z0=1 means (1+z), z0=-6 means (z-6.0)
+		'''
+		# this assures even float values are converted to length-1 arrays
+		par = np.asarray(par).astype(np.float64) * np.ones(1)
+		self.par = np.ma.array(par,mask=fixed)
+		self.z0 = z0
+	@staticmethod
+	def _tostr(x,m):
+		s = '%8g' % x
+		if m:
+			s = '[%s]' % s
+		return s
+	def __str__(self):
+		return ','.join([self._tostr(p,m) 
+		             for p,m in zip(self.par.data,self.par.mask)])
+	def set(self,i,par,fixed=False):
+		self.par.data[i] = par
+		if fixed:
+			self.fix(i)
+	def get(self):
+		return self.par.compressed()
+	def fix(self,i):
+		self.par[i] = np.ma.masked
+	def free(self,i):
+		self.par[i] = self.par.data[i]
+	def _extract_par(self,par):
+		rv = self.par.data.copy()
+		if par is not None:
+			n = (~self.par.mask).sum()
+			rv[~self.par.mask] = [ par.pop(0) for i in range(n) ]
+		return rv
+
+class PolyEvolParam(QlfEvolParam):
+	def eval_at_z(self,z,par=None):
+		par = self._extract_par(par)
+		return np.polyval(par,z+self.z0)
+
+class LogPhiStarEvolFixedK(PolyEvolParam):
+	def __init__(self,logPhiStar_zref,k=-0.47,fixed=False,zref=6.0):
+		super(LogPhiStarEvolFixedK,self).__init__([k,logPhiStar_zref],
+		                                          fixed=[True,fixed],
+		                                          z0=-zref)
+
+# mostly just a placeholder in case other forms of LF get added
+class LuminosityFunction(object):
+	def __str__(self):
+		s = ''
+		for pname,p in self.params.items():
+			s += 'Parameter %15s:  %s\n' % (pname,str(p))
+		return s
+	def logPhi(self,M,z,*args):
+		raise NotImplementedError
+	def Phi(self,M,z,*args):
+		return 10**self.logPhi(M,z,*args)
+
 class DoublePowerLawLF(LuminosityFunction):
 	def __init__(self,logPhiStar=None,MStar=None,alpha=None,beta=None):
+		'''each param is either a QlfEvolParam, or values to initialize
+		   a PolyEvolParam, which is the default
+		'''
 		super(DoublePowerLawLF,self).__init__()
-		self.set_scale('log')
-		self.set_param_evol('logPhiStar',logPhiStar)
-		self.set_param_evol('MStar',MStar)
-		self.set_param_evol('alpha',alpha)
-		self.set_param_evol('beta',beta)
-	def logPhi(self,M,z,*args):
-		logPhiStar,Mstar,alpha,beta = self.eval_at_z(z,*args)
+		self.params = OrderedDict()
+		self.params['logPhiStar'] = self._resolvepar(logPhiStar)
+		self.params['MStar'] = self._resolvepar(MStar)
+		self.params['alpha'] = self._resolvepar(alpha)
+		self.params['beta'] = self._resolvepar(beta)
+	@staticmethod
+	def _resolvepar(p):
+		if isinstance(p,QlfEvolParam):
+			return p
+		else:
+			return PolyEvolParam(p)
+	def _iterpars(self):
+		for p in self.params.values():
+			yield p
+	def getpar(self):
+		return np.concatenate([ p.get() for p in self._iterpars() ])
+	def logPhi(self,M,z,par=None):
+		if par is not None:
+			par = copy(list(par))
+		logPhiStar,Mstar,alpha,beta = [ p.eval_at_z(z,par)
+		                                   for p in self._iterpars() ]
+		if par is not None and len(par) > 0:
+			raise ValueError
 		return logPhiStar - \
 		        np.log10(10**(0.4*(alpha+1)*(M-Mstar)) + \
 		                 10**(0.4*( beta+1)*(M-Mstar)))
@@ -197,4 +222,7 @@ class DoublePowerLawLF(LuminosityFunction):
 			l912 = (1450./break_wave)**alpha1 * (break_wave/912.)**alpha2
 		# for now return e1450, e912
 		return LStar_nu * x, LStar_nu * l912 * x
+
+QLF_McGreer_2013 = DoublePowerLawLF(LogPhiStarEvolFixedK(-8.94),
+                                    -27.21,-2.03,-4.0)
 
