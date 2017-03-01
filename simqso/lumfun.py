@@ -87,6 +87,8 @@ class LogPhiStarEvolFixedK(PolyEvolParam):
 
 # mostly just a placeholder in case other forms of LF get added
 class LuminosityFunction(object):
+	def __init__(self):
+		self.set_scale('log')
 	def __str__(self):
 		s = ''
 		for pname,p in self.params.items():
@@ -96,6 +98,16 @@ class LuminosityFunction(object):
 		raise NotImplementedError
 	def Phi(self,M,z,*args):
 		return 10**self.logPhi(M,z,*args)
+	def __call__(self,M,z,par=None):
+		return self._call(M,z,par)
+	def set_scale(self,scale):
+		if scale not in ['log','linear']:
+			raise ValueError
+		self.scale = scale
+		if scale == 'log':
+			self._call = self.logPhi
+		else:
+			self._call = self.Phi
 
 class DoublePowerLawLF(LuminosityFunction):
 	def __init__(self,logPhiStar=None,MStar=None,alpha=None,beta=None):
@@ -129,7 +141,6 @@ class DoublePowerLawLF(LuminosityFunction):
 		return logPhiStar - \
 		        np.log10(10**(0.4*(alpha+1)*(M-Mstar)) + \
 		                 10**(0.4*( beta+1)*(M-Mstar)))
-	__call__ = logPhi
 	def _sample(self,Mrange,zrange,p,cosmo,**kwargs):
 		# XXX make this more sensible
 		nz = 100
