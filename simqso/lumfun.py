@@ -62,10 +62,21 @@ class QlfEvolParam(object):
 			return
 		if i is None:
 			i = np.where(~self.par.mask)[0]
-		n = 1 if np.isscalar(i) else len(i)
-		self.par.data[i] = [ val.pop(0) for j in range(n) ]
+		if np.isscalar(i):
+			n = 1
+			i = np.array([i])
+		else:
+			n = len(i)
+		if type(val) is list:
+			self.par.data[i] = [ val.pop(0) for j in range(n) ]
+		else:
+			self.par.data[i] = val
 	def get(self):
 		return self.par.compressed()
+	def iterfree(self):
+		ii = np.where(~self.par.mask)[0]
+		for i in ii:
+			yield i,self.par.data[i]
 	def fix(self,i=None):
 		if i is None:
 			i = np.s_[:]
@@ -101,6 +112,15 @@ class LuminosityFunction(object):
 		for pname,p in self.params.items():
 			s += '%15s:  %s\n' % (pname,str(p))
 		return s
+	def _iterpars(self):
+		for p in self.params.values():
+			yield p
+	def getpar(self):
+		return np.concatenate([ p.get() for p in self._iterpars() ])
+	def setpar(self,par):
+		par = list(par)
+		for p in self._iterpars():
+			p.set(par)
 	def logPhi(self,M,z,*args):
 		raise NotImplementedError
 	def Phi(self,M,z,*args):
@@ -135,15 +155,6 @@ class DoublePowerLawLF(LuminosityFunction):
 			return p
 		else:
 			return PolyEvolParam(p)
-	def _iterpars(self):
-		for p in self.params.values():
-			yield p
-	def getpar(self):
-		return np.concatenate([ p.get() for p in self._iterpars() ])
-	def setpar(self,par):
-		par = list(par)
-		for p in self._iterpars():
-			p.set(par)
 	def logPhi(self,M,z,par=None):
 		if par is not None:
 			par = list(par)
