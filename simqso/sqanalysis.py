@@ -6,18 +6,6 @@ from scipy.interpolate import RectBivariateSpline
 
 from .sqrun import readSimulationData
 
-class Interp2DSeries:
-	def __init__(self,interpFun):
-		self.interpFun = interpFun
-	def __call__(self,x,y):
-		try:
-			# inputs are sequences
-			return np.array([self.interpFun(x,y)[0][0]
-			                   for x,y in zip(x,y)])
-		except TypeError:
-			# inputs are scalars
-			return self.interpFun(x,y).squeeze()
-
 def getGridBins(simPars):
 	mEdges = np.arange(*simPars['GridParams']['mRange'])
 	zEdges = np.arange(*simPars['GridParams']['zRange'])
@@ -26,7 +14,7 @@ def getGridBins(simPars):
 	gridShape = mBins.shape + zBins.shape + (simPars['GridParams']['nPerBin'],)
 	return mBins,zBins,gridShape
 
-def calcKCorrFromGrid(fileName,outputDir='./',retGrid=False,retGridFun=False,bandNum=0):
+def calcKCorrFromGrid(fileName,outputDir='./',retGrid=False,bandNum=0):
 	from astropy import cosmology
 	simData,simPars = readSimulationData(fileName,outputDir,retParams=True)
 	mBins,zBins,gridShape = getGridBins(simPars)
@@ -43,22 +31,22 @@ def calcKCorrFromGrid(fileName,outputDir='./',retGrid=False,retGridFun=False,ban
 	kCorrGrid = np.median(kCorrGrid,axis=-1)
 	if retGrid:
 		return kCorrGrid
-	kCorr = RectBivariateSpline(mBins,zBins,kCorrGrid,kx=3,ky=3,s=1)
-	if retGridFun:
-		return kCorr
 	else:
-		return Interp2DSeries(kCorr)
+		return RectBivariateSpline(mBins,zBins,kCorrGrid,kx=3,ky=3,s=1)
 
 class ClippedFunction(object):
 	def __init__(self,fun,minval=0.0,maxval=1.0):
 		self.fun = fun
 		self.minval = minval
 		self.maxval = maxval
+	def clip(self,arr):
+		return arr.clip(self.minval,self.maxval)
 	def __call__(self,*args,**kwargs):
-		return self.fun(*args,**kwargs).clip(self.minval,self.maxval)
+		return self.clip(self.fun(*args,**kwargs))
+	def ev(self,*args,**kwargs):
+		return self.clip(self.fun.ev(*args,**kwargs))
 
-def calcSelectionFunctionFromGrid(fileName,selector,outputDir='./',
-	                              retGridFun=False):
+def calcSelectionFunctionFromGrid(fileName,selector,outputDir='./'):
 	simData,simPars = readSimulationData(fileName,outputDir,retParams=True)
 	mBins,zBins,gridShape = getGridBins(simPars)
 	is_selected = selector(simData['obsMag'],simData['obsMagErr'],
@@ -66,8 +54,5 @@ def calcSelectionFunctionFromGrid(fileName,selector,outputDir='./',
 	is_selected = is_selected.reshape(gridShape)
 	selGrid = np.sum(is_selected,axis=-1).astype(np.float32) / gridShape[-1]
 	selFun = RectBivariateSpline(mBins,zBins,selGrid,kx=3,ky=3,s=1)
-	if retGridFun:
-		return ClippedFunction(selFun)
-	else:
-		return ClippedFunction(Interp2DSeries(selFun))
+	return ClippedFunction(selFun)
 
