@@ -103,7 +103,7 @@ class LogPhiStarEvolFixedK(PolyEvolParam):
 		                                          fixed=[True,fixed],
 		                                          z0=-zref)
 
-# mostly just a placeholder in case other forms of LF get added
+
 class LuminosityFunction(object):
 	def __init__(self):
 		self.set_scale('log')
@@ -112,6 +112,12 @@ class LuminosityFunction(object):
 		for pname,p in self.params.items():
 			s += '%15s:  %s\n' % (pname,str(p))
 		return s
+	@staticmethod
+	def _resolvepar(p):
+		if isinstance(p,QlfEvolParam):
+			return p
+		else:
+			return PolyEvolParam(p)
 	def _iterpars(self):
 		for p in self.params.values():
 			yield p
@@ -138,6 +144,7 @@ class LuminosityFunction(object):
 	def copy(self):
 		return deepcopy(self)
 
+
 class DoublePowerLawLF(LuminosityFunction):
 	def __init__(self,logPhiStar=None,MStar=None,alpha=None,beta=None):
 		'''each param is either a QlfEvolParam, or values to initialize
@@ -149,12 +156,6 @@ class DoublePowerLawLF(LuminosityFunction):
 		self.params['MStar'] = self._resolvepar(MStar)
 		self.params['alpha'] = self._resolvepar(alpha)
 		self.params['beta'] = self._resolvepar(beta)
-	@staticmethod
-	def _resolvepar(p):
-		if isinstance(p,QlfEvolParam):
-			return p
-		else:
-			return PolyEvolParam(p)
 	def logPhi(self,M,z,par=None):
 		if par is not None:
 			par = list(par)
@@ -256,6 +257,25 @@ class DoublePowerLawLF(LuminosityFunction):
 			l912 = (1450./break_wave)**alpha1 * (break_wave/912.)**alpha2
 		# for now return e1450, e912
 		return LStar_nu * x, LStar_nu * l912 * x
+
+
+class SchechterLF(LuminosityFunction):
+	def __init__(self,logPhiStar=None,MStar=None,alpha=None):
+		super(SchechterLF,self).__init__()
+		self.params = OrderedDict()
+		self.params['logPhiStar'] = self._resolvepar(logPhiStar)
+		self.params['MStar'] = self._resolvepar(MStar)
+		self.params['alpha'] = self._resolvepar(alpha)
+	def logPhi(self,M,z,par=None):
+		if par is not None:
+			par = list(par)
+		logPhiStar,Mstar,alpha = [ p.eval_at_z(z,par)
+		                              for p in self._iterpars() ]
+		if par is not None and len(par) > 0:
+			raise ValueError
+		# -0.0357 = log10( ln10/2.5 )
+		return ( logPhiStar - 0.4*(alpha+1)*(M-Mstar) 
+		             - 10**(-0.4*(M-Mstar))/np.log(10) - 0.0357 )
 
 QLF_McGreer_2013 = DoublePowerLawLF(LogPhiStarEvolFixedK(-8.94),
                                     -27.21,-2.03,-4.0)
