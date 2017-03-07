@@ -107,6 +107,7 @@ class LogPhiStarEvolFixedK(PolyEvolParam):
 class LuminosityFunction(object):
 	def __init__(self):
 		self.set_scale('log')
+		self.paramBounds = {}
 	def __str__(self):
 		s = ''
 		for pname,p in self.params.items():
@@ -143,6 +144,10 @@ class LuminosityFunction(object):
 			self._call = self.Phi
 	def copy(self):
 		return deepcopy(self)
+	def set_param_bounds(self,paramName,paramBounds):
+		self.paramBounds[paramName] = paramBounds
+	def get_param_bounds(self,paramName):
+		return self.paramBounds.get(paramName)
 
 
 class DoublePowerLawLF(LuminosityFunction):
@@ -257,6 +262,24 @@ class DoublePowerLawLF(LuminosityFunction):
 			l912 = (1450./break_wave)**alpha1 * (break_wave/912.)**alpha2
 		# for now return e1450, e912
 		return LStar_nu * x, LStar_nu * l912 * x
+
+
+class SinglePowerLawLF(LuminosityFunction):
+	def __init__(self,logPhiStar=None,alpha=None):
+		super(SinglePowerLawLF,self).__init__()
+		self.params = OrderedDict()
+		self.params['logPhiStar'] = self._resolvepar(logPhiStar)
+		self.params['alpha'] = self._resolvepar(alpha)
+		self.Mref = -26.0
+	def logPhi(self,M,z,par=None):
+		if par is not None:
+			par = list(par)
+		logPhiStar,alpha = [ p.eval_at_z(z,par) for p in self._iterpars() ]
+		if par is not None and len(par) > 0:
+			raise ValueError
+		return logPhiStar - \
+		        np.log10(10**(0.4*(alpha+1)*(M-self.Mref)))
+
 
 
 class SchechterLF(LuminosityFunction):
