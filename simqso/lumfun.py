@@ -9,6 +9,7 @@ from scipy.integrate import quad,dblquad,romberg,simps
 from scipy.ndimage.filters import convolve
 from scipy import optimize
 from scipy.special import hyp2f1
+from astropy.stats import poisson_conf_interval
 from astropy.table import Table
 import astropy.units as u
 
@@ -393,6 +394,7 @@ class QuasarSurvey(object):
 		    Medges: array defining bin edges in absolute mag
 		    zedges: array defining bin edges in redshift
 		'''
+		confinterval = kwargs.get('confinterval','root-n')
 		# kind of hacky to access cosmo through m2M...
 		dVdzdO = interp_dVdzdO(zedges,self.m2M.cosmo)
 		#
@@ -428,7 +430,11 @@ class QuasarSurvey(object):
 		binVol = np.ma.array(binVol * self.area_srad, mask=mask)
 		lf['phi'] = np.ma.divide(lf['counts'],binVol)
 		lf['rawPhi'] = np.ma.divide(lf['rawCounts'],binVol)
-		lf['sigPhi'] = np.ma.divide(np.ma.sqrt(lf['countUnc']),binVol)
+		# --- only works for the symmetric ones ---
+		sighi = ( poisson_conf_interval(lf['countUnc'],
+		                                    interval=confinterval)[1]
+		                   - lf['countUnc'] )
+		lf['sigPhi'] = np.ma.divide(sighi,binVol)
 		return lf
 
 class QLFIntegrator(object):
