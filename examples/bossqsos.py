@@ -3,19 +3,23 @@
 from astropy.cosmology import FlatLambdaCDM
 from simqso import qsoSimulation,lumfun
 
+# XXX need to tweak params to match cosmology defined in simParams
+
 def BOSS_DR9_PLE(which=1):
 	if which==1:
 		row = -1.16,-3.37,-22.85,1.241,-0.249,-5.96
-	alpha,beta,MStar0,k1,k2,logPhiStar = row
-	MStar = lambda z: MStar0 - 2.5*(k1*z + k2*z**2)
+	alpha,beta,MStar_i_z0,k1,k2,logPhiStar = row
+	MStar1450_z0 = MStar_i_z0 + 0.890
+	MStar = lumfun.PolyEvolParam([-2.5*k2,-2.5*k1,MStar1450_z0])
 	return lumfun.DoublePowerLawLF(logPhiStar,MStar,alpha,beta)
 
 def BOSS_DR9_LEDE():
 	c1,c2 = -0.689, -0.809
-	logPhiStar22 = -5.83
-	MStar22 = -26.49
-	logPhiStar = lambda z: logPhiStar22 + c1*(z-2.2)
-	MStar = lambda z: MStar22 + c2*(z-2.2)
+	logPhiStar_z2_2 = -5.83
+	MStar_i_z2_2 = -26.49
+	MStar1450_z0 = MStar_i_z2_2 + 1.486 # --> M1450
+	MStar = lumfun.PolyEvolParam([c2,MStar1450_z0],z0=2.2)
+	logPhiStar = lumfun.PolyEvolParam([c1,logPhiStar_z2_2],z0=2.2)
 	alpha = -1.31
 	beta = -3.45
 	return lumfun.DoublePowerLawLF(logPhiStar,MStar,alpha,beta)
@@ -44,9 +48,9 @@ simParams = {
     'QLFmodel':BOSS_DR9_LEDE(),
     # simulate a 10k deg2 survey
     #'QLFargs':{'skyArea':1e4},       
-    'QLFargs':{'skyArea':100}, # but only 100 deg2 will run a lot faster
+    'QLFargs':{'skyArea':10}, # but only 10 deg2 will run a lot faster
     # set bright and faint flux limits
-    'mRange':(17.0,22.2),
+    'mRange':(17.0,21.85),
     # and redshift range
     'zRange':(2.0,4.0),
     # flux range defined in r-band
