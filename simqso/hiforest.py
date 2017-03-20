@@ -5,6 +5,7 @@ import numpy as np
 import scipy.stats as stats
 import scipy.constants as const
 from astropy.io import fits
+from astropy.table import Table
 
 from .sqbase import datadir
 
@@ -555,26 +556,18 @@ def generate_spectra_from_grid(wave,z_em,tgrid,**kwargs):
 
 def save_spectra(spec,forestName,outputDir):
 	'''Save a spectrum to a FITS file.'''
-	wave = spec['wave']
-	npix = len(wave)
-	nobj = len(spec['z'])
-	spec_dtype = [('T','(%d,)f4'%npix),('z','f4'),('losMap','i4')]
-	ftab = np.empty(nobj,dtype=spec_dtype)
-	for k,fmt in spec_dtype:
-		ftab[k] = spec[k]
+	wave = spec.pop('wave')
 	logwave = np.log(wave[:2])
-	# XXX should figure out the standard way
-	hdu = fits.new_table(ftab)
-	hdu.header.update('CD1_1',np.diff(logwave)[0])
-	hdu.header.update('CRPIX1',1)
-	hdu.header.update('CRVAL1',logwave[0])
-	hdu.header.update('CRTYPE1','LOGWAVE')
+	hdr = {'CD1_1':np.diff(logwave)[0],'CRPIX1':1,'CRVAL1':logwave[0],
+	       'CRTYPE1':'LOGWAVE'}
 	if 'zbins' in spec:
-		hdu.header.update('NLOS',spec['nLOS'])
-		hdu.header.update('ZBINS',','.join('%.3f'%z for z in spec['zbins']))
-		hdu.header.update('GRIDSEED',spec['seed'])
-	#hdu.writeto(os.path.join(outputDir,forestName+'.fits.gz'),clobber=True)
-	hdu.writeto(os.path.join(outputDir,forestName+'.fits'),clobber=True)
+		hdr['NLOS'] = spec['nLOS']
+		hdr['ZBINS'] = ','.join('%.3f'%z for z in spec['zbins'])
+		hdr['GRIDSEED'] = spec['seed']
+	ftab = Table(spec,meta=hdr)
+	ftab.write(os.path.join(outputDir,forestName+'.fits'),overwrite=True)
+	# restore input wave vector
+	spec['wave'] = wave
 
 def load_spectra(forestName,outputDir):
 	'''Load a spectrum from a FITS file.'''
