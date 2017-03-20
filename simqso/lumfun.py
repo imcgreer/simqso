@@ -47,7 +47,7 @@ class QlfEvolParam(object):
 	def __init__(self,par,fixed=False,z0=0.):
 		'''par: initial values
 		   fixed: False means none, True means all, otherwise same shape as x
-		   z0: evaluate at z+z0; i.e., z0=1 means (1+z), z0=-6 means (z-6.0)
+		   z0: evaluate at z-z0; i.e., z0=-1 means (1+z), z0=6 means (z-6.0)
 		'''
 		# this assures even float values are converted to length-1 arrays
 		par = np.asarray(par).astype(np.float64) * np.ones(1)
@@ -102,13 +102,13 @@ class QlfEvolParam(object):
 class PolyEvolParam(QlfEvolParam):
 	def eval_at_z(self,z,par=None):
 		par = self._extract_par(par)
-		return np.polyval(par,z+self.z0)
+		return np.polyval(par,z-self.z0)
 
 class LogPhiStarEvolFixedK(PolyEvolParam):
 	def __init__(self,logPhiStar_zref,k=-0.47,fixed=False,zref=6.0):
 		super(LogPhiStarEvolFixedK,self).__init__([k,logPhiStar_zref],
 		                                          fixed=[True,fixed],
-		                                          z0=-zref)
+		                                          z0=zref)
 
 
 class LuminosityFunction(object):
@@ -135,7 +135,7 @@ class LuminosityFunction(object):
 		par = list(par)
 		for p in self._iterpars():
 			p.set(par)
-	def eval_par_at_z(self,z,par):
+	def eval_par_at_z(self,z,par=None):
 		return [ p.eval_at_z(z,par) for p in self._iterpars() ]
 	def logPhi(self,M,z,*args):
 		raise NotImplementedError
