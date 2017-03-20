@@ -96,6 +96,8 @@ class QlfEvolParam(object):
 			n = (~self.par.mask).sum()
 			rv[~self.par.mask] = [ par.pop(0) for i in range(n) ]
 		return rv
+	def eval_at_z(self,z,par=None):
+		raise NotImplementedError
 
 class PolyEvolParam(QlfEvolParam):
 	def eval_at_z(self,z,par=None):
@@ -133,6 +135,8 @@ class LuminosityFunction(object):
 		par = list(par)
 		for p in self._iterpars():
 			p.set(par)
+	def eval_par_at_z(self,z,par):
+		return [ p.eval_at_z(z,par) for p in self._iterpars() ]
 	def logPhi(self,M,z,*args):
 		raise NotImplementedError
 	def Phi(self,M,z,*args):
@@ -169,8 +173,7 @@ class DoublePowerLawLF(LuminosityFunction):
 	def logPhi(self,M,z,par=None):
 		if par is not None:
 			par = list(par)
-		logPhiStar,Mstar,alpha,beta = [ p.eval_at_z(z,par)
-		                                   for p in self._iterpars() ]
+		logPhiStar,Mstar,alpha,beta = self.eval_par_at_z(z,par)
 		if par is not None and len(par) > 0:
 			raise ValueError
 		return logPhiStar - \
@@ -182,7 +185,7 @@ class DoublePowerLawLF(LuminosityFunction):
 		nM = 30
 		skyfrac = kwargs.get('skyArea',skyDeg2) / skyDeg2
 		dVdzdO = interp_dVdzdO(zrange,cosmo)
-		phi_z = lambda z: integrateDPL(Mrange(z),*self.eval_at_z(z,*p)) * \
+		phi_z = lambda z: integrateDPL(Mrange(z),*self.eval_par_at_z(z,p)) * \
 		                        dVdzdO(z)
 		zbins = np.linspace(zrange[0],zrange[1],nz)
 		zsamp = [quad(phi_z,*zr)[0] for zr in zip(zbins[:-1],zbins[1:])]
@@ -198,7 +201,7 @@ class DoublePowerLawLF(LuminosityFunction):
 		for i in range(Ntot):
 			Mr = Mrange(z[i])
 			Mbins = np.linspace(Mr[0],Mr[1],nM)
-			_p = self.eval_at_z(z[i],*p)
+			_p = self.eval_par_at_z(z[i],p)
 			Msamp = [integrateDPL(Mr,*_p) for Mr in zip(Mbins[:-1],Mbins[1:])]
 			Msamp = [0.,] + Msamp
 			N_M = np.sum(Msamp)
@@ -207,26 +210,27 @@ class DoublePowerLawLF(LuminosityFunction):
 			if ((i+1)%(Ntot//10))==0:
 				print i+1,' out of ',Ntot
 		return M,z
-	def sample_from_fluxrange(self,mrange,zrange,m2M,cosmo,p=(),**kwargs):
+	def sample_from_fluxrange(self,mrange,zrange,m2M,cosmo,p=None,**kwargs):
 		_mrange = mrange[::-1]
 		_Mrange = lambda z: np.array(_mrange) - m2M(z)
 		M,z = self._sample(_Mrange,zrange,p,cosmo,**kwargs)
 		m = M + m2M(z)
 		return m,z
-	def sample_from_Lrange(self,Mrange,zrange,cosmo,p=(),**kwargs):
+	def sample_from_Lrange(self,Mrange,zrange,cosmo,p=None,**kwargs):
 		_Mrange = lambda z: Mrange
 		return self._sample(_Mrange,zrange,p,cosmo,**kwargs)
 	def _get_Lcdf_fun(self,Mrange,z,p):
 		nM = 30
 		Mbins = np.linspace(Mrange[0],Mrange[1],nM)
-		logPhiStar,MStar,alpha,beta = self.eval_at_z(z,*p)
+		logPhiStar,MStar,alpha,beta = self.eval_par_at_z(z,p)
 		Lbins = 10**(-0.4*(Mbins-MStar))
 		Lcdf = doublePL_Lintegral(Lbins[1:],-alpha,-beta) - \
 		        doublePL_Lintegral(Lbins[0],-alpha,-beta) 
 		Lcdf /= Lcdf[-1]
 		Lcdf = np.concatenate([[0.,],Lcdf])
 		return interp1d(Lcdf,Mbins)
-	def sample_at_flux_intervals(self,mrange,zbins,m2M,Nintervals,nPerBin,p=()):
+	def sample_at_flux_intervals(self,mrange,zbins,m2M,Nintervals,nPerBin,
+	                             p=None):
 		_mrange = np.array(mrange[::-1])
 		medges = np.empty((Nintervals+1,len(zbins)))
 		mgrid = np.empty((Nintervals,len(zbins),nPerBin))
@@ -236,19 +240,19 @@ class DoublePowerLawLF(LuminosityFunction):
 			Lcdf_fun = self._get_Lcdf_fun(Mrange,z,p)
 			medges[:,j] = Lcdf_fun(xedges)[::-1] + m2M(z)
 			for i in range(Nintervals):
-				x = xedges[i] + (xedges[i+1]-xedges[i])*np.random.random(nPerBin)
+				x = xedges[i] + np.diff(xedges)[i]*np.random.random(nPerBin)
 				mgrid[i,j,:] = Lcdf_fun(x) + m2M(z)
 		return medges,mgrid
-	def integrate(self,mrange,zrange,m2M,cosmo,p=()):
+	def integrate(self,mrange,zrange,m2M,cosmo,p=None):
 		dVdzdO = interp_dVdzdO(zrange,cosmo)
 		Mrange = lambda z: np.array(mrange) - m2M(z)
-		phi_z = lambda z: integrateDPL(Mrange(z),*self.eval_at_z(z,*p)) * \
+		phi_z = lambda z: integrateDPL(Mrange(z),*self.eval_par_at_z(z,p)) * \
 		                        dVdzdO(z)
 		nqso,err = quad(phi_z,*zrange)
 		nqso *= 4*np.pi
 		return nqso
-	def ionizing_emissivity(self,z,Mrange,p=(),**kwargs):
-		logPhiStar,MStar,alpha,beta = self.eval_at_z(z,*p)
+	def ionizing_emissivity(self,z,Mrange,p=None,**kwargs):
+		logPhiStar,MStar,alpha,beta = self.eval_par_at_z(z,p)
 		# phi(L) integral is over (L/L*)^-alpha
 		# Lphi(L) integral is over (L/L*)^-alpha-1, so send (alpha+1)
 		x = integrateDPL(Mrange,logPhiStar,MStar,alpha+1,beta+1)
@@ -279,7 +283,7 @@ class SinglePowerLawLF(LuminosityFunction):
 	def logPhi(self,M,z,par=None):
 		if par is not None:
 			par = list(par)
-		logPhiStar,alpha = [ p.eval_at_z(z,par) for p in self._iterpars() ]
+		logPhiStar,alpha = self.eval_par_at_z(z,par)
 		if par is not None and len(par) > 0:
 			raise ValueError
 		return logPhiStar - \
@@ -297,8 +301,7 @@ class SchechterLF(LuminosityFunction):
 	def logPhi(self,M,z,par=None):
 		if par is not None:
 			par = list(par)
-		logPhiStar,Mstar,alpha = [ p.eval_at_z(z,par)
-		                              for p in self._iterpars() ]
+		logPhiStar,Mstar,alpha = self.eval_par_at_z(z,par)
 		if par is not None and len(par) > 0:
 			raise ValueError
 		# -0.0357 = log10( ln10/2.5 )
