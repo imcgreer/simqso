@@ -4,263 +4,279 @@ import numpy as np
 from scipy.interpolate import interp1d
 from scipy.integrate import simps
 from scipy.signal import convolve
-from astropy import cosmology
+from scipy.stats import norm,lognorm
 from astropy.table import Table
-from astropy.io.fits import Header,getdata
+
+# XXX
+from astropy.io.fits import getdata
 from astropy.io import ascii as ascii_io
 
 from .sqbase import datadir,mag2lum
 from . import dustextinction
 
-class MzGrid(object):
-	'''
-	A grid of points in (M,z) space.
-	The space is divided into cells with n points per cell, such that
-	the final grid dimensions are (M,z,nPerBin).
-	The grid can be iterated to obtain (M,z) pairs spanning the full grid. 
-	Individual cells can be accessed with grid.bin(i,j).
-	'''
-	def __init__(self,gridPar,cosmodef):
-		if len(gridPar['mRange'])==2:
-			self.mEdges = np.array(gridPar['mRange'])
-		else:
-			self.mEdges = np.arange(*gridPar['mRange'])
-		if len(gridPar['zRange'])==2:
-			self.zEdges = np.array(gridPar['zRange'])
-		else:
-			self.zEdges = np.arange(*gridPar['zRange'])
-		self.nPerBin = gridPar['nPerBin']
-		self.nM = self.mEdges.shape[0] - 1
-		self.nz = self.zEdges.shape[0] - 1
-		self.zbincenters = (self.zEdges[:-1]+self.zEdges[1:])/2
-		self.setCosmology(cosmodef)
-	def __iter__(self):
-		itM = np.nditer(self.mGrid,flags=['multi_index'])
-		itz = np.nditer(self.zGrid)
-		while not itM.finished:
-			yield itM[0],itz[0],itM.multi_index
-			itM.iternext()
-			itz.iternext()
-	def getRedshifts(self,sorted=False,return_index=False):
-		zv = self.zGrid.flatten()
-		if sorted:
-			zi = zv.argsort()
-			if return_index:
-				return zv[zi],zi
-			else:
-				return zv[zi]
-		else:
-			return zv
-	def bin(self,i,j):
-		return self.mGrid[i,j,:],self.zGrid[i,j,:]
-	def get(self,i):
-		if type(i) is tuple:
-			idx = i
-		else:
-			idx = np.unravel_index(i,self.mGrid.shape)
-		return self.mGrid[idx],self.zGrid[idx]
-	def numQSO(self):
-		return self.mGrid.size
-	def get_mEdges(self):
-		return self.mEdges
-	def get_zrange(self):
-		return self.zEdges[0],self.zEdges[-1]
-	def get_zbincenters(self):
-		return self.zbincenters
-	def setCosmology(self,cosmodef):
-		if type(cosmodef) is dict:
-			self.cosmo = cosmology.FlatLambdaCDM(**cosmodef)
-		elif isinstance(cosmodef,cosmology.FLRW):
-			self.cosmo = cosmodef
-		elif cosmodef is None:
-			self.cosmo = cosmology.get_current()
-		else:
-			raiseValueError
-	def distMod(self,z):
-		return self.cosmo.distmod(z).value
 
-class LuminosityGrid(MzGrid):
-	def __init__(self,gridPar,cosmodef):
-		super(LuminosityGrid,self).__init__(gridPar,cosmodef)
-		if gridPar['LumUnits'] != 'M1450':
-			raise NotImplementedError('only M1450 supported for now')
-		self.units = 'luminosity'
+##############################################################################
+# Samplers
+##############################################################################
 
-# XXX need to update
-class FixedMzGrid(MzGrid):
-	def __init__(self,M,z):
-		self.nM = len(M)
-		self.nz = len(z)
-		self.Marr = M
-		self.zarr = z
-		self.mGrid = np.repeat(M,len(z)).reshape(len(M),len(z),1)
-		self.zGrid = np.tile(z,len(M)).reshape(len(M),len(z),1)
-	def get_zrange(self):
-		return self.zarr.min(),self.zarr.max()
-
-class LuminosityRedshiftGrid(LuminosityGrid):
-	def __init__(self,gridPar,cosmodef):
-		super(LuminosityRedshiftGrid,self).__init__(gridPar,cosmodef)
-		self.mGrid = np.zeros((self.nM,self.nz,self.nPerBin))
-		self.zGrid = np.zeros((self.nM,self.nz,self.nPerBin))
-		dM = np.diff(self.mEdges)
-		dz = np.diff(self.zEdges)
-		for i in range(self.nM):
-			for j in range(self.nz):
-				binM = self.mEdges[i] + dM[i]*np.random.rand(self.nPerBin)
-				binz = self.zEdges[j] + dz[j]*np.random.rand(self.nPerBin)
-				zi = binz.argsort()
-				self.mGrid[i,j,:] = binM[zi]
-				self.zGrid[i,j,:] = binz[zi]
-	def getLuminosities(self,units='ergs/s/Hz'):
-		# convert M1450 -> ergs/s/Hz
+class Sampler(object):
+	def __init__(self,low,high):
+		self.low = low
+		self.high = high
+	def sample(self,n):
+		raise NotImplementedError
+	def __str__(self):
+		s = str((self.low,self.high))
+		return s
+	def update(self,qsoData,**kwargs):
 		pass
 
-class FluxGrid(MzGrid):
-	def __init__(self,gridPar,cosmodef):
-		super(FluxGrid,self).__init__(gridPar,cosmodef)
-		self.obsBand = gridPar.get('ObsBand','SDSS-i')
-		self.restBand = gridPar.get('RestBand',1450.)
-		self.m2M = lambda z: mag2lum(self.obsBand,self.restBand,z,self.cosmo)
-		self.units = 'flux'
+class FixedSampler(Sampler):
+	def __init__(self,vals):
+		self.low = None
+		self.high = None
+		self.vals = vals
+	def sample(self,n):
+		return self.vals
+
+class UniformSampler(Sampler):
+	def sample(self,n):
+		return np.linspace(self.low,self.high,n)
+
+class GridSampler(Sampler):
+	def __init__(self,low,high,nbins=None,stepsize=None):
+		if nbins is None and stepsize is None:
+			raise ValueError("Must specify nbins or stepsize")
+		super(GridSampler,self).__init__(low,high)
+		if stepsize:
+			nbins = (high - low) / stepsize
+		self.nbins = nbins+1
+	def sample(self,n):
+		arr = np.linspace(self.low,self.high,n*self.nbins)
+		return arr.reshape(self.nbins,n)
+
+class CdfSampler(Sampler):
+	def _init_cdf(self):
+		self.cdf_low = self.rv.cdf(self.low)
+		self.cdf_high = self.rv.cdf(self.high)
+	def _getpoints(self,n):
+		return self.cdf_low + (self.cdf_high-self.cdf_low)*np.random.random(n)
+	def _sample(self,x):
+		return self.rv.ppf(x)
+	def sample(self,n):
+		x = self._getpoints(n)
+		return self._sample(x)
+
+class PowerLawSampler(CdfSampler):
+	def __init__(self,low,high,a):
+		self.rv = self
+		super(PowerLawSampler,self).__init__(low,high)
+		self.a = a
+	def cdf(self,x):
+		x1,x2,a = self.low,self.high,self.a
+		if np.any(x<x1) or np.any(x>x2):
+			raise ValueError
+		return (x**(a+1) - x1**(a+1)) / (a+1)
+	def ppf(self,y):
+		if np.any(y<0) or np.any(y>1):
+			raise ValueError
+		x1,x2,a = self.low,self.high,self.a
+		return np.power( (x2**(a+1)-x1**(a+1))*y + x1**(a+1), (a+1)**-1 )
+
+class GaussianSampler(CdfSampler):
+	def __init__(self,low,high,mean,sigma):
+		super(GaussianSampler,self).__init__(low,high)
+		self.mean = mean
+		self.sigma = sigma
+		self._reset()
+		self._init_cdf()
+	def _reset(self):
+		self.rv = norm(loc=self.mean,scale=self.sigma)
+
+class LogNormalSampler(CdfSampler):
+	def __init__(self,low,high,mean,sigma):
+		super(LogNormalSampler,self).__init__(low,high)
+		self.mean = mean
+		self.sigma = sigma
+		self.rv = lognorm(loc=self.mean,scale=self.sigma)
+		self._init_cdf()
+
+class DoublePowerLawSampler(Sampler):
+	def __init__(self,low,high,a,b,x0):
+		super(DoublePowerLawSampler,self).__init__(low,high)
+		self.a = a
+		self.b = b
+		self.x0 = x0
+	def sample(self,n):
+		raise NotImplementedError
+
+class BaldwinEffectSampler(GaussianSampler):
+	def __init__(self,simGrid,a,b,sig,Mref=-26):
+		try:
+			M = simGrid.absMag
+		except:
+			raise ValueError("BEffSampler requires absMag")
+		logEwMean = np.polyval([a,b],M-Mref)
+		logEwSig = sig
+		super(BaldwinEffectSampler,self).__init__(0,np.inf,
+		                                          logEwMean,logEwSig)
+	def sample(self,n):
+		# save the x values for reuse
+		self.x = self._getpoints(n)
+		return self._sample(self.x)
+	def update(self,qsoData,**kwargs):
+		self.mean = np.polyval([a,b],qsoData['absMag']-Mref)
+		self._reset()
+
+
+
+##############################################################################
+# Simulation variables
+##############################################################################
+
+class QsoSimVar(object):
+	def __init__(self,sampler,name=None):
+		self.sampler = sampler
+		if name is not None:
+			self.name = name
+	def __call__(self,n):
+		return self.sampler.sample(n)
+	def __str__(self):
+		return str(self.sampler)
+
+class AppMagVar(QsoSimVar):
+	name = 'appMag'
+	def __init__(self,sampler,band=None):
+		super(AppMagVar,self).__init__(sampler)
+		self.band = band
+
+class AbsMagVar(QsoSimVar):
+	name = 'absMag'
+	def __init__(self,sampler,restWave=None):
+		'''if restWave is none then bolometric'''
+		super(AbsMagVar,self).__init__(sampler)
+		self.restWave = restWave
+
+class RedshiftVar(QsoSimVar):
+	name = 'z'
+
+class EmLineEwVar(QsoSimVar):
+	def __init__(self,sampler,name):
+		super(EmLineEwVar,self).__init__(sampler)
+		self.name = name
+
+class BlackHoleMassVar(QsoSimVar):
+	name = 'logBhMass'
+
+class EddingtonRatioVar(QsoSimVar):
+	name = 'logEddRatio'
+
+class AbsMagFromAppMagVar(AbsMagVar):
+	def __init__(self,appMag,m2M,restWave=None):
+		absMag = m2M(appMag)
+		sampler = FixedSampler(absMag)
+		super(AbsMagFromAppMagVar,self).__init__(sampler,restWave)
+
+class AbsMagFromBHMassEddRatioVar(AbsMagVar):
+	def __init__(self,logBhMass,logEddRatio,restWave=None):
+		eddLum = 1.26e38 * 10**logBhMass
+		lum = 10**logEddRatio * eddLum
+		BC1450 = 5.0 # rough value from Richards+06
+		lnu1450 = lum / BC1450
+		M1450 = magnitude_AB_from_L_nu(lnu1450/2e15)
+		sampler = FixedSampler(M1450)
+		super(AbsMagFromBHMassEddRatioVar,self).__init__(sampler,restWave)
+
+
+##############################################################################
+# Simulation grids
+##############################################################################
+
+class QsoSimObjects(object):
+	def __init__(self,qsoVars=None):
+		self.qsoVars = qsoVars
+	def __iter__(self):
+		for obj in self.points:
+			yield obj
+	def __getattr__(self,name):
+		try:
+			return self.points[name]
+		except KeyError:
+			raise AttributeError("no attribute "+name)
+	def addVar(self,var):
+		self.qsoVars.append(var)
+		self.points[var.name] = var(self.nObj)
+	def addVars(self,newVars):
+		for var in newVars:
+			self.addVar(var)
 	def updateMags(self,m):
-		dm = m - self.appMagGrid
+		dm = m - self.appMag
 		print '--> delta mag mean = %.7f, rms = %.7f, |max| = %.7f' % \
 		              (dm.mean(),dm.std(),np.abs(dm).max())
-		self.mGrid[:] -= dm
+		self.absMag[:] -= dm
 		return np.abs(dm).max()
+	def read(self,gridFile):
+		self.points = Table.read(gridFile)
+		self.nObj = len(self.points)
 
-class FluxRedshiftGrid(FluxGrid):
-	'''
-	Construct a grid in (mag,z) having a fixed number of points within each 
-	bin. The bin spacings need not be uniform, as long as they are 
-	monotonically increasing.
-	'''
-	def __init__(self,gridPar,cosmodef):
-		super(FluxRedshiftGrid,self).__init__(gridPar,cosmodef)
-		self.appMagGrid = np.zeros((self.nM,self.nz,self.nPerBin))
-		self.zGrid = np.zeros((self.nM,self.nz,self.nPerBin))
-		dm = np.diff(self.mEdges)
-		dz = np.diff(self.zEdges)
-		# distribute quasars into bins of flux 
-		for i in range(self.nM):
-			for j in range(self.nz):
-				binm = self.mEdges[i] + dm[i]*np.random.rand(self.nPerBin)
-				binz = self.zEdges[j] + dz[j]*np.random.rand(self.nPerBin)
-				zi = binz.argsort()
-				self.appMagGrid[i,j,:] = binm[zi]
-				self.zGrid[i,j,:] = binz[zi]
-		self.mGrid = self.appMagGrid - self.m2M(self.zGrid)
+class QsoSimPoints(QsoSimObjects):
+	def __init__(self,qsoVars,n=None):
+		super(QsoSimPoints,self).__init__(qsoVars)
+		points = { var.name:var(n) for var in qsoVars }
+		self.points = Table(points)
+		self.nObj = len(self.points)
+	def __str__(self):
+		return str(self.points)
 
-# XXX needs updating
-class MzGrid_QLFresample(FluxGrid):
-	'''
-	Beginning with an already populated (M,z) grid, transfer the points
-	to a new grid sampled with a luminosity function. The z points remain
-	the same, while M bins are selected to span a range in observed flux
-	at each redshift, such that the number of points within each bin
-	(nperbin) is fixed, but the bin widths shrink as one moves up the
-	luminosity function. The M points are also sampled from the QLF within
-	the bins, so that the overall M distribution follows the QLF smoothly.
+class QsoSimGrid(QsoSimObjects):
+	def __init__(self,qsoVars,nPerBin):
+		super(QsoSimGrid,self).__init__(qsoVars)
+		self.gridShape = tuple( v.sampler.nbins-1 for v in qsoVars ) + \
+		                    (nPerBin,)
+		# for grid variables this returns the edges of the bins
+		axes = [ var(1) for var in qsoVars ]
+		self.gridEdges = np.meshgrid(*axes,indexing='ij')
+		points = {}
+		for i,(v,g) in enumerate(zip(qsoVars,self.gridEdges)):
+			x = np.random.random(self.gridShape)
+			s = [ slice(0,-1,1) for j in range(len(qsoVars)) ]
+			pts0 = g[s][...,np.newaxis] 
+			binsz = np.diff(g,axis=i)
+			s[i] = slice(None)
+			pts = pts0 + x*binsz[s][...,np.newaxis]
+			points[v.name] = pts.flatten()
+		self.points = Table(points)
+		self.nObj = len(self.points)
+	def asGrid(self,name):
+		return np.asarray(self.points[name]).reshape(self.gridShape)
+	def __str__(self):
+		s = "grid dimensions: "+str(self.gridShape)+"\n"
+		s += str(self.gridEdges)+"\n"
+		s += str(self.points)
+		return s
 
-	The idea is to reuse a set of forest spectra generated for a previous
-	grid, since the forest spectra depend only on z, not M.
-	'''
-	def __init__(self,grid,qlf,**kwargs):
-		self.m2M = grid.m2M
-		self.nM = grid.nM
-		self.nz = grid.nz
-		self.nPerBin = grid.nPerBin
-		self.zEdges = grid.zEdges
-		self.zGrid = grid.zGrid
-		self.zbins = self.zEdges[:-1] + np.diff(self.zEdges)
-		self.obsBand = grid.obsBand
-		self.restBand = grid.restBand
-		self.cosmo = grid.cosmo
-		self.units = grid.units
-		mrange = (grid.mEdges[0],grid.mEdges[-1])
-		medges,mgrid = qlf.sample_at_flux_intervals(mrange,self.zbins,
-		                                            self.m2M,self.nM,self.nPerBin)
-		self.mEdges = medges
-		self.mEdges = medges - self.m2M(self.zbins)
-		self.mgrid = mgrid
-		self.mGrid = mgrid - self.m2M(self.zGrid)
-	def get_Medges(self,zj=None):
-		if zj is None:
-			return self.mEdges
-		else:
-			return self.mEdges[zj]
 
-class FluxGridFromData(FluxGrid):
-	def __init__(self,mzdata,gridPar,cosmodef):
-		super(FluxGridFromData,self).__init__(gridPar,cosmodef)
-		gridshape = (self.nM,self.nz,self.nPerBin)
-		self.mGrid = mzdata['M'].copy().reshape(gridshape)
-		self.zGrid = mzdata['z'].copy().reshape(gridshape)
-		self.appMagGrid = mzdata['appMag'].copy().reshape(gridshape)
 
-class LuminosityGridFromData(LuminosityGrid):
-	def __init__(self,mzdata,gridPar,cosmodef,**kwargs):
-		# XXX hacks to deal with nPerBin,LumUnits not set for LFFluxGrids
-		gridPar.setdefault('nPerBin',0)
-		gridPar.setdefault('LumUnits','M1450')
-		# XXX b/c really they should be FluxGridFromData...
-		super(LuminosityGridFromData,self).__init__(gridPar,cosmodef,**kwargs)
-		gridshape = (self.nM,self.nz,self.nPerBin)
-		self.mGrid = mzdata['M'].copy().reshape(gridshape)
-		self.zGrid = mzdata['z'].copy().reshape(gridshape)
+def generateQlfPoints(qlf,mRange,zRange,m2M,cosmo,band='i',**kwargs):
+	m,z = qlf.sample_from_fluxrange(mRange,zRange,m2M,cosmo,**kwargs)
+	m = AppMagVar(FixedSampler(m),band=band)
+	z = RedshiftVar(FixedSampler(z))
+	return QsoSimPoints([m,z])
 
-class LuminosityFunctionFluxGrid(FluxGrid):
-	def __init__(self,gridPar,qlf,cosmodef,**kwargs):
-		# workaround -- base constructor needs this value, but we don't have
-		# it until we've done the sampling from the LF
-		gridPar['nPerBin'] = 0
-		super(LuminosityFunctionFluxGrid,self).__init__(gridPar,cosmodef)
-		m,z = qlf.sample_from_fluxrange(gridPar['mRange'],gridPar['zRange'],
-		                                self.m2M,cosmodef,**kwargs)
-		# and need to set it into the parameter list so that it gets saved
-		# properly with the simulation output
-		gridPar['nPerBin'] = len(z)
-		self.appMagGrid = m
-		self.zGrid = z
-		self.nPerBin = len(z)
-		self.mGrid = m - self.m2M(z)
+def generateBrokenPLContinua(slopePars):
+	contVars = [ QsoSimVar(GaussianSampler(-np.inf,np.inf,mean,sig),
+	                       name='slope_%d'%n)
+	                     for n,(mean,sig) in enumerate(slopePars,start=1) ]
+	return contVars
 
-class FixedPLContinuumGrid(object):
-	def __init__(self,M,z,slopes,breakpoints):
-		self.slopes = np.asarray(slopes)
-		self.breakpoints = np.asarray(breakpoints)
-	def update(self,M,z):
-		# continuum are fixed in luminosity and redshift
-		return
-	def get(self,*args):
-		return self.slopes,self.breakpoints
-	def __iter__(self):
-		while True:
-			yield self.slopes,self.breakpoints
+def generateVdBcompositeEmLines():
+	pass
 
-class GaussianPLContinuumGrid(object):
-	def __init__(self,M,z,slopeMeans,slopeStds,breakpoints):
-		self.slopeMeans = slopeMeans
-		self.slopeStds = slopeStds
-		self.breakpoints = np.concatenate([[0,],breakpoints])
-		shape = z.shape+(len(slopeMeans),)
-		x = np.random.randn(*shape)
-		mu = np.asarray(slopeMeans)
-		sig = np.asarray(slopeStds)
-		self.slopes = mu + x*sig
-	def update(self,M,z):
-		# continuum are fixed in luminosity and redshift
-		return
-	def get(self,idx):
-		return self.slopes[idx],self.breakpoints
-	def getTable(self,hdr):
-		'''Return a Table of all parameters and header information'''
-		flatgrid = np.product(self.slopes.shape[:-1])
-		t = Table({'slopes':self.slopes.reshape(flatgrid,-1)})
-		hdr['CNTBKPTS'] = ','.join(['%.1f' % bkpt 
-		                            for bkpt in self.breakpoints])
-		return t
+def generateBossDr9EmLines(absMag1450):
+	pass
+
+
+
 
 class FixedVdBcompositeEMLineGrid(object):
 	def __init__(self,M,z,minEW=1.0,noFe=False):
