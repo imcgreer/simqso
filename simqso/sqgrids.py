@@ -28,7 +28,7 @@ class Sampler(object):
 	def __str__(self):
 		s = str((self.low,self.high))
 		return s
-	def update(self,qsoData,**kwargs):
+	def resample(self,qsoData,**kwargs):
 		pass
 
 class FixedSampler(Sampler):
@@ -38,6 +38,14 @@ class FixedSampler(Sampler):
 		self.vals = vals
 	def sample(self,n):
 		return self.vals
+
+class ConstSampler(Sampler):
+	def __init__(self,val):
+		self.low = None
+		self.high = None
+		self.val = val
+	def sample(self,n):
+		return np.repeat(self.val,n)
 
 class UniformSampler(Sampler):
 	def sample(self,n):
@@ -59,13 +67,13 @@ class CdfSampler(Sampler):
 	def _init_cdf(self):
 		self.cdf_low = self.rv.cdf(self.low)
 		self.cdf_high = self.rv.cdf(self.high)
-	def _getpoints(self,n):
-		return self.cdf_low + (self.cdf_high-self.cdf_low)*np.random.random(n)
+	def _getpoints(self,x):
+		return self.cdf_low + (self.cdf_high-self.cdf_low)*x
 	def _sample(self,x):
 		return self.rv.ppf(x)
 	def sample(self,n):
-		x = self._getpoints(n)
-		return self._sample(x)
+		x = np.random.random(n)
+		return self._sample(self._getpoints(x))
 
 class PowerLawSampler(CdfSampler):
 	def __init__(self,low,high,a):
@@ -110,23 +118,39 @@ class DoublePowerLawSampler(Sampler):
 	def sample(self,n):
 		raise NotImplementedError
 
-class BaldwinEffectSampler(GaussianSampler):
-	def __init__(self,simGrid,a,b,sig,Mref=-26):
+class LinearTrendWithAsymScatterSampler(Sampler):
+	def __init__(self,x,a,b,low=-np.inf,high=np.inf):
+		super(LinearTrendWithScatterSampler,self).__init__(low,high)
+		self.coeffmn = [a[0],b[0]]
+		self.coefflo = [a[1],b[1]]
+		self.coeffhi = [a[2],b[2]]
+		self._reset(x):
+	def _reset(self,x):
+		xmn = np.polyval(self.coeffmn,x)
+		xlo = np.polyval(self.coefflo,x)
+		xhi = np.polyval(self.coeffhi,x)
+		self.loSampler = GaussianSampler(self.low,self.high,xmn,xmn-xlo)
+		self.hiSampler = GaussianSampler(self.low,self.high,xmn,xhi-xmn)
+	def _getpoints(self,x):
+		xlo = self.loSampler._getpoints(x)
+		xhi = self.hiSampler._getpoints(x)
+		return np.choose(x<0,[xlo,xhi])
+
+class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
+	def __init__(self,simGrid,a,b,Mref=-26,low=0,high=np.inf):
 		try:
-			M = simGrid.absMag
+			m = simGrid.absMag - Mref
 		except:
 			raise ValueError("BEffSampler requires absMag")
-		logEwMean = np.polyval([a,b],M-Mref)
-		logEwSig = sig
-		super(BaldwinEffectSampler,self).__init__(0,np.inf,
-		                                          logEwMean,logEwSig)
+		super(BaldwinEffectSampler,self).__init__(m,a,b,low=low,high=high)
 	def sample(self,n):
 		# save the x values for reuse
-		self.x = self._getpoints(n)
+		self.x = np.random.random(n)
 		return self._sample(self.x)
-	def update(self,qsoData,**kwargs):
-		self.mean = np.polyval([a,b],qsoData['absMag']-Mref)
-		self._reset()
+	def resample(self,qsoData,**kwargs):
+		m = qsoData.absMag - Mref
+		self._reset(m)
+		return self._sample(self.x)
 
 
 
@@ -159,6 +183,9 @@ class AbsMagVar(QsoSimVar):
 
 class RedshiftVar(QsoSimVar):
 	name = 'z'
+
+class ContinuumVar(QsoSimVar):
+	pass
 
 class EmLineEwVar(QsoSimVar):
 	def __init__(self,sampler,name):
@@ -209,6 +236,12 @@ class QsoSimObjects(object):
 	def addVars(self,newVars):
 		for var in newVars:
 			self.addVar(var)
+	def getPars(self,obj,varType):
+		pars = [ obj[var.name] 
+		           for var in self.qsoVars
+			         if isinstance(var,varType) ]
+		return pars
+	# XXX this really doesn't belong here...
 	def updateMags(self,m):
 		dm = m - self.appMag
 		print '--> delta mag mean = %.7f, rms = %.7f, |max| = %.7f' % \
@@ -264,9 +297,17 @@ def generateQlfPoints(qlf,mRange,zRange,m2M,cosmo,band='i',**kwargs):
 	return QsoSimPoints([m,z])
 
 def generateBrokenPLContinua(slopePars):
-	contVars = [ QsoSimVar(GaussianSampler(-np.inf,np.inf,mean,sig),
-	                       name='slope_%d'%n)
-	                     for n,(mean,sig) in enumerate(slopePars,start=1) ]
+	contVars = []
+	for n,slopePar in enumerate(slopePars,start=1):
+		varName = 'slope_%d' % n
+		try:
+			mean,sig = slopePar
+			var = ContinuumVar(GaussianSampler(-np.inf,np.inf,mean,sig),
+			                   name=varName)
+		except TypeError:
+			var = ContinuumVar(ConstSampler(None,None,slopePar),
+			                   name=varName)
+		contVars.append(var)
 	return contVars
 
 def generateVdBcompositeEmLines():

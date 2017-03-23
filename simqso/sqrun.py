@@ -40,30 +40,39 @@ def buildMzGrid(simParams):
 	except KeyError:
 		raise ValueError('Must specify a GridType')
 	np.random.seed(gridPars.get('RandomSeed',simParams.get('RandomSeed')))
-	if gridType == 'LuminosityFunction':
+	#
+	if gridType.endswith('RedshiftGrid'):
+		m1,m2,nm = gridPars['mRange']
+		z1,z2,nz = gridPars['zRange']
+		mSampler = grids.GridSampler(m1,m2,nbins=nm)
+		zSampler = grids.GridSampler(z1,z2,nbins=nz)
+		if gridType.startswith('Luminosity'):
+			m = grids.AbsMagVar(mSampler,restWave=gridPars['LumUnits'])
+		elif gridType.startswith('Flux'):
+			m = grids.AppMagVar(mSampler,band=gridPars['ObsBand'],
+			                    restBand=gridPars['RestBand'])
+		z = grids.RedshiftVar(zSampler)
+	elif gridType == 'FixedGrid':
+		m = grids.FixedSampler(gridPars['fixed_M'])
+		z = grids.FixedSampler(gridPars['fixed_z'])
+	elif gridType == 'LuminosityFunction':
 		try:
 			qlf = gridPars['QLFmodel']
 		except KeyError:
 			raise ValueError('Must specify a parameterization of the LF')
-		Mz = grids.LuminosityFunctionFluxGrid(gridPars,qlf,cosmodef,
-		                                      **gridPars['QLFargs'])
-	elif gridType == 'LuminosityRedshiftGrid':
-		Mz = grids.LuminosityRedshiftGrid(gridPars,cosmodef)
-	elif gridType == 'FluxRedshiftGrid':
-		Mz = grids.FluxRedshiftGrid(gridPars,cosmodef)
-	elif gridType == 'FixedGrid':
-		Mz = grids.FixedMzGrid(gridPars['fixed_M'],gridPars['fixed_z'])
+		m,z = generateQlfAxes(qlf,mRange,zRange,m2M,cosmodef,skyArea,
+		                      **gridPars['QLFargs'])
 	else:
 		raise ValueError('GridType %s unknown' % gridType)
-	if gridPars.get('LFSampledGrid',False):
-		print 'transferring uniform grid to LF-sampled grid...'
-		try:
-			qlf = gridPars['QLFmodel']
-		except KeyError:
-			raise ValueError('Must specify a parameterization of the LF')
-		Mz = grids.MzGrid_QLFresample(Mz,qlf)
-		print 'done!'
-	return Mz
+#	if gridPars.get('LFSampledGrid',False):
+#		print 'transferring uniform grid to LF-sampled grid...'
+#		try:
+#			qlf = gridPars['QLFmodel']
+#		except KeyError:
+#			raise ValueError('Must specify a parameterization of the LF')
+#		Mz = grids.MzGrid_QLFresample(Mz,qlf)
+#		print 'done!'
+	return grids.QsoSimGrid([m,z],gridPars['nPerBin'])
 
 
 
@@ -106,23 +115,22 @@ def buildForest(wave,z,simParams,outputDir):
 	return forestSpec
 
 
-def buildContinuumModels(Mz,simParams):
+def buildContinuumModels(qsoGrid,simParams):
 	continuumParams = simParams['QuasarModelParams']['ContinuumParams']
 	np.random.seed(continuumParams.get('RandomSeed',
 	               simParams.get('RandomSeed')))
 	slopes = continuumParams['PowerLawSlopes'][::2]
-	breakpts = continuumParams['PowerLawSlopes'][1::2]
+#	breakpts = continuumParams['PowerLawSlopes'][1::2]
 	print '... building continuum grid'
-	if continuumParams['ContinuumModel'] == 'GaussianPLawDistribution':
-		meanSlopes = [s[0] for s in slopes]
-		stdSlopes = [s[1] for s in slopes]
-		continuumGrid = grids.GaussianPLContinuumGrid(Mz.mGrid,Mz.zGrid,
-		                                     meanSlopes,stdSlopes,breakpts)
-	elif continuumParams['ContinuumModel'] == 'FixedPLawDistribution':
-		continuumGrid = grids.FixedPLContinuumGrid(Mz.mGrid,Mz.zGrid,
-		                                           slopes,breakpts)
+	cmodel = continuumParams['ContinuumModel']
+	if cmodel in ['GaussianPLawDistribution','FixedPLawDistribution',
+	                                                'BrokenPowerLaw']:
+		if cmodel in ['GaussianPLawDistribution','FixedPLawDistribution']:
+			print 'WARNING: %s continuum is deprecated' % cmodel
+		continuumVars = grids.generateBrokenPLContinua(slopes)
 	else:
 		raise ValueError
+	qsoGrid.addVars(continuumVars)
 	return continuumGrid
 
 
@@ -222,7 +230,7 @@ def buildFeatures(Mz,wave,simParams):
 	return features
 
 
-def buildQSOspectra(wave,Mz,forest,photoMap,simParams,
+def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
                     maxIter,saveSpectra=False):
 	'''
 	Assemble the spectral components of each QSO from the input parameters.
@@ -239,20 +247,19 @@ def buildQSOspectra(wave,Mz,forest,photoMap,simParams,
 	                          'Exponential E(B-V) Distribution'
 	'''
 	if saveSpectra:
-		spectra = np.zeros((Mz.mGrid.size,len(wave)))
+		spectra = np.zeros((qsoGrid.nObj,len(wave)))
 	else:
 		spectra = None
 	nforest = len(forest['wave'])
 	assert np.all(np.abs(forest['wave']-wave[:nforest]<1e-3))
-	continua = buildContinuumModels(Mz,simParams)
-	features = buildFeatures(Mz,wave,simParams)
+	continua = buildContinuumModels(qsoGrid,simParams)
+	features = buildFeatures(qsoGrid,wave,simParams)
 	spec = QSOSpectrum(wave)
-	gridShape = Mz.mGrid.shape
-	synMag = np.zeros(gridShape+(len(photoMap['bandpasses']),))
+	synMag = np.zeros((qsoGrid.nObj,len(photoMap['bandpasses'])))
 	synFlux = np.zeros_like(synMag)
 	photoCache = sqphoto.getPhotoCache(wave,photoMap)
-	print 'units are ',Mz.units
-	if Mz.units == 'luminosity':
+	print 'units are ',qsoGrid.units
+	if qsoGrid.units == 'luminosity':
 		nIter = 1
 	else:
 		nIter = maxIter
@@ -260,19 +267,21 @@ def buildQSOspectra(wave,Mz,forest,photoMap,simParams,
 		bands = photoMap['bandpasses'].keys()
 		try:
 			fluxBand = next(j for j in range(len(bands)) 
-			                    if photoMap['filtName'][bands[j]]==Mz.obsBand)
+			                    if photoMap['filtName'][bands[j]]==qsoGrid.obsBand)
 		except:
-			raise ValueError('band ',Mz.obsBand,' not found in ',bands)
+			raise ValueError('band ',qsoGrid.obsBand,' not found in ',bands)
 		print 'fluxBand is ',fluxBand,bands
+	breakpts = continuumParams['PowerLawSlopes'][1::2]
 	for iterNum in range(nIter):
 		print 'buildQSOspectra iteration ',iterNum+1,' out of ',nIter
-		for M,z,idx in Mz:
-			i = np.ravel_multi_index(idx,gridShape)
-			spec.setRedshift(z)
+		for i,obj in enumerate(qsoGrid):
+			spec.setRedshift(obj.z)
 			# start with continuum
-			spec.setPowerLawContinuum(continua.get(idx),
-			                          fluxNorm={'wavelength':1450.,'M_AB':M,
-			                                    'DM':Mz.distMod})
+			slopes = qsoGrid.getPars(obj,grids.ContinuumVar)
+			spec.setPowerLawContinuum((slopes,breakpts),
+			                          fluxNorm={'wavelength':1450.,
+			                                    'M_AB':obj.absMag,
+			                                    'DM':qsoGrid.distMod})
 			# add additional emission/absorption features
 			for feature in features:
 				feature.apply_to_spec(spec,idx)
@@ -280,19 +289,17 @@ def buildQSOspectra(wave,Mz,forest,photoMap,simParams,
 			spec.f_lambda[:nforest] *= forest['T'][i]
 			# calculate synthetic magnitudes from the spectra through the
 			# specified bandpasses
-			synMag[idx],synFlux[idx] = sqphoto.calcSynPhot(spec,photoMap,
-			                                               photoCache,
-			                                               synMag[idx],
-			                                               synFlux[idx])
+			synMag[i],synFlux[i] = sqphoto.calcSynPhot(spec,photoMap,
+			                                           photoCache,
+			                                           synMag[i],
+			                                           synFlux[i])
 			if saveSpectra:
 				spectra[i] = spec.f_lambda
-###		print 'before: ',Mz.mGrid,synMag[...,-1]
 		if nIter > 1:
-			dmagMax = Mz.updateMags(synMag[...,fluxBand])
-			continua.update(Mz.mGrid,Mz.zGrid)
+			dmagMax = qsoGrid.updateMags(synMag[...,fluxBand])
+			continua.update(qsoGrid)
 			for feature in features:
-				feature.update(Mz.mGrid,Mz.zGrid)
-###			print 'after: ',Mz.mGrid,synMag[...,-1]
+				feature.update(qsoGrid)
 			if dmagMax < 0.01:
 				break
 	return dict(synMag=synMag,synFlux=synFlux,
