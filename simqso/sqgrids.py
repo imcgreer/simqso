@@ -124,7 +124,7 @@ class LinearTrendWithAsymScatterSampler(Sampler):
 		self.coeffmn = [a[0],b[0]]
 		self.coefflo = [a[1],b[1]]
 		self.coeffhi = [a[2],b[2]]
-		self._reset(x):
+		self._reset(x)
 	def _reset(self,x):
 		xmn = np.polyval(self.coeffmn,x)
 		xlo = np.polyval(self.coefflo,x)
@@ -187,10 +187,46 @@ class RedshiftVar(QsoSimVar):
 class ContinuumVar(QsoSimVar):
 	pass
 
-class EmLineEwVar(QsoSimVar):
-	def __init__(self,sampler,name):
-		super(EmLineEwVar,self).__init__(sampler)
-		self.name = name
+class BrokenPowerLawContinuumVar(ContinuumVar):
+	def __init__(self,slopePars,name='slopes'):
+		super(BrokenPowerLawContinuumVar,self).__init__(None,name=name)
+		self.contSamplers = []
+		for slopePar in slopePars:
+			try:
+				mean,sig = slopePar
+				s = GaussianSampler(-np.inf,np.inf,mean,sig)
+			except TypeError:
+				s = ConstSampler(slopePar)
+			self.contSamplers.append(s)
+	def __call__(self,n):
+		return np.vstack([s.sample(n) 
+		                     for s in self.contSamplers]).transpose()
+
+class EmissionLineVar(QsoSimVar):
+	pass
+
+class GaussianEmissionLineVar(EmissionLineVar):
+	def __init__(self,linePars,name=None):
+		super(GaussianEmissionLineVar,self).__init__(None,name=name)
+
+class GaussianEmissionLinesTemplateVar(EmissionLineVar):
+	def __init__(self,linePars,name=None):
+		super(GaussianEmissionLinesTemplateVar,self).__init__(None,name=name)
+		self.lineSamplers = []
+		for linePar in linePars:
+			l = []
+			for par in linePar:
+				try:
+					mean,sig = par
+					s = GaussianSampler(-np.inf,np.inf,mean,sig)
+				except TypeError:
+					s = ConstSampler(par)
+				l.append(s)
+			self.lineSamplers.append(l)
+	def __call__(self,n):
+		return np.vstack([ p.sample(n) 
+		                      for s in self.lineSamplers
+		                         for p in s ]).transpose().reshape(n,-1,3)
 
 class BlackHoleMassVar(QsoSimVar):
 	name = 'logBhMass'
@@ -295,26 +331,6 @@ def generateQlfPoints(qlf,mRange,zRange,m2M,cosmo,band='i',**kwargs):
 	m = AppMagVar(FixedSampler(m),band=band)
 	z = RedshiftVar(FixedSampler(z))
 	return QsoSimPoints([m,z])
-
-def generateBrokenPLContinua(slopePars):
-	contVars = []
-	for n,slopePar in enumerate(slopePars,start=1):
-		varName = 'slope_%d' % n
-		try:
-			mean,sig = slopePar
-			var = ContinuumVar(GaussianSampler(-np.inf,np.inf,mean,sig),
-			                   name=varName)
-		except TypeError:
-			var = ContinuumVar(ConstSampler(None,None,slopePar),
-			                   name=varName)
-		contVars.append(var)
-	return contVars
-
-def generateVdBcompositeEmLines():
-	pass
-
-def generateBossDr9EmLines(absMag1450):
-	pass
 
 
 
