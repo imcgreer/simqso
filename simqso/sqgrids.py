@@ -25,11 +25,13 @@ class Sampler(object):
 		self.high = high
 	def sample(self,n):
 		raise NotImplementedError
+	def resample(self,qsoData,**kwargs):
+		pass
+	def __call__(self,n):
+		return self.sample(n)
 	def __str__(self):
 		s = str((self.low,self.high))
 		return s
-	def resample(self,qsoData,**kwargs):
-		pass
 
 class FixedSampler(Sampler):
 	def __init__(self,vals):
@@ -92,7 +94,7 @@ class PowerLawSampler(CdfSampler):
 		return np.power( (x2**(a+1)-x1**(a+1))*y + x1**(a+1), (a+1)**-1 )
 
 class GaussianSampler(CdfSampler):
-	def __init__(self,low,high,mean,sigma):
+	def __init__(self,mean,sigma,low=-np.inf,high=np.inf):
 		super(GaussianSampler,self).__init__(low,high)
 		self.mean = mean
 		self.sigma = sigma
@@ -102,7 +104,7 @@ class GaussianSampler(CdfSampler):
 		self.rv = norm(loc=self.mean,scale=self.sigma)
 
 class LogNormalSampler(CdfSampler):
-	def __init__(self,low,high,mean,sigma):
+	def __init__(self,mean,sigma,low=-np.inf,high=np.inf):
 		super(LogNormalSampler,self).__init__(low,high)
 		self.mean = mean
 		self.sigma = sigma
@@ -110,7 +112,7 @@ class LogNormalSampler(CdfSampler):
 		self._init_cdf()
 
 class DoublePowerLawSampler(Sampler):
-	def __init__(self,low,high,a,b,x0):
+	def __init__(self,a,b,x0,low=-np.inf,high=np.inf):
 		super(DoublePowerLawSampler,self).__init__(low,high)
 		self.a = a
 		self.b = b
@@ -164,7 +166,7 @@ class QsoSimVar(object):
 		if name is not None:
 			self.name = name
 	def __call__(self,n):
-		return self.sampler.sample(n)
+		return self.sampler(n)
 	def __str__(self):
 		return str(self.sampler)
 
@@ -187,20 +189,30 @@ class RedshiftVar(QsoSimVar):
 class ContinuumVar(QsoSimVar):
 	pass
 
-class BrokenPowerLawContinuumVar(ContinuumVar):
-	def __init__(self,slopePars,name='slopes'):
-		super(BrokenPowerLawContinuumVar,self).__init__(None,name=name)
-		self.contSamplers = []
-		for slopePar in slopePars:
-			try:
-				mean,sig = slopePar
-				s = GaussianSampler(-np.inf,np.inf,mean,sig)
-			except TypeError:
-				s = ConstSampler(slopePar)
-			self.contSamplers.append(s)
+class MultiDimVar(QsoSimVar):
+	nDim = None
+	def _recurse_pars(self,_pars,depth):
+		if depth > 0:
+			return [ self._recurse_pars(p,depth-1) for p in _pars ]
+		else:
+			return self.sampler(*_pars)
+	def _recurse_call(self,samplers,n,depth):
+		if depth > 0:
+			return [ self._recurse_call(sampler,n,depth-1) 
+			             for sampler in samplers ]
+		else:
+			return samplers(n)
+	def _init_samplers(self,pars):
+		self.samplers = self._recurse_pars(pars,self.nDim)
 	def __call__(self,n):
-		return np.vstack([s.sample(n) 
-		                     for s in self.contSamplers]).transpose()
+		arr = self._recurse_call(self.samplers,n,self.nDim)
+		return np.rollaxis(np.array(arr),-1)
+
+class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
+	nDim = 1
+	def __init__(self,sampler,slopePars,name='slopes'):
+		super(BrokenPowerLawContinuumVar,self).__init__(sampler,name=name)
+		self._init_samplers(slopePars)
 
 class EmissionLineVar(QsoSimVar):
 	pass
@@ -209,24 +221,12 @@ class GaussianEmissionLineVar(EmissionLineVar):
 	def __init__(self,linePars,name=None):
 		super(GaussianEmissionLineVar,self).__init__(None,name=name)
 
-class GaussianEmissionLinesTemplateVar(EmissionLineVar):
-	def __init__(self,linePars,name=None):
-		super(GaussianEmissionLinesTemplateVar,self).__init__(None,name=name)
-		self.lineSamplers = []
-		for linePar in linePars:
-			l = []
-			for par in linePar:
-				try:
-					mean,sig = par
-					s = GaussianSampler(-np.inf,np.inf,mean,sig)
-				except TypeError:
-					s = ConstSampler(par)
-				l.append(s)
-			self.lineSamplers.append(l)
-	def __call__(self,n):
-		return np.vstack([ p.sample(n) 
-		                      for s in self.lineSamplers
-		                         for p in s ]).transpose().reshape(n,-1,3)
+class GaussianEmissionLinesTemplateVar(EmissionLineVar,MultiDimVar):
+	nDim = 2
+	def __init__(self,sampler,linePars,name=None):
+		super(GaussianEmissionLinesTemplateVar,self).__init__(sampler,
+		                                                      name=name)
+		self._init_samplers(linePars)
 
 class BlackHoleMassVar(QsoSimVar):
 	name = 'logBhMass'
