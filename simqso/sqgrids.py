@@ -121,38 +121,45 @@ class DoublePowerLawSampler(Sampler):
 		raise NotImplementedError
 
 class LinearTrendWithAsymScatterSampler(Sampler):
-	def __init__(self,x,a,b,low=-np.inf,high=np.inf):
-		super(LinearTrendWithScatterSampler,self).__init__(low,high)
-		self.coeffmn = [a[0],b[0]]
-		self.coefflo = [a[1],b[1]]
-		self.coeffhi = [a[2],b[2]]
+	def __init__(self,coeffs,x,low=-np.inf,high=np.inf):
+		super(LinearTrendWithAsymScatterSampler,self).__init__(low,high)
+		self.coeffs = coeffs
 		self._reset(x)
 	def _reset(self,x):
-		xmn = np.polyval(self.coeffmn,x)
-		xlo = np.polyval(self.coefflo,x)
-		xhi = np.polyval(self.coeffhi,x)
-		self.loSampler = GaussianSampler(self.low,self.high,xmn,xmn-xlo)
-		self.hiSampler = GaussianSampler(self.low,self.high,xmn,xhi-xmn)
+		xmn,xlo,xhi = np.polyval(self.coeffs.T,x)
+		if xmn-xlo < 1e-10:
+			self.loSampler = ConstSampler(xmn)
+		else:
+			self.loSampler = GaussianSampler(xmn,xmn-xlo,
+			                                 low=self.low,high=self.high)
+		if xhi-xmn < 1e-10:
+			self.hiSampler = ConstSampler(xmn)
+		else:
+			self.hiSampler = GaussianSampler(xmn,xhi-xmn,
+			                                 low=self.low,high=self.high)
 	def _getpoints(self,x):
-		xlo = self.loSampler._getpoints(x)
-		xhi = self.hiSampler._getpoints(x)
+		if isinstance(self.loSampler,ConstSampler):
+			xlo = self.loSampler.sample(len(x))
+		else:
+			xlo = self.loSampler._getpoints(x)
+		if isinstance(self.hiSampler,ConstSampler):
+			xhi = self.hiSampler.sample(len(x))
+		else:
+			xhi = self.hiSampler._getpoints(x)
 		return np.choose(x<0,[xlo,xhi])
 
 class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
-	def __init__(self,simGrid,a,b,Mref=-26,low=0,high=np.inf):
-		try:
-			m = simGrid.absMag - Mref
-		except:
-			raise ValueError("BEffSampler requires absMag")
-		super(BaldwinEffectSampler,self).__init__(m,a,b,low=low,high=high)
+	def __init__(self,coeffs,absMag,low=0,high=np.inf):
+		super(BaldwinEffectSampler,self).__init__(coeffs,absMag,
+		                                          low=low,high=high)
 	def sample(self,n):
 		# save the x values for reuse
 		self.x = np.random.random(n)
-		return self._sample(self.x)
+		return self._getpoints(self.x)
 	def resample(self,qsoData,**kwargs):
 		m = qsoData.absMag - Mref
 		self._reset(m)
-		return self._sample(self.x)
+		return self._getpoints(self.x)
 
 
 
@@ -331,6 +338,19 @@ def generateQlfPoints(qlf,mRange,zRange,m2M,cosmo,band='i',**kwargs):
 	m = AppMagVar(FixedSampler(m),band=band)
 	z = RedshiftVar(FixedSampler(z))
 	return QsoSimPoints([m,z])
+
+def generateBEffEmissionLines(absMag,**kwargs):
+	trendFn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v6')
+	#fixed = kwargs.get('fixLineProfiles',False)
+	#minEW = kwargs.get('minEW',0.0)
+	#indy = kwargs.get('EmLineIndependentScatter',False)
+	lineCatalog = Table.read(datadir+trendFn+'.fits')
+	lineList = [ ((l['wavelength'],absMag),
+	              (l['logEW'],absMag),
+	              (l['logWidth'],absMag))
+	             for l in lineCatalog ]
+	lines = GaussianEmissionLinesTemplateVar(BaldwinEffectSampler,lineList)
+	return lines
 
 
 
