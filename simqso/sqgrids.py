@@ -218,12 +218,12 @@ class EmissionLineVar(QsoSimVar):
 	pass
 
 class GaussianEmissionLineVar(EmissionLineVar):
-	def __init__(self,linePars,name=None):
+	def __init__(self,linePars,name='emLines'):
 		super(GaussianEmissionLineVar,self).__init__(None,name=name)
 
 class GaussianEmissionLinesTemplateVar(EmissionLineVar,MultiDimVar):
 	nDim = 2
-	def __init__(self,sampler,linePars,name=None):
+	def __init__(self,sampler,linePars,name='emLines'):
 		super(GaussianEmissionLinesTemplateVar,self).__init__(sampler,
 		                                                      name=name)
 		self._init_samplers(linePars)
@@ -259,16 +259,16 @@ class QsoSimObjects(object):
 	def __init__(self,qsoVars=None):
 		self.qsoVars = qsoVars
 	def __iter__(self):
-		for obj in self.points:
+		for obj in self.data:
 			yield obj
 	def __getattr__(self,name):
 		try:
-			return self.points[name]
+			return self.data[name]
 		except KeyError:
 			raise AttributeError("no attribute "+name)
 	def addVar(self,var):
 		self.qsoVars.append(var)
-		self.points[var.name] = var(self.nObj)
+		self.data[var.name] = var(self.nObj)
 	def addVars(self,newVars):
 		for var in newVars:
 			self.addVar(var)
@@ -285,17 +285,17 @@ class QsoSimObjects(object):
 		self.absMag[:] -= dm
 		return np.abs(dm).max()
 	def read(self,gridFile):
-		self.points = Table.read(gridFile)
-		self.nObj = len(self.points)
+		self.data = Table.read(gridFile)
+		self.nObj = len(self.data)
 
 class QsoSimPoints(QsoSimObjects):
 	def __init__(self,qsoVars,n=None):
 		super(QsoSimPoints,self).__init__(qsoVars)
-		points = { var.name:var(n) for var in qsoVars }
-		self.points = Table(points)
-		self.nObj = len(self.points)
+		data = { var.name:var(n) for var in qsoVars }
+		self.data = Table(data)
+		self.nObj = len(self.data)
 	def __str__(self):
-		return str(self.points)
+		return str(self.data)
 
 class QsoSimGrid(QsoSimObjects):
 	def __init__(self,qsoVars,nPerBin):
@@ -305,7 +305,7 @@ class QsoSimGrid(QsoSimObjects):
 		# for grid variables this returns the edges of the bins
 		axes = [ var(1) for var in qsoVars ]
 		self.gridEdges = np.meshgrid(*axes,indexing='ij')
-		points = {}
+		data = {}
 		for i,(v,g) in enumerate(zip(qsoVars,self.gridEdges)):
 			x = np.random.random(self.gridShape)
 			s = [ slice(0,-1,1) for j in range(len(qsoVars)) ]
@@ -313,15 +313,15 @@ class QsoSimGrid(QsoSimObjects):
 			binsz = np.diff(g,axis=i)
 			s[i] = slice(None)
 			pts = pts0 + x*binsz[s][...,np.newaxis]
-			points[v.name] = pts.flatten()
-		self.points = Table(points)
-		self.nObj = len(self.points)
+			data[v.name] = pts.flatten()
+		self.data = Table(data)
+		self.nObj = len(self.data)
 	def asGrid(self,name):
-		return np.asarray(self.points[name]).reshape(self.gridShape)
+		return np.asarray(self.data[name]).reshape(self.gridShape)
 	def __str__(self):
 		s = "grid dimensions: "+str(self.gridShape)+"\n"
 		s += str(self.gridEdges)+"\n"
-		s += str(self.points)
+		s += str(self.data)
 		return s
 
 
