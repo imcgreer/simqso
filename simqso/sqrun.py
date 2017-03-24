@@ -135,37 +135,39 @@ def buildContinuumModels(qsoGrid,simParams):
 
 
 
-def buildEmissionLineGrid(Mz,simParams):
+def buildEmissionLineGrid(qsoGrid,simParams):
 	emLineParams = simParams['QuasarModelParams']['EmissionLineParams']
 	np.random.seed(emLineParams.get('RandomSeed',simParams.get('RandomSeed')))
-	try:
-		# if the user has passed in a model, instantiate it
-		emLineGrid = emLineParams['EmissionLineModel'](Mz.mGrid,Mz.zGrid,
-		                                               **emLineParams)
-		return emLineGrid
-	except TypeError:
-		pass
+#	try:
+#		# if the user has passed in a model, instantiate it
+#		emLineGrid = emLineParams['EmissionLineModel'](Mz.mGrid,Mz.zGrid,
+#		                                               **emLineParams)
+#		return emLineGrid
+#	except TypeError:
+#		pass
 	# otherwise construct a model from the existing set
-	if emLineParams['EmissionLineModel'] == 'FixedVdBCompositeLines':
-		emLineGrid = grids.FixedVdBcompositeEMLineGrid(Mz.mGrid,Mz.zGrid,
-		                             minEW=emLineParams.get('minEW',1.0),
-		                             noFe=emLineParams.get('VdB_noFe',False))
-		# XXX hacky
-		if emLineParams.get('addSBB',False):
-			emLineGrid.addSBB()
+	if False:
+		pass
+#	if emLineParams['EmissionLineModel'] == 'FixedVdBCompositeLines':
+#		emLineGrid = grids.FixedVdBcompositeEMLineGrid(Mz.mGrid,Mz.zGrid,
+#		                             minEW=emLineParams.get('minEW',1.0),
+#		                             noFe=emLineParams.get('VdB_noFe',False))
+#		# XXX hacky
+#		if emLineParams.get('addSBB',False):
+#			emLineGrid.addSBB()
 #	elif emLineParams['EmissionLineModel'] == 'FixedLBQSEmissionLines':
 #		emLineGrid = qsotemplates.FixedLBQSemLineGrid(
 #		                                noFe=emLineParams.get('LBQSnoFe',False))
 	elif emLineParams['EmissionLineModel'] == 'VariedEmissionLineGrid':
-		emLineGrid = grids.VariedEmissionLineGrid(Mz.mGrid,Mz.zGrid,
-		                                          **emLineParams)
+		emLineGrid = grids.generateBEffEmissionLines(qsoGrid.absMag,
+		                                             **emLineParams)
 	else:
 		raise ValueError('invalid emission line model: ' +
 		                    emLineParams['EmissionLineModel'])
-	if 'addLines' in emLineParams:
-		for l in emLineParams['addLines']:
-			print 'adding line ',l
-			emLineGrid.addLine(*l)
+#	if 'addLines' in emLineParams:
+#		for l in emLineParams['addLines']:
+#			print 'adding line ',l
+#			emLineGrid.addLine(*l)
 	return emLineGrid
 
 def buildDustGrid(Mz,simParams):
@@ -195,7 +197,8 @@ class SpectralFeature(object):
 
 class EmissionLineFeature(SpectralFeature):
 	def apply_to_spec(self,spec,idx):
-		emlines = self.grid.get(idx)
+		#emlines = self.grid.get(idx)
+		emlines = self.grid[idx]
 		spec.addEmissionLines(emlines)
 
 class IronEmissionFeature(SpectralFeature):
@@ -284,7 +287,7 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 			                                    'DM':qsoGrid.distMod})
 			# add additional emission/absorption features
 			for feature in features:
-				feature.apply_to_spec(spec,idx)
+				feature.apply_to_spec(spec,i)
 			# apply HI forest blanketing
 			spec.f_lambda[:nforest] *= forest['T'][i]
 			# calculate synthetic magnitudes from the spectra through the

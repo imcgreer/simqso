@@ -42,12 +42,12 @@ class FixedSampler(Sampler):
 		return self.vals
 
 class ConstSampler(Sampler):
-	def __init__(self,val):
+	def __init__(self,*val):
 		self.low = None
 		self.high = None
 		self.val = val
 	def sample(self,n):
-		return np.repeat(self.val,n)
+		return np.tile(self.val,(n,1)).T
 
 class UniformSampler(Sampler):
 	def sample(self,n):
@@ -227,13 +227,14 @@ class GaussianEmissionLineVar(EmissionLineVar):
 		super(GaussianEmissionLineVar,self).__init__(None,name=name)
 
 class GaussianEmissionLinesTemplateVar(EmissionLineVar,MultiDimVar):
-	nDim = 2
+	nDim = 1
 	def __init__(self,sampler,linePars,name='emLines'):
 		super(GaussianEmissionLinesTemplateVar,self).__init__(sampler,
 		                                                      name=name)
 		self._init_samplers(linePars)
 
 class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
+	nDim = 2
 	'''translates the log values'''
 	def __call__(self,n=None):
 		lpar = super(BossDr9EmissionLineTemplateVar,self).__call__(n)
@@ -346,7 +347,6 @@ def generateQlfPoints(qlf,mRange,zRange,m2M,cosmo,band='i',**kwargs):
 
 def generateBEffEmissionLines(M1450,**kwargs):
 	trendFn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v6')
-	#fixed = kwargs.get('fixLineProfiles',False)
 	indy = kwargs.get('EmLineIndependentScatter',False)
 	M_i = M1450 - 1.486 + 0.596
 	lineCatalog = Table.read(datadir+trendFn+'.fits')
@@ -366,64 +366,23 @@ def generateBEffEmissionLines(M1450,**kwargs):
 	lines = BossDr9EmissionLineTemplateVar(BaldwinEffectSampler,lineList)
 	return lines
 
+def generateVdBCompositeEmLines(minEW=1.0,noFe=False):
+	all_lines = Table.read(datadir+'VandenBerk2001_AJ122_549_table2.txt',
+	                       format='ascii')
+	# blended lines are repeated in the table
+	l,li = np.unique(all_lines['OWave'],return_index=True)
+	lines = all_lines[li]
+	li = np.where(lines['EqWid'] > minEW)[0]
+	lines = lines[li]
+	#
+	if noFe:
+		isFe = lines['ID'].find('Fe') == 0
+		lines = lines[~isFe]
+	print 'using the following lines from VdB template: ',lines['ID']
+	lineList = [ (l['OWave'],l['EqWid'],l['Width']) for l in lines ]
+	lines = GaussianEmissionLinesTemplateVar(ConstSampler,lineList)
+	return lines
 
-
-
-class FixedVdBcompositeEMLineGrid(object):
-	def __init__(self,M,z,minEW=1.0,noFe=False):
-		self.minEW = minEW
-		self.all_lines = ascii_io.read(datadir+
-		                            'VandenBerk2001_AJ122_549_table2.txt')
-		# blended lines are repeated in the table.  
-		l,li = np.unique(self.all_lines['OWave'],return_index=True)
-		self.unique_lines = self.all_lines[li]
-		li = np.where(self.unique_lines['EqWid'] > minEW)[0]
-		self.lines = self.unique_lines[li]
-		if noFe:
-			isFe = self.lines['ID'].find('Fe') == 0
-			self.lines = self.lines[~isFe]
-		print 'using the following lines from VdB template: ',self.lines['ID']
-	def update(self,M,z):
-		# lines are fixed in luminosity and redshift
-		return
-	def addLine(self,name,rfwave,eqWidth,profileWidth):
-		self.lines = np.resize(self.lines,(self.lines.size+1,))
-		self.lines = self.lines.view(np.recarray)
-		self.lines.OWave[-1] = rfwave
-		self.lines.EqWid[-1] = eqWidth
-		self.lines.Width[-1] = profileWidth
-		self.lines.ID[-1] = name
-	def addSBB(self):
-		# XXX this is a hack!
-		self.addLine('SBBhack',3000.,300.,500.)
-	def _idmap(self,name):
-		if name.startswith('Ly'):
-			return 'Ly'+{'A':'{alpha}','B':'{beta}',
-			             'D':'{delta}','E':'{epsilon}'}[name[-1]]
-		else:
-			return name
-	def set(self,name,**kwargs):
-		li = np.where(self._idmap(name) == self.lines.ID)[0]
-		if len(li) == 0:
-			print self.lines.ID
-			raise ValueError
-		for k,v in kwargs.items():
-			if k == 'width':
-				self.lines['Width'][li] = v
-			elif k == 'eqWidth':
-				self.lines['EqWid'][li] = v
-			elif k == 'wave':
-				self.lines['OWave'][li] = v
-	def __iter__(self):
-		'''returns wave, equivalent width, gaussian sigma'''
-		while True:
-			yield self.get(None)
-	def get(self,idx):
-		return self.lines['OWave'],self.lines['EqWid'],self.lines['Width']
-	def getTable(self,hdr):
-		'''Return a Table of all parameters and header information'''
-		hdr['LINEMODL'] = 'Fixed Vanden Berk et al. 2001 emission lines'
-		return None
 
 class VW01FeTemplateGrid(object):
 	def __init__(self,M,z,wave,fwhm=5000.,scales=None):
@@ -488,98 +447,6 @@ class VW01FeTemplateGrid(object):
 		'''Return a Table of all parameters and header information'''
 		hdr['FETEMPL'] = 'Vestergaard & Wilkes 2001 Iron Emission'
 		return None
-
-class VariedEmissionLineGrid(object):
-	def __init__(self,M1450,z,**kwargs):
-		#trendfn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v5',)
-		trendfn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v6',)
-		self.fixed = kwargs.get('fixLineProfiles',False)
-		self.minEW = kwargs.get('minEW',0.0)
-		indy = kwargs.get('EmLineIndependentScatter',False)
-		# emission line trends are calculated w.r.t. M_i, so
-		#  convert M1450 to M_i(z=0) using Richards+06 eqns. 1 and 3
-		M_i = M1450 - 1.486 + 0.596
-		# load the emission line trend data, and restrict to lines for which
-		# the mean EW trend at the lowest luminosity exceeds minEW
-		t = getdata(datadir+trendfn+'.fits')
-		maxEW = 10**(t['logEW'][:,0,1]+t['logEW'][:,0,0]*M_i.max())
-		ii = np.where(maxEW > self.minEW)[0]
-		self.lineTrends = t[ii]
-		self.nLines = len(ii)
-		# random deviate used to sample line profile values - if independent
-		# scatter, each line gets its own random scatter, otherwise each 
-		# object gets a single deviation and the lines are perfectly correlated
-		nx = self.nLines if indy else 1
-		xshape = z.shape + (nx,)
-		self.xv = {}
-		for k in ['wavelength','logEW','logWidth']:
-			self.xv[k] = np.random.standard_normal(xshape)
-		# store the line profile values in a structured array with each
-		# element having the same shape as the input grid
-		nf4 = str(z.shape)+'f4'
-		self.lineGrids = np.zeros(self.nLines,
-		                      dtype=[('name','S15'),('wavelength',nf4),
-		                             ('eqWidth',nf4),('width',nf4)])
-		self.lineGrids['name'] = self.lineTrends['name']
-		self._edit_trends(**kwargs)
-		self.update(M1450,z)
-	def _edit_trends(self,**kwargs):
-		# the optional argument 'scaleEWs' allows the caller to arbitrarily
-		# rescale both the output equivalent widths and the input scatter
-		# to the EW distribution for individual lines. construct the
-		# scaling vector here
-		self.sigscl = np.ones(self.nLines)
-		self.ewscl = np.ones(self.nLines)
-		for line,scl in kwargs.get('scaleEWs',{}).items():
-			i = np.where(self.lineGrids['name']==line)[0][0]
-			if type(scl) is tuple:
-				self.ewscl[i],self.sigscl[i] = scl
-			else:
-				self.ewscl[i] = scl
-	def update(self,M1450,z):
-		# derive the line profile parameters using the input luminosities
-		# and redshifts
-		M_i = M1450 - 1.486 + 0.596
-		M = M_i[...,np.newaxis]
-		# loop over the three line profile parameters and obtain the
-		# randomly sampled values using the input trends
-		for k in ['wavelength','logEW','logWidth']:
-			a = self.lineTrends[k][...,0]
-			b = self.lineTrends[k][...,1]
-			meanVal = a[...,0]*M + b[...,0]
-			siglo = a[...,1]*M + b[...,1] - meanVal
-			sighi = a[...,2]*M + b[...,2] - meanVal
-			x = self.xv[k]
-			sig = np.choose(x<0,[sighi,-siglo])
-			if k=='logEW':
-				sig *= self.sigscl
-			v = meanVal + x*sig
-			if k.startswith('log'):
-				v[:] = 10**v
-				k2 = {'logEW':'eqWidth','logWidth':'width'}[k]
-			else:
-				k2 = k
-			if k=='logEW':
-				v *= self.ewscl
-			self.lineGrids[k2] = np.rollaxis(v,-1)
-	def get(self,idx):
-		# shape of lineGrids is (Nlines,)+gridshape, and idx is an index
-		# into the grid, so add a dummy slice along the first axis
-		idx2 = (np.s_[:],)+idx
-		return (self.lineGrids['wavelength'][idx2],
-		        self.lineGrids['eqWidth'][idx2],
-		        self.lineGrids['width'][idx2])
-	def getTable(self,hdr):
-		'''Return a Table of all parameters and header information'''
-		hdr['LINEMODL'] = 'Log-linear trends with luminosity'
-		hdr['LINENAME'] = ','.join(self.lineGrids['name'])
-		flatgrid = np.product(self.lineGrids['wavelength'].shape[1:])
-		def squash(a):
-			return a.reshape(-1,flatgrid).transpose()
-		t = Table({'lineWave':squash(self.lineGrids['wavelength']),
-		           'lineEW':squash(self.lineGrids['eqWidth']),
-		           'lineWidth':squash(self.lineGrids['width']),})
-		return t
 
 class FixedDustGrid(object):
 	def __init__(self,M,z,dustModel,E_BmV):
