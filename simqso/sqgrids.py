@@ -121,45 +121,39 @@ class DoublePowerLawSampler(Sampler):
 		raise NotImplementedError
 
 class LinearTrendWithAsymScatterSampler(Sampler):
-	def __init__(self,coeffs,x,low=-np.inf,high=np.inf):
+	def __init__(self,coeffs,pts,low=-np.inf,high=np.inf):
 		super(LinearTrendWithAsymScatterSampler,self).__init__(low,high)
 		self.coeffs = coeffs
-		self._reset(x)
-	def _reset(self,x):
-		xmn,xlo,xhi = np.polyval(self.coeffs.T,x)
-		if xmn-xlo < 1e-10:
-			self.loSampler = ConstSampler(xmn)
-		else:
-			self.loSampler = GaussianSampler(xmn,xmn-xlo,
-			                                 low=self.low,high=self.high)
-		if xhi-xmn < 1e-10:
-			self.hiSampler = ConstSampler(xmn)
-		else:
-			self.hiSampler = GaussianSampler(xmn,xhi-xmn,
-			                                 low=self.low,high=self.high)
-	def _getpoints(self,x):
-		if isinstance(self.loSampler,ConstSampler):
-			xlo = self.loSampler.sample(len(x))
-		else:
-			xlo = self.loSampler._getpoints(x)
-		if isinstance(self.hiSampler,ConstSampler):
-			xhi = self.hiSampler.sample(len(x))
-		else:
-			xhi = self.hiSampler._getpoints(x)
-		return np.choose(x<0,[xlo,xhi])
+		self.npts = len(pts)
+		self._reset(pts)
+	def _reset(self,pts):
+		xmn,xlo,xhi = [ np.polyval(c,pts) for c in self.coeffs ]
+		siglo = np.clip(xmn-xlo,1e-10,np.inf)
+		sighi = np.clip(xhi-xmn,1e-10,np.inf)
+		self.loSampler = GaussianSampler(xmn,siglo,
+		                                 low=self.low,high=self.high)
+		self.hiSampler = GaussianSampler(xmn,sighi,
+		                                 low=self.low,high=self.high)
+	def _sample(self,x):
+		# XXX this doesn't seem to pick correctly
+		xlo = self.loSampler._sample(self.loSampler._getpoints(x))
+		xhi = self.hiSampler._sample(self.hiSampler._getpoints(x))
+		return np.choose(x<0.5,[xlo,xhi])
 
 class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
 	def __init__(self,coeffs,absMag,low=0,high=np.inf):
 		super(BaldwinEffectSampler,self).__init__(coeffs,absMag,
 		                                          low=low,high=high)
 	def sample(self,n):
+		if n != self.npts:
+			raise ValueError("BaldwinEffectSampler input does not match "
+			                 "preset (%d != %d)" % (n,self.npts))
 		# save the x values for reuse
 		self.x = np.random.random(n)
-		return self._getpoints(self.x)
-	def resample(self,qsoData,**kwargs):
-		m = qsoData.absMag - Mref
-		self._reset(m)
-		return self._getpoints(self.x)
+		return self._sample(self.x)
+	def resample(self,absMag,**kwargs):
+		self._reset(absMag)
+		return self._sample(self.x)
 
 
 
