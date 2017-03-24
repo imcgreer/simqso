@@ -134,11 +134,13 @@ class QSOSpectrum(Spectrum):
 	#
 	def addEmissionLines(self,emlines):
 		self.components['EmissionLines'] = emlines
-		wave,eqWidth,sigma = [p*(1+self.z) for p in emlines]
+		wave,eqWidth,sigma = emlines.T * (1+z)
+		#wave,eqWidth,sigma = [p*(1+self.z) for p in emlines]
 		self.templates['EmissionLines'] = np.zeros_like(self.plcontinuum)
-		nsig = 3.5*np.array([-1.,1])
+		#nsig = 3.5*np.array([-1.,1])
 		A = eqWidth/(np.sqrt(2*np.pi)*sigma)
 		twosig2 = 2*sigma**2
+		nsig = (np.sqrt(-2*np.log(1e-3/A))*np.array([[-1.],[1]])).T
 		for i in xrange(wave.shape[0]):
 			i1,i2 = np.searchsorted(self.wave,wave[i]+nsig*sigma[i])
 			if i2 != i1:

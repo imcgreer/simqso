@@ -229,6 +229,13 @@ class GaussianEmissionLinesTemplateVar(EmissionLineVar,MultiDimVar):
 		                                                      name=name)
 		self._init_samplers(linePars)
 
+class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
+	'''translates the log values'''
+	def __call__(self,n):
+		lpar = super(BossDr9EmissionLineTemplateVar,self).__call__(n)
+		lpar[...,1:] = np.power(10,lpar[...,1:])
+		return lpar
+
 class BlackHoleMassVar(QsoSimVar):
 	name = 'logBhMass'
 
@@ -333,17 +340,20 @@ def generateQlfPoints(qlf,mRange,zRange,m2M,cosmo,band='i',**kwargs):
 	z = RedshiftVar(FixedSampler(z))
 	return QsoSimPoints([m,z])
 
-def generateBEffEmissionLines(absMag,**kwargs):
+def generateBEffEmissionLines(M1450,**kwargs):
 	trendFn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v6')
 	#fixed = kwargs.get('fixLineProfiles',False)
-	#minEW = kwargs.get('minEW',0.0)
 	#indy = kwargs.get('EmLineIndependentScatter',False)
+	M_i = M1450 - 1.486 + 0.596
 	lineCatalog = Table.read(datadir+trendFn+'.fits')
-	lineList = [ ((l['wavelength'],absMag),
-	              (l['logEW'],absMag),
-	              (l['logWidth'],absMag))
+	for line,scl in kwargs.get('scaleEWs',{}).items():
+		i = np.where(lineCatalog['name']==line)[0][0]
+		lineCatalog['logEW'][i,:] += np.log10(scl)
+	lineList = [ ((l['wavelength'],M_i),
+	              (l['logEW'],M_i),
+	              (l['logWidth'],M_i))
 	             for l in lineCatalog ]
-	lines = GaussianEmissionLinesTemplateVar(BaldwinEffectSampler,lineList)
+	lines = BossDr9EmissionLineTemplateVar(BaldwinEffectSampler,lineList)
 	return lines
 
 
