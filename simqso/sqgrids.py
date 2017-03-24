@@ -47,7 +47,7 @@ class ConstSampler(Sampler):
 		self.high = None
 		self.val = val
 	def sample(self,n):
-		return np.tile(self.val,(n,1)).T
+		return np.repeat(self.val,n).reshape(-1,n)
 
 class UniformSampler(Sampler):
 	def sample(self,n):
@@ -211,7 +211,11 @@ class MultiDimVar(QsoSimVar):
 		self.samplers = self._recurse_pars(pars,self.nDim)
 	def __call__(self,n):
 		arr = self._recurse_call(self.samplers,n,self.nDim)
-		return np.rollaxis(np.array(arr),-1)
+		arr = np.squeeze(arr)
+		if n==1:
+			# hmm...
+			arr = arr[...,np.newaxis]
+		return np.rollaxis(arr,-1)
 
 class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
 	nDim = 1
@@ -227,14 +231,13 @@ class GaussianEmissionLineVar(EmissionLineVar):
 		super(GaussianEmissionLineVar,self).__init__(None,name=name)
 
 class GaussianEmissionLinesTemplateVar(EmissionLineVar,MultiDimVar):
-	nDim = 1
+	nDim = 2
 	def __init__(self,sampler,linePars,name='emLines'):
 		super(GaussianEmissionLinesTemplateVar,self).__init__(sampler,
 		                                                      name=name)
 		self._init_samplers(linePars)
 
 class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
-	nDim = 2
 	'''translates the log values'''
 	def __call__(self,n=None):
 		lpar = super(BossDr9EmissionLineTemplateVar,self).__call__(n)
@@ -378,8 +381,9 @@ def generateVdBCompositeEmLines(minEW=1.0,noFe=False):
 	if noFe:
 		isFe = lines['ID'].find('Fe') == 0
 		lines = lines[~isFe]
-	print 'using the following lines from VdB template: ',lines['ID']
-	lineList = [ (l['OWave'],l['EqWid'],l['Width']) for l in lines ]
+	print 'using the following lines from VdB template: ',
+	print ','.join(list(lines['ID']))
+	lineList = [ [(l['OWave'],l['EqWid'],l['Width'])] for l in lines ]
 	lines = GaussianEmissionLinesTemplateVar(ConstSampler,lineList)
 	return lines
 
