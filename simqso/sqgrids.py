@@ -141,15 +141,17 @@ class LinearTrendWithAsymScatterSampler(Sampler):
 		return np.choose(x<0.5,[xlo,xhi])
 
 class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
-	def __init__(self,coeffs,absMag,low=0,high=np.inf):
+	def __init__(self,coeffs,absMag,x=None,low=0,high=np.inf):
 		super(BaldwinEffectSampler,self).__init__(coeffs,absMag,
 		                                          low=low,high=high)
+		self.x = x
 	def sample(self,n):
 		if n != self.npts:
 			raise ValueError("BaldwinEffectSampler input does not match "
 			                 "preset (%d != %d)" % (n,self.npts))
-		# save the x values for reuse
-		self.x = np.random.random(n)
+		if self.x is None:
+			# save the x values for reuse
+			self.x = np.random.random(n)
 		return self._sample(self.x)
 	def resample(self,absMag,**kwargs):
 		self._reset(absMag)
@@ -343,15 +345,21 @@ def generateQlfPoints(qlf,mRange,zRange,m2M,cosmo,band='i',**kwargs):
 def generateBEffEmissionLines(M1450,**kwargs):
 	trendFn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v6')
 	#fixed = kwargs.get('fixLineProfiles',False)
-	#indy = kwargs.get('EmLineIndependentScatter',False)
+	indy = kwargs.get('EmLineIndependentScatter',False)
 	M_i = M1450 - 1.486 + 0.596
 	lineCatalog = Table.read(datadir+trendFn+'.fits')
 	for line,scl in kwargs.get('scaleEWs',{}).items():
 		i = np.where(lineCatalog['name']==line)[0][0]
 		lineCatalog['logEW'][i,:] += np.log10(scl)
-	lineList = [ ((l['wavelength'],M_i),
-	              (l['logEW'],M_i),
-	              (l['logWidth'],M_i))
+	if indy:
+		x1 = x2 = x3 = None
+	else:
+		x1 = np.random.random(len(M_i))
+		x2 = np.random.random(len(M_i))
+		x3 = np.random.random(len(M_i))
+	lineList = [ ((l['wavelength'],M_i,x1),
+	              (l['logEW'],M_i,x2),
+	              (l['logWidth'],M_i,x3))
 	             for l in lineCatalog ]
 	lines = BossDr9EmissionLineTemplateVar(BaldwinEffectSampler,lineList)
 	return lines
