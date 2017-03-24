@@ -141,7 +141,7 @@ class LinearTrendWithAsymScatterSampler(Sampler):
 		return np.choose(x<0.5,[xlo,xhi])
 
 class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
-	def __init__(self,coeffs,absMag,x=None,low=0,high=np.inf):
+	def __init__(self,coeffs,absMag,x=None,low=-np.inf,high=np.inf):
 		super(BaldwinEffectSampler,self).__init__(coeffs,absMag,
 		                                          low=low,high=high)
 		self.x = x
