@@ -145,8 +145,10 @@ class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
 		super(BaldwinEffectSampler,self).__init__(coeffs,absMag,
 		                                          low=low,high=high)
 		self.x = x
-	def sample(self,n):
-		if n != self.npts:
+	def sample(self,n=None):
+		if n is None:
+			n = len(self.x)
+		elif n != self.npts:
 			raise ValueError("BaldwinEffectSampler input does not match "
 			                 "preset (%d != %d)" % (n,self.npts))
 		if self.x is None:
@@ -155,7 +157,7 @@ class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
 		return self._sample(self.x)
 	def resample(self,absMag,**kwargs):
 		self._reset(absMag)
-		return self._sample(self.x)
+		return self._sample()
 
 
 
@@ -233,7 +235,7 @@ class GaussianEmissionLinesTemplateVar(EmissionLineVar,MultiDimVar):
 
 class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
 	'''translates the log values'''
-	def __call__(self,n):
+	def __call__(self,n=None):
 		lpar = super(BossDr9EmissionLineTemplateVar,self).__call__(n)
 		lpar[...,1:] = np.power(10,lpar[...,1:])
 		return lpar
