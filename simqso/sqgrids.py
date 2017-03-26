@@ -296,8 +296,12 @@ class AbsMagFromBHMassEddRatioVar(AbsMagVar):
 ##############################################################################
 
 class QsoSimObjects(object):
-	def __init__(self,qsoVars=None):
+	def __init__(self,qsoVars=None,cosmo=None,units=None):
 		self.qsoVars = qsoVars
+		self.cosmo = cosmo
+		self.units = units
+	def setCosmology(self,cosmo):
+		self.cosmo = cosmo
 	def __iter__(self):
 		for obj in self.data:
 			yield obj
@@ -319,20 +323,13 @@ class QsoSimObjects(object):
 		           for var in self.qsoVars
 			         if isinstance(var,varType) ]
 		return pars
-	# XXX this really doesn't belong here...
-	def updateMags(self,m):
-		dm = m - self.appMag
-		print '--> delta mag mean = %.7f, rms = %.7f, |max| = %.7f' % \
-		              (dm.mean(),dm.std(),np.abs(dm).max())
-		self.absMag[:] -= dm
-		return np.abs(dm).max()
 	def read(self,gridFile):
 		self.data = Table.read(gridFile)
 		self.nObj = len(self.data)
 
 class QsoSimPoints(QsoSimObjects):
-	def __init__(self,qsoVars,n=None):
-		super(QsoSimPoints,self).__init__(qsoVars)
+	def __init__(self,qsoVars,n=None,**kwargs):
+		super(QsoSimPoints,self).__init__(qsoVars,**kwargs)
 		data = { var.name:var(n) for var in qsoVars }
 		self.data = Table(data)
 		self.nObj = len(self.data)
@@ -340,8 +337,8 @@ class QsoSimPoints(QsoSimObjects):
 		return str(self.data)
 
 class QsoSimGrid(QsoSimObjects):
-	def __init__(self,qsoVars,nPerBin):
-		super(QsoSimGrid,self).__init__(qsoVars)
+	def __init__(self,qsoVars,nPerBin,**kwargs):
+		super(QsoSimGrid,self).__init__(qsoVars,**kwargs)
 		self.gridShape = tuple( v.sampler.nbins-1 for v in qsoVars ) + \
 		                    (nPerBin,)
 		# for grid variables this returns the edges of the bins
@@ -372,7 +369,7 @@ def generateQlfPoints(qlf,mRange,zRange,m2M,cosmo,band='i',**kwargs):
 	m,z = qlf.sample_from_fluxrange(mRange,zRange,m2M,cosmo,**kwargs)
 	m = AppMagVar(FixedSampler(m),band=band)
 	z = RedshiftVar(FixedSampler(z))
-	return QsoSimPoints([m,z])
+	return QsoSimPoints([m,z],units='flux',cosmo=cosmo)
 
 def generateBEffEmissionLines(M1450,**kwargs):
 	trendFn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v6')

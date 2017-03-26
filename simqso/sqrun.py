@@ -39,6 +39,7 @@ def buildMzGrid(simParams):
 		gridType = gridPars['GridType']
 	except KeyError:
 		raise ValueError('Must specify a GridType')
+	m2M = lambda z: sqbase.mag2lum('SDSS-i',1450,z,cosmodef) # XXX
 	np.random.seed(gridPars.get('RandomSeed',simParams.get('RandomSeed')))
 	#
 	if gridType.endswith('RedshiftGrid'):
@@ -48,23 +49,37 @@ def buildMzGrid(simParams):
 		zSampler = grids.GridSampler(z1,z2,nbins=nz)
 		if gridType.startswith('Luminosity'):
 			m = grids.AbsMagVar(mSampler,restWave=gridPars['LumUnits'])
+			units = 'luminosity'
 		elif gridType.startswith('Flux'):
 			m = grids.AppMagVar(mSampler,band=gridPars['ObsBand'],
 			                    restBand=gridPars['RestBand'])
+			units = 'flux'
 		z = grids.RedshiftVar(zSampler)
 	elif gridType == 'FixedGrid':
 		m = grids.FixedSampler(gridPars['fixed_M'])
 		z = grids.FixedSampler(gridPars['fixed_z'])
+		# XXX units
 	elif gridType == 'LuminosityFunction':
 		try:
 			qlf = gridPars['QLFmodel']
 		except KeyError:
 			raise ValueError('Must specify a parameterization of the LF')
-		m,z = generateQlfAxes(qlf,mRange,zRange,m2M,cosmodef,skyArea,
-		                      **gridPars['QLFargs'])
+		qsoGrid = grids.generateQlfPoints(qlf,
+		                                  gridPars['mRange'],
+		                                  gridPars['zRange'],
+		                                  m2M,cosmodef,**gridPars['QLFargs'])
 	else:
 		raise ValueError('GridType %s unknown' % gridType)
-	return grids.QsoSimGrid([m,z],gridPars['nPerBin'])
+	if gridType != 'LuminosityFunction':
+		qsoGrid = grids.QsoSimGrid([m,z],gridPars['nPerBin'],
+		                           units=units,cosmo=cosmo)
+	try:
+		_ = qsoGrid.absMag
+	except:
+		absMag = qsoGrid.appMag - m2M(qsoGrid.z)
+		absMag = grids.AbsMagVar(grids.FixedSampler(absMag))
+		qsoGrid.addVar(absMag)
+	return qsoGrid
 
 
 
@@ -119,11 +134,11 @@ def buildContinuumModels(qsoGrid,simParams):
 	                                                'BrokenPowerLaw']:
 		if cmodel in ['GaussianPLawDistribution','FixedPLawDistribution']:
 			print 'WARNING: %s continuum is deprecated' % cmodel
-		continuumVars = grids.generateBrokenPLContinua(slopes)
+		continuumVars = [ grids.BrokenPowerLawContinuumVar(
+		                                grids.GaussianSampler,slopes) ]
 	else:
 		raise ValueError
 	qsoGrid.addVars(continuumVars)
-	return continuumGrid
 
 
 
@@ -217,8 +232,7 @@ def buildFeatures(Mz,wave,simParams):
 	if 'IronEmissionParams' in qsoParams:
 		# only option for now is the VW01 template
 		scalings = qsoParams['IronEmissionParams'].get('FeScalings')
-		feGrid = grids.VW01FeTemplateGrid(Mz.mGrid,Mz.zGrid,wave,
-		                                  scales=scalings)
+		feGrid = grids.VW01FeTemplateGrid(Mz.z,wave,scales=scalings)
 		feFeature = IronEmissionFeature(feGrid)
 		features.append(feFeature)
 	if 'DustExtinctionParams' in qsoParams:
@@ -270,16 +284,18 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 		except:
 			raise ValueError('band ',qsoGrid.obsBand,' not found in ',bands)
 		print 'fluxBand is ',fluxBand,bands
+	# XXX
+	continuumParams = simParams['QuasarModelParams']['ContinuumParams']
 	breakpts = continuumParams['PowerLawSlopes'][1::2]
 	for iterNum in range(nIter):
 		print 'buildQSOspectra iteration ',iterNum+1,' out of ',nIter
 		for i,obj in enumerate(qsoGrid):
-			spec.setRedshift(obj.z)
+			spec.setRedshift(obj['z'])
 			# start with continuum
-			slopes = qsoGrid.getPars(obj,grids.ContinuumVar)
+			slopes = obj['slopes'] # XXX
 			spec.setPowerLawContinuum((slopes,breakpts),
 			                          fluxNorm={'wavelength':1450.,
-			                                    'M_AB':obj.absMag,
+			                                    'M_AB':obj['absMag'],
 			                                    'DM':qsoGrid.distMod})
 			# add additional emission/absorption features
 			for feature in qsoGrid.getSpectralFeatures():
@@ -301,7 +317,13 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 			if saveSpectra:
 				spectra[i] = spec.f_lambda
 		if nIter > 1:
-			dmagMax = qsoGrid.updateMags(synMag[...,fluxBand])
+			# find the largest mag offset
+			m = qsoGrid.updateMags(synMag[...,fluxBand]) - self.appMag
+			print '--> delta mag mean = %.7f, rms = %.7f, |max| = %.7f' % \
+			              (dm.mean(),dm.std(),np.abs(dm).max())
+			self.absMag[:] -= dm
+			dmagMax = np.abs(dm).max()
+			# resample features with updated absolute mags
 			continua.update(qsoGrid)
 			for feature in features:
 				feature.update(qsoGrid)
@@ -330,14 +352,7 @@ class TimerLog():
 			print '%20s %8.3f %8.3f %8.3f' % t
 		print
 
-def initGridData(simParams,Mz):
-	if Mz.units == 'flux':
-		return Table({'M':Mz.mGrid.flatten(),'z':Mz.zGrid.flatten(),
-		              'appMag':Mz.appMagGrid.flatten()})
-	else:
-		return Table({'M':Mz.mGrid.flatten(),'z':Mz.zGrid.flatten()})
-
-def writeGridData(simParams,Mz,gridData,outputDir):
+def writeGridData(simParams,Mz,outputDir):
 	simPar = copy(simParams)
 	# XXX need to write parameters out or something...
 	simPar['Cosmology'] = simPar['Cosmology'].name
@@ -345,19 +360,14 @@ def writeGridData(simParams,Mz,gridData,outputDir):
 		del simPar['GridParams']['QLFmodel']
 	except:
 		pass
-	hdr0 = fits.Header()
-	hdr0['GRIDPARS'] = str(simPar['GridParams'])
-	hdr0['GRIDUNIT'] = Mz.units
-	hdulist = [fits.PrimaryHDU(header=hdr0),]
-	hdu1 = fits.BinTableHDU.from_columns(np.array(gridData))
-	hdulist.append(hdu1)
-	hdulist = fits.HDUList(hdulist)
-	hdulist.writeto(os.path.join(outputDir,simPar['GridFileName']+'.fits'),
-	                clobber=True)
+	# XXX
+	Mz.data.meta['GRIDPARS'] = str(simPar['GridParams'])
+	Mz.data.write(os.path.join(outputDir,simPar['GridFileName']+'.fits'),
+	              overwrite=True)
 
 def readSimulationData(fileName,outputDir,retParams=False):
-	qsoData = fits.getdata(os.path.join(outputDir,fileName+'.fits'),1)
-	qsoData = Table(qsoData)
+	qsoGrid = grids.QsoSimObjects()
+	qsoGrid.read(os.path.join(outputDir,fileName+'.fits'))
 	if retParams:
 		hdr = fits.getheader(os.path.join(outputDir,fileName+'.fits'),0)
 		simPars = ast.literal_eval(hdr['SQPARAMS'])
@@ -365,13 +375,10 @@ def readSimulationData(fileName,outputDir,retParams=False):
 ###		simPars['Cosmology'] = {
 ###		  'WMAP9':cosmology.WMAP9,
 ###		}[simPars['Cosmology']]
-		return qsoData,simPars
-	return qsoData
+		return qsoGrid,simPars
+	return qsoGrid
 
-def writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,outputDir,
-                        writeFeatures):
-	outShape = gridData['z'].shape
-	fShape = outShape + (-1,) # shape for a "feature", vector at each point
+def writeSimulationData(simParams,Mz,outputDir,writeFeatures):
 	# Primary extension just contains model parameters in header
 	simPar = copy(simParams)
 	# XXX need to write parameters out or something...
@@ -380,39 +387,9 @@ def writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,outputDir,
 		del simPar['GridParams']['QLFmodel']
 	except:
 		pass
-	hdr0 = fits.Header()
-	hdr0['SQPARAMS'] = str(simPar)
-	hdr0['GRIDUNIT'] = Mz.units
-	hdr0['GRIDDIM'] = str(outShape)
-	hdulist = [fits.PrimaryHDU(header=hdr0),]
-	# extension 1 contains the M,z grid and synthetic and observed fluxes
-	if simQSOs is None:
-		dataTab = gridData
-	else:
-		fluxData = Table({'synMag':simQSOs['synMag'].reshape(fShape),
-		                  'synFlux':simQSOs['synFlux'].reshape(fShape)})
-		if photoData is not None:
-			_photoData = Table({ field:arr.reshape(fShape) 
-			                        for field,arr in photoData.items() })
-			dataTab = hstack([gridData,fluxData,_photoData])
-		else:
-			dataTab = hstack([gridData,fluxData])
-	hdu1 = fits.BinTableHDU.from_columns(np.array(dataTab))
-	hdulist.append(hdu1)
-	# extension 2 contains feature information (slopes, line widths, etc.)
-	if writeFeatures and simQSOs is not None:
-		hdr2 = fits.Header()
-		contData = simQSOs['continua'].getTable(hdr2)
-		featureData = [feature.getTable(hdr2) 
-		                  for feature in simQSOs['features']]
-		featureData = [t for t in featureData if t is not None]
-		featureTab = hstack([contData,]+featureData)
-		hdu2 = fits.BinTableHDU.from_columns(np.array(featureTab))
-		hdu2.header += hdr2
-		hdulist.append(hdu2)
-	hdulist = fits.HDUList(hdulist)
-	hdulist.writeto(os.path.join(outputDir,simParams['FileName']+'.fits'),
-	                clobber=True)
+	Mz.meta['GRIDPARS'] = str(simPar)
+	Mz.write(os.path.join(outputDir,simPar['FileName']+'.fits'),
+	         overwrite=True)
 
 
 def qsoSimulation(simParams,**kwargs):
@@ -459,48 +436,28 @@ def qsoSimulation(simParams,**kwargs):
 			qlf = simParams['GridParams']['QLFmodel']
 		except:
 			qlf = None
-		qsoData,simParams = readSimulationData(simParams['FileName'],
-		                                       outputDir,retParams=True)
+		Mz,simParams = readSimulationData(simParams['FileName'],
+		                                  outputDir,retParams=True)
 		# XXX hack copy back in
 		simParams['GridParams']['QLFmodel'] = qlf
 		simParams['Cosmology'] = cosmo
-		if simParams['GridParams']['GridType'].startswith('Flux'):
-			Mz = grids.FluxGridFromData(qsoData,simParams['GridParams'],
-			                            simParams.get('Cosmology'))
-			gridData = qsoData['M','z','appMag']
-			#gridData = qsoData['appMag','z']
-		else:
-			Mz = grids.LuminosityGridFromData(qsoData,simParams['GridParams'],
-			                                  simParams.get('Cosmology'))
-			gridData = qsoData['M','z']
 	except IOError:
 		print simParams['FileName']+' output not found'
 		if 'GridFileName' in simParams:
 			print 'restoring MzGrid from ',simParams['GridFileName']
 			try:
-				gridData = fits.getdata(os.path.join(outputDir,
-				                        simParams['GridFileName']+'.fits'))
-				if simParams['GridParams']['GridType'].startswith('Flux'):
-					Mz = grids.FluxGridFromData(gridData,
-					                            simParams['GridParams'],
-					                            simParams.get('Cosmology'))
-				else:
-					Mz = grids.LuminosityGridFromData(gridData,
-					                                  simParams['GridParams'],
-					                                simParams.get('Cosmology'))
+				Mz,simParams = readSimulationData(simParams['GridFileName'],
+				                                  outputDir,retParams=True)
 			except IOError:
 				print simParams['GridFileName'],' not found, generating'
 				Mz = buildMzGrid(simParams)
-				gridData = initGridData(simParams,Mz)
-				writeGridData(simParams,Mz,gridData,outputDir)
+				writeGridData(simParams,Mz,outputDir)
 		else:
 			print 'generating Mz grid'
 			Mz = buildMzGrid(simParams)
 		if not forestOnly:
-			gridData = initGridData(simParams,Mz)
-			if not noWriteOutput:
-				writeSimulationData(simParams,Mz,gridData,None,None,
-				                    outputDir,writeFeatures)
+			if not noWriteOutput and 'GridFileName' in simParams:
+				writeGridData(simParams,Mz,outputDir)
 	Mz.setCosmology(simParams.get('Cosmology'))
 	timerLog('Initialize Grid')
 	#
@@ -514,9 +471,9 @@ def qsoSimulation(simParams,**kwargs):
 					return 1
 			forest = dict(wave=wave[:2],T=NullForest())
 		else:
-			forest = buildForest(wave,Mz.getRedshifts(),simParams,outputDir)
+			forest = buildForest(wave,Mz.z,simParams,outputDir)
 		# make sure that the forest redshifts actually match the grid
-		assert np.allclose(forest['z'],Mz.zGrid.flatten())
+		assert np.allclose(forest['z'],Mz.z)
 	if forestOnly:
 		timerLog.dump()
 		return
@@ -544,9 +501,7 @@ def qsoSimulation(simParams,**kwargs):
 		photoData = None
 	timerLog.dump()
 	if not noWriteOutput:
-		gridData['M'] = Mz.mGrid.flatten()
-		writeSimulationData(simParams,Mz,gridData,simQSOs,photoData,
-		                    outputDir,writeFeatures)
+		writeSimulationData(simParams,Mz,outputDir)
 	if saveSpectra:
 		#fits.writeto(os.path.join(outputDir,
 		                          #simParams['FileName']+'_spectra.fits.gz'),
