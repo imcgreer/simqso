@@ -64,14 +64,6 @@ def buildMzGrid(simParams):
 		                      **gridPars['QLFargs'])
 	else:
 		raise ValueError('GridType %s unknown' % gridType)
-#	if gridPars.get('LFSampledGrid',False):
-#		print 'transferring uniform grid to LF-sampled grid...'
-#		try:
-#			qlf = gridPars['QLFmodel']
-#		except KeyError:
-#			raise ValueError('Must specify a parameterization of the LF')
-#		Mz = grids.MzGrid_QLFresample(Mz,qlf)
-#		print 'done!'
 	return grids.QsoSimGrid([m,z],gridPars['nPerBin'])
 
 
@@ -146,12 +138,10 @@ def buildEmissionLineGrid(qsoGrid,simParams):
 #	except TypeError:
 #		pass
 	# otherwise construct a model from the existing set
-	if False:
-		pass
-#	if emLineParams['EmissionLineModel'] == 'FixedVdBCompositeLines':
-#		emLineGrid = grids.FixedVdBcompositeEMLineGrid(Mz.mGrid,Mz.zGrid,
-#		                             minEW=emLineParams.get('minEW',1.0),
-#		                             noFe=emLineParams.get('VdB_noFe',False))
+	if emLineParams['EmissionLineModel'] == 'FixedVdBCompositeLines':
+		emLineGrid = grids.generateVdBCompositeEmLines(
+		                             minEW=emLineParams.get('minEW',1.0),
+		                             noFe=emLineParams.get('VdB_noFe',False))
 #		# XXX hacky
 #		if emLineParams.get('addSBB',False):
 #			emLineGrid.addSBB()
@@ -175,15 +165,21 @@ def buildDustGrid(Mz,simParams):
 	dustParams = simParams['QuasarModelParams']['DustExtinctionParams']
 	np.random.seed(dustParams.get('RandomSeed',simParams.get('RandomSeed')))
 	if dustParams['DustExtinctionModel'] == 'Fixed E(B-V)':
-		dustGrid = grids.FixedDustGrid(Mz.mGrid,Mz.zGrid,
-		                 dustParams['DustModelName'],dustParams['E(B-V)'])
+		sampler = grids.ConstSampler(dustParams['E(B-V)'])
 	elif dustParams['DustExtinctionModel']=='Exponential E(B-V) Distribution':
-		dustGrid = grids.ExponentialDustGrid(Mz.mGrid,Mz.zGrid,
-		                 dustParams['DustModelName'],dustParams['E(B-V)'],
-		                 fraction=dustParams.get('DustLOSfraction',1.0))
+		sampler = grids.ExponentialSampler(dustParams['E(B-V)'])
 	else:
 		raise ValueError('invalid dust extinction model: '+
 		                 dustParams['DustExtinctionModel'])
+	if dustParams['DustModelName'] == 'SMC':
+		dustGrid = grids.SMCDustVar(sampler)
+	elif dustParams['DustModelName'] == 'CalzettiSB':
+		dustGrid = grids.CalzettiDustVar(sampler)
+	else:
+		raise ValueError('invalid dust extinction model: '+
+		                 dustParams['DustModelName'])
+# XXX
+#		                 fraction=dustParams.get('DustLOSfraction',1.0))
 	return dustGrid
 
 
@@ -198,7 +194,7 @@ class SpectralFeature(object):
 class EmissionLineFeature(SpectralFeature):
 	def apply_to_spec(self,spec,idx):
 		#emlines = self.grid.get(idx)
-		emlines = self.grid[idx]
+		emlines = self.grid()[idx]
 		spec.addEmissionLines(emlines)
 
 class IronEmissionFeature(SpectralFeature):
@@ -226,7 +222,7 @@ def buildFeatures(Mz,wave,simParams):
 		feFeature = IronEmissionFeature(feGrid)
 		features.append(feFeature)
 	if 'DustExtinctionParams' in qsoParams:
-		dustGrid = buildDustGrid(Mz,simParams)
+		dustGrid = buildDustGrid(simParams)
 		dustFeature = DustExtinctionFeature(dustGrid)
 		features.append(dustFeature)
 		pass
@@ -286,6 +282,12 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 			                                    'M_AB':obj.absMag,
 			                                    'DM':qsoGrid.distMod})
 			# add additional emission/absorption features
+			for feature in qsoGrid.getSpectralFeatures():
+				if isinstance(feature.sampler,NullSampler):
+					par = None
+				else:
+					par = obj[feature.name]
+				feature.add_to_spec(spec,par)
 			for feature in features:
 				feature.apply_to_spec(spec,i)
 			# apply HI forest blanketing

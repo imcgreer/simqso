@@ -4,15 +4,10 @@ import numpy as np
 from scipy.interpolate import interp1d
 from scipy.integrate import simps
 from scipy.signal import convolve
-from scipy.stats import norm,lognorm
+from scipy.stats import norm,lognorm,expon
 from astropy.table import Table
 
-# XXX
-from astropy.io.fits import getdata
-from astropy.io import ascii as ascii_io
-
-from .sqbase import datadir,mag2lum
-from . import dustextinction
+from .sqbase import datadir
 
 
 ##############################################################################
@@ -40,6 +35,12 @@ class FixedSampler(Sampler):
 		self.vals = vals
 	def sample(self,n):
 		return self.vals
+
+class NullSampler(Sampler):
+	def __init__(self):
+		pass
+	def sample(self,n):
+		return None
 
 class ConstSampler(Sampler):
 	def __init__(self,*val):
@@ -111,6 +112,15 @@ class LogNormalSampler(CdfSampler):
 		self.rv = lognorm(loc=self.mean,scale=self.sigma)
 		self._init_cdf()
 
+class ExponentialSampler(CdfSampler):
+	def __init__(self,scale,low=0,high=np.inf):
+		super(ExponentialSampler,self).__init__(low,high)
+		self.scale = scale
+		self._reset()
+		self._init_cdf()
+	def _reset(self):
+		self.rv = expon(scale=self.scale)
+
 class DoublePowerLawSampler(Sampler):
 	def __init__(self,a,b,x0,low=-np.inf,high=np.inf):
 		super(DoublePowerLawSampler,self).__init__(low,high)
@@ -175,6 +185,10 @@ class QsoSimVar(object):
 	def __str__(self):
 		return str(self.sampler)
 
+class SpectralFeatureVar(object):
+	def add_to_spec(self,spec,par):
+		raise NotImplementedError
+
 class AppMagVar(QsoSimVar):
 	name = 'appMag'
 	def __init__(self,sampler,band=None):
@@ -191,7 +205,7 @@ class AbsMagVar(QsoSimVar):
 class RedshiftVar(QsoSimVar):
 	name = 'z'
 
-class ContinuumVar(QsoSimVar):
+class ContinuumVar(QsoSimVar,SpectralFeatureVar):
 	pass
 
 class MultiDimVar(QsoSimVar):
@@ -219,22 +233,23 @@ class MultiDimVar(QsoSimVar):
 
 class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
 	nDim = 1
-	def __init__(self,sampler,slopePars,name='slopes'):
-		super(BrokenPowerLawContinuumVar,self).__init__(sampler,name=name)
+	name = 'slopes'
+	def __init__(self,sampler,slopePars):
+		super(BrokenPowerLawContinuumVar,self).__init__(sampler)
 		self._init_samplers(slopePars)
 
-class EmissionLineVar(QsoSimVar):
+class EmissionLineVar(QsoSimVar,SpectralFeatureVar):
 	pass
 
 class GaussianEmissionLineVar(EmissionLineVar):
-	def __init__(self,linePars,name='emLines'):
+	def __init__(self,linePars,name):
 		super(GaussianEmissionLineVar,self).__init__(None,name=name)
 
 class GaussianEmissionLinesTemplateVar(EmissionLineVar,MultiDimVar):
 	nDim = 2
-	def __init__(self,sampler,linePars,name='emLines'):
-		super(GaussianEmissionLinesTemplateVar,self).__init__(sampler,
-		                                                      name=name)
+	name = 'emLines'
+	def __init__(self,sampler,linePars):
+		super(GaussianEmissionLinesTemplateVar,self).__init__(sampler)
 		self._init_samplers(linePars)
 
 class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
@@ -243,6 +258,15 @@ class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
 		lpar = super(BossDr9EmissionLineTemplateVar,self).__call__(n)
 		lpar[...,1:] = np.power(10,lpar[...,1:])
 		return lpar
+
+class DustExtinctionVar(QsoSimVar,SpectralFeatureVar):
+	pass
+
+class SMCDustExtinctionVar(DustExtinctionVar):
+	name = 'smcDustEBV'
+
+class CalzettiDustExtinctionVar(DustExtinctionVar):
+	name = 'calzettiDustEBV'
 
 class BlackHoleMassVar(QsoSimVar):
 	name = 'logBhMass'
@@ -284,7 +308,9 @@ class QsoSimObjects(object):
 			raise AttributeError("no attribute "+name)
 	def addVar(self,var):
 		self.qsoVars.append(var)
-		self.data[var.name] = var(self.nObj)
+		vals = var(self.nObj)
+		if vals is not None:
+			self.data[var.name] = vals
 	def addVars(self,newVars):
 		for var in newVars:
 			self.addVar(var)
@@ -351,11 +377,16 @@ def generateQlfPoints(qlf,mRange,zRange,m2M,cosmo,band='i',**kwargs):
 def generateBEffEmissionLines(M1450,**kwargs):
 	trendFn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v6')
 	indy = kwargs.get('EmLineIndependentScatter',False)
+	noScatter = kwargs.get('NoScatter',False)
+	excludeLines = kwargs.get('ExcludeLines',[])
 	M_i = M1450 - 1.486 + 0.596
 	lineCatalog = Table.read(datadir+trendFn+'.fits')
 	for line,scl in kwargs.get('scaleEWs',{}).items():
 		i = np.where(lineCatalog['name']==line)[0][0]
 		lineCatalog['logEW'][i,:] += np.log10(scl)
+	if noScatter:
+		for k in ['wavelength','logEW','logWidth']:
+			lineCatalog[k][:,1:] = lineCatalog[k][:,[0]]
 	if indy:
 		x1 = x2 = x3 = None
 	else:
@@ -365,7 +396,8 @@ def generateBEffEmissionLines(M1450,**kwargs):
 	lineList = [ ((l['wavelength'],M_i,x1),
 	              (l['logEW'],M_i,x2),
 	              (l['logWidth'],M_i,x3))
-	             for l in lineCatalog ]
+	             for l in lineCatalog 
+	               if l['name'] not in excludeLines ]
 	lines = BossDr9EmissionLineTemplateVar(BaldwinEffectSampler,lineList)
 	return lines
 
@@ -389,7 +421,7 @@ def generateVdBCompositeEmLines(minEW=1.0,noFe=False):
 
 
 class VW01FeTemplateGrid(object):
-	def __init__(self,M,z,wave,fwhm=5000.,scales=None):
+	def __init__(self,z,wave,fwhm=5000.,scales=None):
 		self.zbins = np.arange(z.min(),z.max()+0.005,0.005)
 		self.feGrid = np.empty((self.zbins.shape[0],wave.shape[0]))
 		# the Fe template is an equivalent width spectrum
@@ -442,54 +474,6 @@ class VW01FeTemplateGrid(object):
 		feFlux = broadenedTemp
 		feFlux *= flux0/simps(feFlux,wave)
 		return wave,feFlux
-	def update(self,M,z):
-		# template fixed in luminosity and redshift
-		return
 	def get(self,idx):
 		return self.feGrid[self.zi[idx]]
-	def getTable(self,hdr):
-		'''Return a Table of all parameters and header information'''
-		hdr['FETEMPL'] = 'Vestergaard & Wilkes 2001 Iron Emission'
-		return None
-
-class FixedDustGrid(object):
-	def __init__(self,M,z,dustModel,E_BmV):
-		self.dustModel = dustModel
-		self.E_BmV = E_BmV
-		self.dust_fn = dustextinction.dust_fn[dustModel]
-	def update(self,M,z):
-		# fixed in luminosity and redshift
-		return
-	def get(self,idx):
-		return self.dust_fn,self.E_BmV
-	def getTable(self,hdr):
-		'''Return a Table of all parameters and header information'''
-		hdr['DUSTMODL'] = self.dustModel
-		hdr['FIXEDEBV'] = self.E_BmV
-		return None
-
-class ExponentialDustGrid(object):
-	def __init__(self,M,z,dustModel,E_BmV_scale,fraction=1):
-		self.dustModel = dustModel
-		self.E_BmV_scale = E_BmV_scale
-		self.dust_fn = dustextinction.dust_fn[dustModel]
-		if fraction==1:
-			self.EBVdist = np.random.exponential(E_BmV_scale,M.shape)
-		else:
-			print 'using dust LOS fraction ',fraction
-			self.EBVdist = np.zeros_like(M).astype(np.float32)
-			N = fraction * M.size
-			ii = np.random.randint(0,M.size,(N,))
-			self.EBVdist.flat[ii] = np.random.exponential(E_BmV_scale,(N,)).astype(np.float32)
-	def update(self,M,z):
-		# fixed in luminosity and redshift
-		return
-	def get(self,idx):
-		return self.dust_fn,self.EBVdist[idx]
-	def getTable(self,hdr):
-		'''Return a Table of all parameters and header information'''
-		t = Table({'E(B-V)':self.EBVdist.flatten()})
-		hdr['DUSTMODL'] = self.dustModel
-		hdr['EBVSCALE'] = self.E_BmV_scale
-		return t
 
