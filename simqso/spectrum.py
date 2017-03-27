@@ -65,20 +65,6 @@ class Spectrum(object):
 		                   bounds_error=False,fill_value=0.0)
 		self.wave = newWave
 		self.f_lambda = newFlux(newWave)
-
-def _Mtoflam(lam0,M,z,DM):
-	nu0 = (lam0 * u.Angstrom).to(u.Hz,equivalencies=u.spectral()).value
-	fnu0 = 10**(-0.4*(M+DM(z)+48.599934))
-	flam0 = nu0*fnu0/lam0
-	return flam0/(1+z)
-
-class QSOSpectrum(Spectrum):
-	def __init__(self,wave,**kwargs):
-		super(QSOSpectrum,self).__init__(wave,**kwargs)
-		self.templates = {}
 	def convolve_restframe(self,g,*args):
 		self.f_lambda = g(self.wave/(1+self.z),self.f_lambda,*args)
-	def addTemplate(self,name,template):
-		self.templates[name] = self.plcontinuum * template
-		self.f_lambda += self.templates[name]
 

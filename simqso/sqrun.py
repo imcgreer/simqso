@@ -211,12 +211,11 @@ def buildFeatures(Mz,wave,simParams):
 	qsoParams = simParams['QuasarModelParams']
 	if 'EmissionLineParams' in qsoParams:
 		buildEmissionLineGrid(Mz,simParams)
-# XXX
-#	if 'IronEmissionParams' in qsoParams:
-#		# only option for now is the VW01 template
-#		scalings = qsoParams['IronEmissionParams'].get('FeScalings')
-#		feGrid = grids.VW01FeTemplateGrid(Mz.z,wave,scales=scalings)
-#		feFeature = IronEmissionFeature(feGrid)
+	if 'IronEmissionParams' in qsoParams:
+		# only option for now is the VW01 template
+		scalings = qsoParams['IronEmissionParams'].get('FeScalings')
+		feGrid = grids.VW01FeTemplateGrid(Mz.z,wave,scales=scalings)
+		Mz.addVar(grids.FeTemplateVar(feGrid))
 	if 'DustExtinctionParams' in qsoParams:
 		buildDustGrid(simParams)
 

@@ -541,7 +541,6 @@ class VW01FeTemplateGrid(object):
 			rfEW = interp1d(wave0*(1+zbin),ew0,kind='slinear',
 			                bounds_error=False,fill_value=0.0)
 			self.feGrid[i] = rfEW(wave)
-		self.zi = np.searchsorted(self.zbins,z)
 	def _loadVW01Fe(self,wave):
 		fepath = datadir+'VW01_Fe/'
 		feTemplate = np.zeros_like(wave)
@@ -584,6 +583,14 @@ class VW01FeTemplateGrid(object):
 		feFlux = broadenedTemp
 		feFlux *= flux0/simps(feFlux,wave)
 		return wave,feFlux
-	def get(self,idx):
-		return self.feGrid[self.zi[idx]]
+	def get(self,z):
+		zi = np.searchsorted(self.zbins,z)
+		return self.feGrid[zi]
+
+class FeTemplateVar(EmissionFeatureVar):
+	def __init__(self,feGrid,name=None):
+		super(FeTemplateVar,self).__init__(NullSampler())
+		self.feGrid = feGrid
+	def render(self,wave,z,par):
+		return self.feGrid.get(z)
 
