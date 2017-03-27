@@ -7,6 +7,7 @@ from scipy.signal import convolve
 from scipy.stats import norm,lognorm,expon
 from astropy.table import Table
 from astropy import units as u
+from astropy import cosmology
 
 from .sqbase import datadir
 from .spectrum import Spectrum
