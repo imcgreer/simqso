@@ -503,8 +503,8 @@ def qsoSimulation(simParams,**kwargs):
 			forest = dict(wave=wave[:2],T=NullForest())
 		else:
 			forest = buildForest(wave,Mz.getRedshifts(),simParams,outputDir)
-		# make sure that the forest redshifts actually match the grid
-		assert np.allclose(forest['z'],Mz.zGrid.flatten())
+			# make sure that the forest redshifts actually match the grid
+			assert np.allclose(forest['z'],Mz.zGrid.flatten())
 	if forestOnly:
 		timerLog.dump()
 		return
