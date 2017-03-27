@@ -134,7 +134,7 @@ class QSOSpectrum(Spectrum):
 	#
 	def addEmissionLines(self,emlines):
 		self.components['EmissionLines'] = emlines
-		wave,eqWidth,sigma = emlines.T * (1+z)
+		wave,eqWidth,sigma = emlines.T * (1+self.z)
 		#wave,eqWidth,sigma = [p*(1+self.z) for p in emlines]
 		self.templates['EmissionLines'] = np.zeros_like(self.plcontinuum)
 		#nsig = 3.5*np.array([-1.,1])

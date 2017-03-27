@@ -67,7 +67,9 @@ def buildMzGrid(simParams):
 		qsoGrid = grids.generateQlfPoints(qlf,
 		                                  gridPars['mRange'],
 		                                  gridPars['zRange'],
-		                                  m2M,cosmodef,**gridPars['QLFargs'])
+		                                  m2M,cosmodef,
+		                                  gridPars['ObsBand'],
+		                                  **gridPars['QLFargs'])
 	else:
 		raise ValueError('GridType %s unknown' % gridType)
 	if gridType != 'LuminosityFunction':
@@ -127,7 +129,7 @@ def buildContinuumModels(qsoGrid,simParams):
 	np.random.seed(continuumParams.get('RandomSeed',
 	               simParams.get('RandomSeed')))
 	slopes = continuumParams['PowerLawSlopes'][::2]
-#	breakpts = continuumParams['PowerLawSlopes'][1::2]
+	breakpts = continuumParams['PowerLawSlopes'][1::2]
 	print '... building continuum grid'
 	cmodel = continuumParams['ContinuumModel']
 	if cmodel in ['GaussianPLawDistribution','FixedPLawDistribution',
@@ -135,7 +137,7 @@ def buildContinuumModels(qsoGrid,simParams):
 		if cmodel in ['GaussianPLawDistribution','FixedPLawDistribution']:
 			print 'WARNING: %s continuum is deprecated' % cmodel
 		continuumVars = [ grids.BrokenPowerLawContinuumVar(
-		                                grids.GaussianSampler,slopes) ]
+		                         grids.GaussianSampler,slopes,breakpts) ]
 	else:
 		raise ValueError
 	qsoGrid.addVars(continuumVars)
@@ -169,13 +171,9 @@ def buildEmissionLineGrid(qsoGrid,simParams):
 	else:
 		raise ValueError('invalid emission line model: ' +
 		                    emLineParams['EmissionLineModel'])
-#	if 'addLines' in emLineParams:
-#		for l in emLineParams['addLines']:
-#			print 'adding line ',l
-#			emLineGrid.addLine(*l)
-	return emLineGrid
+	qsoGrid.addVar(emLineGrid)
 
-def buildDustGrid(Mz,simParams):
+def buildDustGrid(qsoGrid,simParams):
 	print '... building dust extinction grid'
 	dustParams = simParams['QuasarModelParams']['DustExtinctionParams']
 	np.random.seed(dustParams.get('RandomSeed',simParams.get('RandomSeed')))
@@ -187,60 +185,40 @@ def buildDustGrid(Mz,simParams):
 		raise ValueError('invalid dust extinction model: '+
 		                 dustParams['DustExtinctionModel'])
 	if dustParams['DustModelName'] == 'SMC':
-		dustGrid = grids.SMCDustVar(sampler)
+		dustVar = grids.SMCDustVar(sampler)
 	elif dustParams['DustModelName'] == 'CalzettiSB':
-		dustGrid = grids.CalzettiDustVar(sampler)
+		dustVar = grids.CalzettiDustVar(sampler)
 	else:
 		raise ValueError('invalid dust extinction model: '+
 		                 dustParams['DustModelName'])
 # XXX
 #		                 fraction=dustParams.get('DustLOSfraction',1.0))
-	return dustGrid
+	qsoGrid.addVar(dustGrid)
 
 
-class SpectralFeature(object):
-	def __init__(self,grid):
-		self.grid = grid
-	def update(self,*args):
-		self.grid.update(*args)
-	def getTable(self,hdr):
-		return self.grid.getTable(hdr)
-
-class EmissionLineFeature(SpectralFeature):
-	def apply_to_spec(self,spec,idx):
-		#emlines = self.grid.get(idx)
-		emlines = self.grid()[idx]
-		spec.addEmissionLines(emlines)
-
-class IronEmissionFeature(SpectralFeature):
-	def apply_to_spec(self,spec,idx):
-		feTemplate = self.grid.get(idx)
-		spec.addTemplate('Fe',feTemplate)
-
-class DustExtinctionFeature(SpectralFeature):
-	def apply_to_spec(self,spec,idx):
-		dustfn = self.grid.get(idx)
-		spec.convolve_restframe(*dustfn)
+#class IronEmissionFeature(SpectralFeature):
+#	def apply_to_spec(self,spec,idx):
+#		feTemplate = self.grid.get(idx)
+#		spec.addTemplate('Fe',feTemplate)
+#
+#class DustExtinctionFeature(SpectralFeature):
+#	def apply_to_spec(self,spec,idx):
+#		dustfn = self.grid.get(idx)
+#		spec.convolve_restframe(*dustfn)
 
 def buildFeatures(Mz,wave,simParams):
-	features = []
+	buildContinuumModels(Mz,simParams)
 	qsoParams = simParams['QuasarModelParams']
 	if 'EmissionLineParams' in qsoParams:
-		emLineGrid = buildEmissionLineGrid(Mz,simParams)
-		emLineFeature = EmissionLineFeature(emLineGrid)
-		features.append(emLineFeature)
-	if 'IronEmissionParams' in qsoParams:
-		# only option for now is the VW01 template
-		scalings = qsoParams['IronEmissionParams'].get('FeScalings')
-		feGrid = grids.VW01FeTemplateGrid(Mz.z,wave,scales=scalings)
-		feFeature = IronEmissionFeature(feGrid)
-		features.append(feFeature)
+		buildEmissionLineGrid(Mz,simParams)
+# XXX
+#	if 'IronEmissionParams' in qsoParams:
+#		# only option for now is the VW01 template
+#		scalings = qsoParams['IronEmissionParams'].get('FeScalings')
+#		feGrid = grids.VW01FeTemplateGrid(Mz.z,wave,scales=scalings)
+#		feFeature = IronEmissionFeature(feGrid)
 	if 'DustExtinctionParams' in qsoParams:
-		dustGrid = buildDustGrid(simParams)
-		dustFeature = DustExtinctionFeature(dustGrid)
-		features.append(dustFeature)
-		pass
-	return features
+		buildDustGrid(simParams)
 
 
 def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
@@ -265,8 +243,7 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 		spectra = None
 	nforest = len(forest['wave'])
 	assert np.all(np.abs(forest['wave']-wave[:nforest]<1e-3))
-	continua = buildContinuumModels(qsoGrid,simParams)
-	features = buildFeatures(qsoGrid,wave,simParams)
+	buildFeatures(qsoGrid,wave,simParams)
 	spec = QSOSpectrum(wave)
 	synMag = np.zeros((qsoGrid.nObj,len(photoMap['bandpasses'])))
 	synFlux = np.zeros_like(synMag)
@@ -279,33 +256,32 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 		# this should be pushed up to something like photoMap.getIndex(band)
 		bands = photoMap['bandpasses'].keys()
 		try:
+			obsBand = qsoGrid.qsoVars[0].obsBand # XXX
 			fluxBand = next(j for j in range(len(bands)) 
-			                    if photoMap['filtName'][bands[j]]==qsoGrid.obsBand)
+			                    if photoMap['filtName'][bands[j]]==obsBand)
 		except:
-			raise ValueError('band ',qsoGrid.obsBand,' not found in ',bands)
+			raise ValueError('band ',obsBand,' not found in ',bands)
 		print 'fluxBand is ',fluxBand,bands
-	# XXX
-	continuumParams = simParams['QuasarModelParams']['ContinuumParams']
-	breakpts = continuumParams['PowerLawSlopes'][1::2]
+	fluxNorm = {'wavelength':1450.,'M_AB':None,'DM':qsoGrid.distMod}
 	for iterNum in range(nIter):
 		print 'buildQSOspectra iteration ',iterNum+1,' out of ',nIter
 		for i,obj in enumerate(qsoGrid):
 			spec.setRedshift(obj['z'])
 			# start with continuum
-			slopes = obj['slopes'] # XXX
-			spec.setPowerLawContinuum((slopes,breakpts),
-			                          fluxNorm={'wavelength':1450.,
-			                                    'M_AB':obj['absMag'],
-			                                    'DM':qsoGrid.distMod})
+			fluxNorm['M_AB'] = obj['absMag']
+			for feature in qsoGrid.getSpectralFeatures():
+				if isinstance(feature,grids.ContinuumVar):
+					par = obj[feature.name]
+					spec = feature.add_to_spec(spec,par,fluxNorm=fluxNorm)
 			# add additional emission/absorption features
 			for feature in qsoGrid.getSpectralFeatures():
-				if isinstance(feature.sampler,NullSampler):
+				if isinstance(feature,grids.ContinuumVar):
+					continue
+				if isinstance(feature.sampler,grids.NullSampler):
 					par = None
 				else:
 					par = obj[feature.name]
-				feature.add_to_spec(spec,par)
-			for feature in features:
-				feature.apply_to_spec(spec,i)
+				spec = feature.add_to_spec(spec,par)
 			# apply HI forest blanketing
 			spec.f_lambda[:nforest] *= forest['T'][i]
 			# calculate synthetic magnitudes from the spectra through the
@@ -318,19 +294,20 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 				spectra[i] = spec.f_lambda
 		if nIter > 1:
 			# find the largest mag offset
-			m = qsoGrid.updateMags(synMag[...,fluxBand]) - self.appMag
+			dm = synMag[...,fluxBand] - qsoGrid.appMag
 			print '--> delta mag mean = %.7f, rms = %.7f, |max| = %.7f' % \
 			              (dm.mean(),dm.std(),np.abs(dm).max())
-			self.absMag[:] -= dm
+			qsoGrid.absMag[:] -= dm
 			dmagMax = np.abs(dm).max()
 			# resample features with updated absolute mags
-			continua.update(qsoGrid)
-			for feature in features:
-				feature.update(qsoGrid)
+# XXX
+#			for feature in features:
+#				feature.update(qsoGrid)
 			if dmagMax < 0.01:
 				break
-	return dict(synMag=synMag,synFlux=synFlux,
-	            continua=continua,features=features,spectra=spectra)
+	qsoGrid.addVar(grids.SynMagVar(grids.FixedSampler(synMag)))
+	qsoGrid.addVar(grids.SynFluxVar(grids.FixedSampler(synFlux)))
+	return qsoGrid,spectra
 
 
 class TimerLog():
@@ -378,7 +355,7 @@ def readSimulationData(fileName,outputDir,retParams=False):
 		return qsoGrid,simPars
 	return qsoGrid
 
-def writeSimulationData(simParams,Mz,outputDir,writeFeatures):
+def writeSimulationData(simParams,Mz,outputDir):
 	# Primary extension just contains model parameters in header
 	simPar = copy(simParams)
 	# XXX need to write parameters out or something...
@@ -387,8 +364,8 @@ def writeSimulationData(simParams,Mz,outputDir,writeFeatures):
 		del simPar['GridParams']['QLFmodel']
 	except:
 		pass
-	Mz.meta['GRIDPARS'] = str(simPar)
-	Mz.write(os.path.join(outputDir,simPar['FileName']+'.fits'),
+	Mz.data.meta['GRIDPARS'] = str(simPar)
+	Mz.data.write(os.path.join(outputDir,simPar['FileName']+'.fits'),
 	         overwrite=True)
 
 
@@ -410,10 +387,6 @@ def qsoSimulation(simParams,**kwargs):
       onlyMap: only do the simulation of observed photometry, assuming 
 	           synthetic photometry has already been generated [default:False]
 	  noPhotoMap: skip the simulation of observed photometry [default:False]
-	  writeFeatures: in addition to photometry, save all of the individual
-	                 spectral features for each object (continuum slopes,
-	                 emission line parameters, etc.), sufficient to reproduce
-	                 spectra from output files [default:False]
 	  outputDir: write files to this directory [default:'./']
 	'''
 	saveSpectra = kwargs.get('saveSpectra',False)
@@ -421,7 +394,6 @@ def qsoSimulation(simParams,**kwargs):
 	onlyMap = kwargs.get('onlyMap',False)
 	noPhotoMap = kwargs.get('noPhotoMap',False)
 	noWriteOutput = kwargs.get('noWriteOutput',False)
-	writeFeatures = kwargs.get('writeFeatures',False)
 	outputDir = kwargs.get('outputDir','./')
 	#
 	# build or restore the grid of (M,z) for each QSO
@@ -484,7 +456,7 @@ def qsoSimulation(simParams,**kwargs):
 	#
 	photoMap = sqphoto.load_photo_map(simParams['PhotoMapParams'])
 	if not onlyMap:
-		simQSOs = buildQSOspectra(wave,Mz,forest,photoMap,simParams,
+		_,spectra = buildQSOspectra(wave,Mz,forest,photoMap,simParams,
 		                          maxIter=simParams.get('maxFeatureIter',3),
 		                          saveSpectra=saveSpectra)
 	timerLog('Build Quasar Spectra')
@@ -495,7 +467,7 @@ def qsoSimulation(simParams,**kwargs):
 		print 'mapping photometry'
 		np.random.seed(simParams['PhotoMapParams'].get('RandomSeed',
 		               simParams.get('RandomSeed')))
-		photoData = sqphoto.calcObsPhot(simQSOs['synFlux'],photoMap)
+		photoData = sqphoto.calcObsPhot(Mz.synFlux,photoMap)
 		timerLog('PhotoMap')
 	else:
 		photoData = None
@@ -503,12 +475,9 @@ def qsoSimulation(simParams,**kwargs):
 	if not noWriteOutput:
 		writeSimulationData(simParams,Mz,outputDir)
 	if saveSpectra:
-		#fits.writeto(os.path.join(outputDir,
-		                          #simParams['FileName']+'_spectra.fits.gz'),
-		             #simQSOs['spectra'],clobber=True)
 		fits.writeto(os.path.join(outputDir,
 		                          simParams['FileName']+'_spectra.fits'),
-		             simQSOs['spectra'],clobber=True)
+		             spectra,clobber=True)
 
 def load_spectra(simFileName,outputDir='.'):
 	simdat,par = readSimulationData(simFileName,outputDir,retParams=True)

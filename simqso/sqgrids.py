@@ -6,8 +6,10 @@ from scipy.integrate import simps
 from scipy.signal import convolve
 from scipy.stats import norm,lognorm,expon
 from astropy.table import Table
+from astropy import units as u
 
 from .sqbase import datadir
+from .spectrum import Spectrum
 
 
 ##############################################################################
@@ -185,29 +187,6 @@ class QsoSimVar(object):
 	def __str__(self):
 		return str(self.sampler)
 
-class SpectralFeatureVar(object):
-	def add_to_spec(self,spec,par):
-		raise NotImplementedError
-
-class AppMagVar(QsoSimVar):
-	name = 'appMag'
-	def __init__(self,sampler,band=None):
-		super(AppMagVar,self).__init__(sampler)
-		self.band = band
-
-class AbsMagVar(QsoSimVar):
-	name = 'absMag'
-	def __init__(self,sampler,restWave=None):
-		'''if restWave is none then bolometric'''
-		super(AbsMagVar,self).__init__(sampler)
-		self.restWave = restWave
-
-class RedshiftVar(QsoSimVar):
-	name = 'z'
-
-class ContinuumVar(QsoSimVar,SpectralFeatureVar):
-	pass
-
 class MultiDimVar(QsoSimVar):
 	nDim = None
 	def _recurse_pars(self,_pars,depth):
@@ -231,19 +210,103 @@ class MultiDimVar(QsoSimVar):
 			arr = arr[...,np.newaxis]
 		return np.rollaxis(arr,-1)
 
+class SpectralFeatureVar(object):
+	def add_to_spec(self,spec,par):
+		raise NotImplementedError
+
+class AppMagVar(QsoSimVar):
+	name = 'appMag'
+	def __init__(self,sampler,band=None):
+		super(AppMagVar,self).__init__(sampler)
+		self.obsBand = band
+
+class AbsMagVar(QsoSimVar):
+	name = 'absMag'
+	def __init__(self,sampler,restWave=None):
+		'''if restWave is none then bolometric'''
+		super(AbsMagVar,self).__init__(sampler)
+		self.restWave = restWave
+
+class RedshiftVar(QsoSimVar):
+	name = 'z'
+
+class ContinuumVar(QsoSimVar,SpectralFeatureVar):
+	def add_to_spec(self,spec,par,**kwargs):
+		spec.f_lambda[:] += self.render(spec.wave,spec.z,par,**kwargs)
+		return spec
+
+def _Mtoflam(lam0,M,z,DM):
+	nu0 = (lam0 * u.Angstrom).to(u.Hz,equivalencies=u.spectral()).value
+	fnu0 = 10**(-0.4*(M+DM(z)+48.599934))
+	flam0 = nu0*fnu0/lam0
+	return flam0/(1+z)
+
 class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
 	nDim = 1
 	name = 'slopes'
-	def __init__(self,sampler,slopePars):
+	def __init__(self,sampler,slopePars,breakPts):
 		super(BrokenPowerLawContinuumVar,self).__init__(sampler)
+		self.breakPts = np.asarray(breakPts).astype(np.float32)
 		self._init_samplers(slopePars)
+	def render(self,wave,z,slopes,fluxNorm=None):
+		spec = np.zeros_like(wave)
+		w1 = 1
+		spec[0] = 1.0
+		z1 = 1 + z
+		alpha_lams = -(2+np.asarray(slopes)) # a_nu --> a_lam
+		# add a breakpoint beyond the red edge of the spectrum in order
+		# to fill using the last power law slope if necessary
+		breakpts = np.concatenate([self.breakPts,[wave[-1]+1]])
+		wb = np.searchsorted(wave,breakpts*z1)
+		ii = np.where((wb>0)&(wb<=len(wave)))[0]
+		wb = wb[ii]
+		for alpha_lam,w2 in zip(alpha_lams[ii-1],wb):
+			if w1==w2:
+				break
+			spec[w1:w2] = spec[w1-1] * (wave[w1:w2]/wave[w1-1])**alpha_lam
+			w1 = w2
+		if fluxNorm is not None:
+			normwave = fluxNorm['wavelength']
+			wave0 = wave/z1
+			fnorm = _Mtoflam(normwave,fluxNorm['M_AB'],z,fluxNorm['DM'])
+			if wave0[0] > normwave:
+				raise NotImplementedError("outside of wave range: ",
+				                          wave0[0],normwave)
+				# XXX come back to this; for normalizing the flux when the norm
+				#     wavelength is outside of the spectral range
+				for alam,bkpt in zip(alpha_lams,breakpts):
+					if bkpt > normwave:
+						fnorm *= (normwave/bkpt)**alam
+					if bkpt > wave0[0]:
+						break
+			elif wave0[-1] < normwave:
+				raise NotImplementedError("%.1f (%.1f) outside lower "
+				 "wavelength bound %.1f" % (wave0[-1],wave[-1],normwave))
+			else:
+				# ... to be strictly correct, would need to account for power law
+				#     slope within the pixel
+				fscale = fnorm/spec[np.searchsorted(wave0,normwave)]
+			spec[:] *= fscale
+		return spec
 
 class EmissionLineVar(QsoSimVar,SpectralFeatureVar):
-	pass
+	def add_to_spec(self,spec,par,**kwargs):
+		spec.f_lambda[:] *= self.render(spec.wave,spec.z,par,**kwargs)
+		return spec
 
 class GaussianEmissionLineVar(EmissionLineVar):
 	def __init__(self,linePars,name):
 		super(GaussianEmissionLineVar,self).__init__(None,name=name)
+	def render(self,wave,z,par):
+		# XXX copied below
+		emspec = np.ones_like(wave)
+		lineWave,eqWidth,sigma = par * (1+z)
+		A = eqWidth/(np.sqrt(2*np.pi)*sigma)
+		twosig2 = 2*sigma**2
+		nsig = (np.sqrt(-2*np.log(1e-3/A))*np.array([[-1.],[1]])).T
+		i1,i2 = np.searchsorted(wave,lineWave+nsig*sigma)
+		emspec[i1:i2] += A*np.exp(-(wave[i1:i2]-lineWave)**2 / twosig2)
+		return emspec
 
 class GaussianEmissionLinesTemplateVar(EmissionLineVar,MultiDimVar):
 	nDim = 2
@@ -251,6 +314,18 @@ class GaussianEmissionLinesTemplateVar(EmissionLineVar,MultiDimVar):
 	def __init__(self,sampler,linePars):
 		super(GaussianEmissionLinesTemplateVar,self).__init__(sampler)
 		self._init_samplers(linePars)
+	def render(self,wave,z,emlines):
+		emspec = np.ones_like(wave)
+		lineWave,eqWidth,sigma = emlines.T * (1+z)
+		A = eqWidth/(np.sqrt(2*np.pi)*sigma)
+		twosig2 = 2*sigma**2
+		nsig = (np.sqrt(-2*np.log(1e-3/A))*np.array([[-1.],[1]])).T
+		ii = np.where(np.logical_and(lineWave>wave[0],lineWave<wave[-1]))[0]
+		for i in ii:
+			i1,i2 = np.searchsorted(wave,lineWave[i]+nsig[i]*sigma[i])
+			emspec[i1:i2] += A[i]*np.exp(-(wave[i1:i2]-lineWave[i])**2
+			                                   / twosig2[i])
+		return emspec
 
 class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
 	'''translates the log values'''
@@ -290,6 +365,12 @@ class AbsMagFromBHMassEddRatioVar(AbsMagVar):
 		sampler = FixedSampler(M1450)
 		super(AbsMagFromBHMassEddRatioVar,self).__init__(sampler,restWave)
 
+class SynMagVar(QsoSimVar):
+	name = 'synMag'
+
+class SynFluxVar(QsoSimVar):
+	name = 'synFlux'
+
 
 ##############################################################################
 # Simulation grids
@@ -300,8 +381,15 @@ class QsoSimObjects(object):
 		self.qsoVars = qsoVars
 		self.cosmo = cosmo
 		self.units = units
-	def setCosmology(self,cosmo):
-		self.cosmo = cosmo
+	def setCosmology(self,cosmodef):
+		if type(cosmodef) is dict:
+			self.cosmo = cosmology.FlatLambdaCDM(**cosmodef)
+		elif isinstance(cosmodef,cosmology.FLRW):
+			self.cosmo = cosmodef
+		elif cosmodef is None:
+			self.cosmo = cosmology.get_current()
+		else:
+			raise ValueError
 	def __iter__(self):
 		for obj in self.data:
 			yield obj
@@ -318,11 +406,11 @@ class QsoSimObjects(object):
 	def addVars(self,newVars):
 		for var in newVars:
 			self.addVar(var)
-	def getPars(self,obj,varType):
-		pars = [ obj[var.name] 
-		           for var in self.qsoVars
-			         if isinstance(var,varType) ]
-		return pars
+	def getSpectralFeatures(self):
+		return [ var for var in self.qsoVars 
+		               if isinstance(var,SpectralFeatureVar) ]
+	def distMod(self,z):
+		return self.cosmo.distmod(z).value
 	def read(self,gridFile):
 		self.data = Table.read(gridFile)
 		self.nObj = len(self.data)
@@ -365,7 +453,7 @@ class QsoSimGrid(QsoSimObjects):
 
 
 
-def generateQlfPoints(qlf,mRange,zRange,m2M,cosmo,band='i',**kwargs):
+def generateQlfPoints(qlf,mRange,zRange,m2M,cosmo,band,**kwargs):
 	m,z = qlf.sample_from_fluxrange(mRange,zRange,m2M,cosmo,**kwargs)
 	m = AppMagVar(FixedSampler(m),band=band)
 	z = RedshiftVar(FixedSampler(z))
