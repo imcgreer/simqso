@@ -181,6 +181,7 @@ class QsoSimVar(object):
 		self.sampler = sampler
 		if name is not None:
 			self.name = name
+		self.update = False
 	def __call__(self,n):
 		return self.sampler(n)
 	def resample(self,*args,**kwargs):
@@ -419,6 +420,14 @@ class QsoSimObjects(object):
 	def getSpectralFeatures(self):
 		return [ var for var in self.qsoVars 
 		               if isinstance(var,SpectralFeatureVar) ]
+	def resample(self):
+		for var in self.qsoVars:
+			# how to more reasonably know what variables are needed to
+			# be passed down? the nominal use case is updating variables
+			# which depend on absMag. for now just passing the whole object...
+			if var.update:
+				var.resample(self)
+				self.data[var.name] = var(self.nObj)
 	def distMod(self,z):
 		return self.cosmo.distmod(z).value
 	def read(self,gridFile):
@@ -499,6 +508,7 @@ def generateBEffEmissionLines(M1450,**kwargs):
 	              (l['logWidth'],M_i,x3))
 	             for l in lineCatalog[useLines] ]
 	lines = BossDr9EmissionLineTemplateVar(BaldwinEffectSampler,lineList)
+	lines.update = True # XXX a better way?
 	return lines
 
 def generateVdBCompositeEmLines(minEW=1.0,noFe=False):

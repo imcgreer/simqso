@@ -301,8 +301,7 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 			qsoGrid.absMag[:] -= dm
 			dmagMax = np.abs(dm).max()
 			# resample features with updated absolute mags
-			for feature in qsoGrid.getSpectralFeatures():
-				feature.resample(qsoGrid)
+			qsoGrid.resample()
 			if dmagMax < 0.01:
 				break
 	qsoGrid.addVar(grids.SynMagVar(grids.FixedSampler(synMag)))
@@ -346,7 +345,7 @@ def readSimulationData(fileName,outputDir,retParams=False):
 	qsoGrid = grids.QsoSimObjects()
 	qsoGrid.read(os.path.join(outputDir,fileName+'.fits'))
 	if retParams:
-		hdr = fits.getheader(os.path.join(outputDir,fileName+'.fits'),0)
+		hdr = fits.getheader(os.path.join(outputDir,fileName+'.fits'),1)
 		simPars = ast.literal_eval(hdr['SQPARAMS'])
 		# XXX get it from parameters...
 ###		simPars['Cosmology'] = {
@@ -364,7 +363,7 @@ def writeSimulationData(simParams,Mz,outputDir):
 		del simPar['GridParams']['QLFmodel']
 	except:
 		pass
-	Mz.data.meta['GRIDPARS'] = str(simPar)
+	Mz.data.meta['SQPARAMS'] = str(simPar)
 	Mz.data.write(os.path.join(outputDir,simPar['FileName']+'.fits'),
 	         overwrite=True)
 
@@ -477,14 +476,13 @@ def qsoSimulation(simParams,**kwargs):
 	if saveSpectra:
 		fits.writeto(os.path.join(outputDir,
 		                          simParams['FileName']+'_spectra.fits'),
-		             spectra,clobber=True)
+		             spectra,overwrite=True)
 
 def load_spectra(simFileName,outputDir='.'):
 	simdat,par = readSimulationData(simFileName,outputDir,retParams=True)
 	sp = fits.getdata(os.path.join(outputDir,simFileName+'_spectra.fits'))
-	simdat['spec'] = sp
 	wave = buildWaveGrid(par)
-	return wave,simdat
+	return wave,simdat,sp
 
 def generateForestGrid(simParams,**kwargs):
 	forestParams = simParams['ForestParams']
