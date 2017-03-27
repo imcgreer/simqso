@@ -23,7 +23,7 @@ class Sampler(object):
 		self.high = high
 	def sample(self,n):
 		raise NotImplementedError
-	def resample(self,qsoData,**kwargs):
+	def resample(self,*args,**kwargs):
 		pass
 	def __call__(self,n):
 		return self.sample(n)
@@ -168,8 +168,8 @@ class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
 			# save the x values for reuse
 			self.x = np.random.random(n)
 		return self._sample(self.x)
-	def resample(self,absMag,**kwargs):
-		self._reset(absMag)
+	def resample(self,qsoGrid,**kwargs):
+		self._reset(qsoGrid.absMag)
 		return self._sample()
 
 

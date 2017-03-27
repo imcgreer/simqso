@@ -300,9 +300,8 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 			qsoGrid.absMag[:] -= dm
 			dmagMax = np.abs(dm).max()
 			# resample features with updated absolute mags
-# XXX
-#			for feature in features:
-#				feature.update(qsoGrid)
+			for feature in qsoGrid.getSpectralFeatures():
+				feature.resample(qsoGrid)
 			if dmagMax < 0.01:
 				break
 	qsoGrid.addVar(grids.SynMagVar(grids.FixedSampler(synMag)))
