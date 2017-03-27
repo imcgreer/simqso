@@ -11,7 +11,7 @@ from astropy import cosmology
 
 from . import sqbase
 from . import sqgrids as grids
-from .spectrum import QSOSpectrum
+from .spectrum import Spectrum
 from . import hiforest
 from . import dustextinction
 from . import sqphoto
@@ -244,7 +244,7 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 	nforest = len(forest['wave'])
 	assert np.all(np.abs(forest['wave']-wave[:nforest]<1e-3))
 	buildFeatures(qsoGrid,wave,simParams)
-	spec = QSOSpectrum(wave)
+	spec = Spectrum(wave)
 	synMag = np.zeros((qsoGrid.nObj,len(photoMap['bandpasses'])))
 	synFlux = np.zeros_like(synMag)
 	photoCache = sqphoto.getPhotoCache(wave,photoMap)
@@ -269,19 +269,20 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 			spec.setRedshift(obj['z'])
 			# start with continuum
 			fluxNorm['M_AB'] = obj['absMag']
-			for feature in qsoGrid.getSpectralFeatures():
-				if isinstance(feature,grids.ContinuumVar):
-					par = obj[feature.name]
-					spec = feature.add_to_spec(spec,par,fluxNorm=fluxNorm)
-			# add additional emission/absorption features
-			for feature in qsoGrid.getSpectralFeatures():
-				if isinstance(feature,grids.ContinuumVar):
-					continue
+			for feature in qsoGrid.getVars(grids.ContinuumVar):
+				par = obj[feature.name]
+				spec = feature.add_to_spec(spec,par,fluxNorm=fluxNorm)
+			# add emission (multiplicative) features
+			emspec = Spectrum(wave,z=obj['z'])
+			for feature in qsoGrid.getVars(grids.EmissionFeatureVar):
 				if isinstance(feature.sampler,grids.NullSampler):
 					par = None
 				else:
 					par = obj[feature.name]
-				spec = feature.add_to_spec(spec,par)
+				emspec += feature.add_to_spec(emspec,par)
+			spec *= emspec + 1
+			# add other (additive) features
+			# XXX
 			# apply HI forest blanketing
 			spec.f_lambda[:nforest] *= forest['T'][i]
 			# calculate synthetic magnitudes from the spectra through the
@@ -456,7 +457,7 @@ def qsoSimulation(simParams,**kwargs):
 	photoMap = sqphoto.load_photo_map(simParams['PhotoMapParams'])
 	if not onlyMap:
 		_,spectra = buildQSOspectra(wave,Mz,forest,photoMap,simParams,
-		                          maxIter=simParams.get('maxFeatureIter',3),
+		                          maxIter=simParams.get('maxFeatureIter',5),
 		                          saveSpectra=saveSpectra)
 	timerLog('Build Quasar Spectra')
 	#

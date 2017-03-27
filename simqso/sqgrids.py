@@ -300,17 +300,18 @@ class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
 			spec[:] *= fscale
 		return spec
 
-class EmissionLineVar(QsoSimVar,SpectralFeatureVar):
+class EmissionFeatureVar(QsoSimVar,SpectralFeatureVar):
+	# XXX if treating as additive then move into SpectralFeatureVar with cont.
 	def add_to_spec(self,spec,par,**kwargs):
-		spec.f_lambda[:] *= self.render(spec.wave,spec.z,par,**kwargs)
+		spec.f_lambda[:] += self.render(spec.wave,spec.z,par,**kwargs)
 		return spec
 
-class GaussianEmissionLineVar(EmissionLineVar):
+class GaussianEmissionLineVar(EmissionFeatureVar):
 	def __init__(self,linePars,name):
 		super(GaussianEmissionLineVar,self).__init__(None,name=name)
 	def render(self,wave,z,par):
 		# XXX copied below
-		emspec = np.ones_like(wave)
+		emspec = np.zeros_like(wave)
 		lineWave,eqWidth,sigma = par * (1+z)
 		A = eqWidth/(np.sqrt(2*np.pi)*sigma)
 		twosig2 = 2*sigma**2
@@ -319,14 +320,14 @@ class GaussianEmissionLineVar(EmissionLineVar):
 		emspec[i1:i2] += A*np.exp(-(wave[i1:i2]-lineWave)**2 / twosig2)
 		return emspec
 
-class GaussianEmissionLinesTemplateVar(EmissionLineVar,MultiDimVar):
+class GaussianEmissionLinesTemplateVar(EmissionFeatureVar,MultiDimVar):
 	nDim = 2
 	name = 'emLines'
 	def __init__(self,sampler,linePars):
 		super(GaussianEmissionLinesTemplateVar,self).__init__(sampler)
 		self._init_samplers(linePars)
 	def render(self,wave,z,emlines):
-		emspec = np.ones_like(wave)
+		emspec = np.zeros_like(wave)
 		lineWave,eqWidth,sigma = emlines.T * (1+z)
 		A = eqWidth/(np.sqrt(2*np.pi)*sigma)
 		twosig2 = 2*sigma**2
@@ -417,9 +418,8 @@ class QsoSimObjects(object):
 	def addVars(self,newVars):
 		for var in newVars:
 			self.addVar(var)
-	def getSpectralFeatures(self):
-		return [ var for var in self.qsoVars 
-		               if isinstance(var,SpectralFeatureVar) ]
+	def getVars(self,varType=QsoSimVar):
+		return filter(lambda v: isinstance(v,varType),self.qsoVars)
 	def resample(self):
 		for var in self.qsoVars:
 			# how to more reasonably know what variables are needed to

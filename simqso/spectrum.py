@@ -7,16 +7,19 @@ from astropy import units as u
 
 class Spectrum(object):
 	#
-	def __init__(self,wave,**kwargs):
+	def __init__(self,wave,f_lambda=None,z=0.0):
 		'''Spectrum(wave,**kwargs)
 		    wave: set the wavelength array (default flux will be zero)
 		    keyword arguments:
+		     f_lambda: flux density in f_lambda units
 			 z: redshift of object
-		     flux: flux in f_lambda units
 		'''
-		self.wave = wave.astype(np.float)
-		self.f_lambda = kwargs.get('f_lambda',np.zeros_like(self.wave))
-		self.z = kwargs.get('z',0.0)
+		self.wave = wave.astype(np.float) # XXX
+		if f_lambda is None:
+			self.f_lambda = np.zeros_like(self.wave)
+		else:
+			self.f_lambda = f_lambda
+		self.z = z
 	#
 	def _getotherspec(self,other):
 		if np.isscalar(other):
@@ -36,7 +39,7 @@ class Spectrum(object):
 		   if necessary.'''
 		a1 = self.f_lambda
 		a2 = self._getotherspec(other)
-		return Spectrum(self.wave,flux=self.f_lambda,z=self.z)
+		return Spectrum(self.wave,op(a1,a2),self.z)
 	# implement +-*/
 	def __add__(self,other):
 		return self._op(other,np.add)
@@ -56,7 +59,7 @@ class Spectrum(object):
 	def waveslice(self,w1,w2):
 		'''return a cut of the spectrum in a wavelength range'''
 		ii = np.where((self.wave > w1) & (self.wave < w2))[0]
-		return Spectrum(self.wave[ii],flux=self.f_lambda[ii],z=self.z)
+		return Spectrum(self.wave[ii],self.f_lambda[ii],self.z)
 	def resample(self,newWave):
 		newFlux = interp1d(self.wave,self.f_lambda,
 		                   bounds_error=False,fill_value=0.0)
