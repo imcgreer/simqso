@@ -11,6 +11,7 @@ from astropy import cosmology
 
 from .sqbase import datadir
 from .spectrum import Spectrum
+from . import dustextinction
 
 
 ##############################################################################
@@ -346,14 +347,28 @@ class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
 		lpar[...,1:] = np.power(10,lpar[...,1:])
 		return lpar
 
+class FeTemplateVar(EmissionFeatureVar):
+	def __init__(self,feGrid,name=None):
+		super(FeTemplateVar,self).__init__(NullSampler())
+		self.feGrid = feGrid
+	def render(self,wave,z,par):
+		return self.feGrid.get(z)
+
 class DustExtinctionVar(QsoSimVar,SpectralFeatureVar):
-	pass
+	@staticmethod
+	def dustCurve(name):
+		return dustextinction.dust_fn[name]
+	def add_to_spec(self,spec,ebv,**kwargs):
+		spec.convolve_restframe(self.dustCurve(self.dustCurveName),ebv)
+		return spec
 
-class SMCDustExtinctionVar(DustExtinctionVar):
+class SMCDustVar(DustExtinctionVar):
 	name = 'smcDustEBV'
+	dustCurveName = 'SMC'
 
-class CalzettiDustExtinctionVar(DustExtinctionVar):
+class CalzettiDustVar(DustExtinctionVar):
 	name = 'calzettiDustEBV'
+	dustCurveName = 'CalzettiSB'
 
 class BlackHoleMassVar(QsoSimVar):
 	name = 'logBhMass'
@@ -586,11 +601,4 @@ class VW01FeTemplateGrid(object):
 	def get(self,z):
 		zi = np.searchsorted(self.zbins,z)
 		return self.feGrid[zi]
-
-class FeTemplateVar(EmissionFeatureVar):
-	def __init__(self,feGrid,name=None):
-		super(FeTemplateVar,self).__init__(NullSampler())
-		self.feGrid = feGrid
-	def render(self,wave,z,par):
-		return self.feGrid.get(z)
 

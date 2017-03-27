@@ -193,18 +193,8 @@ def buildDustGrid(qsoGrid,simParams):
 		                 dustParams['DustModelName'])
 # XXX
 #		                 fraction=dustParams.get('DustLOSfraction',1.0))
-	qsoGrid.addVar(dustGrid)
+	qsoGrid.addVar(dustVar)
 
-
-#class IronEmissionFeature(SpectralFeature):
-#	def apply_to_spec(self,spec,idx):
-#		feTemplate = self.grid.get(idx)
-#		spec.addTemplate('Fe',feTemplate)
-#
-#class DustExtinctionFeature(SpectralFeature):
-#	def apply_to_spec(self,spec,idx):
-#		dustfn = self.grid.get(idx)
-#		spec.convolve_restframe(*dustfn)
 
 def buildFeatures(Mz,wave,simParams):
 	buildContinuumModels(Mz,simParams)
@@ -217,7 +207,7 @@ def buildFeatures(Mz,wave,simParams):
 		feGrid = grids.VW01FeTemplateGrid(Mz.z,wave,scales=scalings)
 		Mz.addVar(grids.FeTemplateVar(feGrid))
 	if 'DustExtinctionParams' in qsoParams:
-		buildDustGrid(simParams)
+		buildDustGrid(Mz,simParams)
 
 
 def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
@@ -280,8 +270,16 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 					par = obj[feature.name]
 				emspec += feature.add_to_spec(emspec,par)
 			spec *= emspec + 1
-			# add other (additive) features
-			# XXX
+			# add any remaining features
+			for feature in qsoGrid.getVars(grids.SpectralFeatureVar):
+				if isinstance(feature,grids.ContinuumVar) or \
+				   isinstance(feature,grids.EmissionFeatureVar):
+					continue
+				if isinstance(feature.sampler,grids.NullSampler):
+					par = None
+				else:
+					par = obj[feature.name]
+				feature.add_to_spec(spec,par)
 			# apply HI forest blanketing
 			spec.f_lambda[:nforest] *= forest['T'][i]
 			# calculate synthetic magnitudes from the spectra through the
