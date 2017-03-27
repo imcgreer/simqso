@@ -311,7 +311,8 @@ def load_photo_map(params):
 			_photSysName = {'UKIRT':'UKIDSS'}.get(photSysName,photSysName)
 			bpExt = '-'.join([_photSysName,band])
 			fdat = filterdata[bpExt].data
-			fcurv = interp1d(fdat.lam,fdat.Rlam,
+			fcurv = interp1d(fdat.lam.astype(np.float64),
+			                 fdat.Rlam.astype(np.float64),
 			                 bounds_error=False,fill_value=0.0,kind='slinear')
 			# precompute the bandpass normalization
 			norm = simps(fdat.Rlam/fdat.lam, fdat.lam)

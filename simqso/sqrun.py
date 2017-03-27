@@ -292,6 +292,7 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 			                                           synFlux[i])
 			if saveSpectra:
 				spectra[i] = spec.f_lambda
+			spec.clear()
 		if nIter > 1:
 			# find the largest mag offset
 			dm = synMag[...,fluxBand] - qsoGrid.appMag

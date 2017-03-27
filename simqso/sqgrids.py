@@ -148,7 +148,6 @@ class LinearTrendWithAsymScatterSampler(Sampler):
 		self.hiSampler = GaussianSampler(xmn,sighi,
 		                                 low=self.low,high=self.high)
 	def _sample(self,x):
-		# XXX this doesn't seem to pick correctly
 		xlo = self.loSampler._sample(self.loSampler._getpoints(x))
 		xhi = self.hiSampler._sample(self.hiSampler._getpoints(x))
 		return np.choose(x<0.5,[xlo,xhi])
@@ -170,7 +169,6 @@ class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
 		return self._sample(self.x)
 	def resample(self,qsoGrid,**kwargs):
 		self._reset(qsoGrid.absMag)
-		return self._sample()
 
 
 
@@ -185,11 +183,14 @@ class QsoSimVar(object):
 			self.name = name
 	def __call__(self,n):
 		return self.sampler(n)
+	def resample(self,*args,**kwargs):
+		self.sampler.resample(*args,**kwargs)
 	def __str__(self):
 		return str(self.sampler)
 
 class MultiDimVar(QsoSimVar):
 	nDim = None
+	# obviously these should be combined...
 	def _recurse_pars(self,_pars,depth):
 		if depth > 0:
 			return [ self._recurse_pars(p,depth-1) for p in _pars ]
@@ -201,6 +202,12 @@ class MultiDimVar(QsoSimVar):
 			             for sampler in samplers ]
 		else:
 			return samplers(n)
+	def _recurse_resample(self,samplers,depth,*args,**kwargs):
+		if depth > 0:
+			for sampler in samplers:
+				self._recurse_resample(sampler,depth-1,*args,**kwargs)
+		else:
+			samplers.resample(*args,**kwargs)
 	def _init_samplers(self,pars):
 		self.samplers = self._recurse_pars(pars,self.nDim)
 	def __call__(self,n):
@@ -210,6 +217,8 @@ class MultiDimVar(QsoSimVar):
 			# hmm...
 			arr = arr[...,np.newaxis]
 		return np.rollaxis(arr,-1)
+	def resample(self,*args,**kwargs):
+		self._recurse_resample(self.samplers,self.nDim,*args,**kwargs)
 
 class SpectralFeatureVar(object):
 	def add_to_spec(self,spec,par):
@@ -465,11 +474,12 @@ def generateBEffEmissionLines(M1450,**kwargs):
 	indy = kwargs.get('EmLineIndependentScatter',False)
 	noScatter = kwargs.get('NoScatter',False)
 	excludeLines = kwargs.get('ExcludeLines',[])
+	onlyLines = kwargs.get('OnlyLines')
 	M_i = M1450 - 1.486 + 0.596
 	lineCatalog = Table.read(datadir+trendFn+'.fits')
 	for line,scl in kwargs.get('scaleEWs',{}).items():
 		i = np.where(lineCatalog['name']==line)[0][0]
-		lineCatalog['logEW'][i,:] += np.log10(scl)
+		lineCatalog['logEW'][i,:,1] += np.log10(scl)
 	if noScatter:
 		for k in ['wavelength','logEW','logWidth']:
 			lineCatalog[k][:,1:] = lineCatalog[k][:,[0]]
@@ -479,11 +489,15 @@ def generateBEffEmissionLines(M1450,**kwargs):
 		x1 = np.random.random(len(M_i))
 		x2 = np.random.random(len(M_i))
 		x3 = np.random.random(len(M_i))
+	#
+	useLines = ~np.in1d(lineCatalog['name'],excludeLines)
+	if onlyLines is not None:
+		useLines &= np.in1d(lineCatalog['name'],onlyLines)
+	#
 	lineList = [ ((l['wavelength'],M_i,x1),
 	              (l['logEW'],M_i,x2),
 	              (l['logWidth'],M_i,x3))
-	             for l in lineCatalog 
-	               if l['name'] not in excludeLines ]
+	             for l in lineCatalog[useLines] ]
 	lines = BossDr9EmissionLineTemplateVar(BaldwinEffectSampler,lineList)
 	return lines
 

@@ -16,7 +16,6 @@ class Spectrum(object):
 		'''
 		self.wave = wave.astype(np.float)
 		self.f_lambda = kwargs.get('f_lambda',np.zeros_like(self.wave))
-		self.components = {}
 		self.z = kwargs.get('z',0.0)
 	#
 	def _getotherspec(self,other):
@@ -38,33 +37,21 @@ class Spectrum(object):
 		a1 = self.f_lambda
 		a2 = self._getotherspec(other)
 		return Spectrum(self.wave,flux=self.f_lambda,z=self.z)
-	def add_op(self,other,op):
-		sp = self._op(other,op)
-		try:
-			for c in self.components:
-				sp.components[c] = self.components[c]
-			for c in other.components:
-				sp.components[c] = other.components[c]
-		except AttributeError:
-			# wasn't a Spectrum object
-			pass
-		return sp
 	# implement +-*/
 	def __add__(self,other):
-		return self.add_op(other,np.add)
+		return self._op(other,np.add)
 	def __sub__(self,other):
 		return self._op(other,np.subtract)
 	def __mul__(self,other):
-		return self.add_op(other,np.multiply)
+		return self._op(other,np.multiply)
 	def __div__(self,other):
 		return self._op(other,np.divide)
 	#
 	def setRedshift(self,z):
 		self.z = z
 	def clear(self):
-		del self.components
 		self.z = -1.0
-		self.components = {}
+		self.f_lambda[:] = 0
 	#
 	def waveslice(self,w1,w2):
 		'''return a cut of the spectrum in a wavelength range'''
@@ -86,69 +73,6 @@ class QSOSpectrum(Spectrum):
 	def __init__(self,wave,**kwargs):
 		super(QSOSpectrum,self).__init__(wave,**kwargs)
 		self.templates = {}
-	#
-	def setPowerLawContinuum(self,plaws,fluxNorm=None):
-		self.components['PowerLawContinuum'] = plaws
-		w1 = 1
-		self.f_lambda[0] = 1.0
-		z1 = 1 + self.z
-		slopes,breakpts = plaws
-		alpha_lams = -(2+slopes) # a_nu --> a_lam
-		# add a breakpoint beyond the red edge of the spectrum in order
-		# to fill using the last power law slope if necessary
-		breakpts = breakpts.astype(np.float32)
-		breakpts = np.concatenate([breakpts,[self.wave[-1]+1]])
-		wb = np.searchsorted(self.wave,breakpts*z1)
-		ii = np.where((wb>0)&(wb<=len(self.wave)))[0]
-		wb = wb[ii]
-		for alpha_lam,w2 in zip(alpha_lams[ii-1],wb):
-			if w1==w2:
-				break
-			self.f_lambda[w1:w2] = \
-			   self.f_lambda[w1-1] * \
-			     (self.wave[w1:w2]/self.wave[w1-1])**alpha_lam
-			w1 = w2
-		if fluxNorm is not None:
-			normwave = fluxNorm['wavelength']
-			wave0 = self.wave/z1
-			fnorm = _Mtoflam(normwave,fluxNorm['M_AB'],self.z,fluxNorm['DM'])
-			if wave0[0] > normwave:
-				raise NotImplementedError("outside of wave range: ",
-				                          wave0[0],normwave)
-				# XXX come back to this; for normalizing the flux when the norm
-				#     wavelength is outside of the spectral range
-				for alam,bkpt in zip(alpha_lams,breakpts):
-					if bkpt > normwave:
-						fnorm *= (normwave/bkpt)**alam
-					if bkpt > wave0[0]:
-						break
-			elif wave0[-1] < normwave:
-				raise NotImplementedError("%.1f (%.1f) outside lower "
-				 "wavelength bound %.1f" % (wave0[-1],self.wave[-1],normwave))
-			else:
-				# ... to be strictly correct, would need to account for power law
-				#     slope within the pixel
-				fscale = fnorm/self.f_lambda[np.searchsorted(wave0,normwave)]
-			self.f_lambda *= fscale
-		self.plcontinuum = self.f_lambda.copy()
-	#
-	def addEmissionLines(self,emlines):
-		self.components['EmissionLines'] = emlines
-		wave,eqWidth,sigma = emlines.T * (1+self.z)
-		#wave,eqWidth,sigma = [p*(1+self.z) for p in emlines]
-		self.templates['EmissionLines'] = np.zeros_like(self.plcontinuum)
-		#nsig = 3.5*np.array([-1.,1])
-		A = eqWidth/(np.sqrt(2*np.pi)*sigma)
-		twosig2 = 2*sigma**2
-		nsig = (np.sqrt(-2*np.log(1e-3/A))*np.array([[-1.],[1]])).T
-		for i in xrange(wave.shape[0]):
-			i1,i2 = np.searchsorted(self.wave,wave[i]+nsig*sigma[i])
-			if i2 != i1:
-				lineprofile = A[i]*np.exp(-(self.wave[i1:i2]-wave[i])**2
-				                           / twosig2[i])
-				self.templates['EmissionLines'][i1:i2] += \
-				                         self.plcontinuum[i1:i2]*lineprofile
-		self.f_lambda += self.templates['EmissionLines']
 	def convolve_restframe(self,g,*args):
 		self.f_lambda = g(self.wave/(1+self.z),self.f_lambda,*args)
 	def addTemplate(self,name,template):
