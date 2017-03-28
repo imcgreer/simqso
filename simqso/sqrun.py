@@ -45,14 +45,20 @@ def buildMzGrid(simParams):
 	if gridType.endswith('RedshiftGrid'):
 		m1,m2,nm = gridPars['mRange']
 		z1,z2,nz = gridPars['zRange']
-		mSampler = grids.GridSampler(m1,m2,nbins=nm)
-		zSampler = grids.GridSampler(z1,z2,nbins=nz)
+		if type(nm) is int:
+			mSampler = grids.GridSampler(m1,m2,nbins=nm)
+		else:
+			mSampler = grids.GridSampler(m1,m2,stepsize=nm)
+		if type(nz) is int:
+			zSampler = grids.GridSampler(z1,z2,nbins=nz)
+		else:
+			zSampler = grids.GridSampler(z1,z2,stepsize=nz)
 		if gridType.startswith('Luminosity'):
 			m = grids.AbsMagVar(mSampler,restWave=gridPars['LumUnits'])
 			units = 'luminosity'
 		elif gridType.startswith('Flux'):
 			m = grids.AppMagVar(mSampler,band=gridPars['ObsBand'],
-			                    restBand=gridPars['RestBand'])
+			                    )#restBand=gridPars['RestBand'])
 			units = 'flux'
 		z = grids.RedshiftVar(zSampler)
 	elif gridType == 'FixedGrid':
@@ -74,7 +80,7 @@ def buildMzGrid(simParams):
 		raise ValueError('GridType %s unknown' % gridType)
 	if gridType != 'LuminosityFunction':
 		qsoGrid = grids.QsoSimGrid([m,z],gridPars['nPerBin'],
-		                           units=units,cosmo=cosmo)
+		                           units=units,cosmo=cosmodef)
 	try:
 		_ = qsoGrid.absMag
 	except:

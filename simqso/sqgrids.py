@@ -64,7 +64,7 @@ class GridSampler(Sampler):
 			raise ValueError("Must specify nbins or stepsize")
 		super(GridSampler,self).__init__(low,high)
 		if stepsize:
-			nbins = (high - low) / stepsize
+			nbins = int( np.floor((high - low) / stepsize) )
 		self.nbins = nbins+1
 	def sample(self,n):
 		arr = np.linspace(self.low,self.high,n*self.nbins)
