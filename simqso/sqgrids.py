@@ -52,7 +52,7 @@ class ConstSampler(Sampler):
 		self.high = None
 		self.val = val
 	def sample(self,n):
-		return np.repeat(self.val,n).reshape(-1,n)
+		return np.repeat(self.val,n)
 
 class UniformSampler(Sampler):
 	def sample(self,n):
@@ -191,36 +191,23 @@ class QsoSimVar(object):
 		return str(self.sampler)
 
 class MultiDimVar(QsoSimVar):
-	nDim = None
 	# obviously these should be combined...
-	def _recurse_pars(self,_pars,depth):
-		if depth > 0:
-			return [ self._recurse_pars(p,depth-1) for p in _pars ]
-		else:
-			return self.sampler(*_pars)
-	def _recurse_call(self,samplers,n,depth):
-		if depth > 0:
-			return [ self._recurse_call(sampler,n,depth-1) 
-			             for sampler in samplers ]
-		else:
+	def _recurse_call(self,samplers,n):
+		if isinstance(samplers,Sampler):
 			return samplers(n)
-	def _recurse_resample(self,samplers,depth,*args,**kwargs):
-		if depth > 0:
-			for sampler in samplers:
-				self._recurse_resample(sampler,depth-1,*args,**kwargs)
 		else:
+			return [ self._recurse_call(sampler,n) for sampler in samplers ]
+	def _recurse_resample(self,samplers,*args,**kwargs):
+		if isinstance(samplers,Sampler):
 			samplers.resample(*args,**kwargs)
-	def _init_samplers(self,pars):
-		self.samplers = self._recurse_pars(pars,self.nDim)
+		else:
+			for sampler in samplers:
+				self._recurse_resample(sampler,*args,**kwargs)
 	def __call__(self,n):
-		arr = self._recurse_call(self.samplers,n,self.nDim)
-		arr = np.squeeze(arr)
-		if n==1:
-			# hmm...
-			arr = arr[...,np.newaxis]
-		return np.rollaxis(arr,-1)
+		arr = self._recurse_call(self.sampler,n)
+		return np.rollaxis(np.array(arr),-1)
 	def resample(self,*args,**kwargs):
-		self._recurse_resample(self.samplers,self.nDim,*args,**kwargs)
+		self._recurse_resample(self.sampler,*args,**kwargs)
 
 class SpectralFeatureVar(object):
 	def add_to_spec(self,spec,par):
@@ -254,12 +241,10 @@ def _Mtoflam(lam0,M,z,DM):
 	return flam0/(1+z)
 
 class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
-	nDim = 1
 	name = 'slopes'
-	def __init__(self,sampler,slopePars,breakPts):
-		super(BrokenPowerLawContinuumVar,self).__init__(sampler)
+	def __init__(self,samplers,breakPts):
+		super(BrokenPowerLawContinuumVar,self).__init__(samplers)
 		self.breakPts = np.asarray(breakPts).astype(np.float32)
-		self._init_samplers(slopePars)
 	def render(self,wave,z,slopes,fluxNorm=None):
 		spec = np.zeros_like(wave)
 		w1 = 1
@@ -307,38 +292,39 @@ class EmissionFeatureVar(QsoSimVar,SpectralFeatureVar):
 		spec.f_lambda[:] += self.render(spec.wave,spec.z,par,**kwargs)
 		return spec
 
-class GaussianEmissionLineVar(EmissionFeatureVar):
-	def __init__(self,linePars,name):
-		super(GaussianEmissionLineVar,self).__init__(None,name=name)
+def render_gaussians(wave,z,lines):
+	emspec = np.zeros_like(wave)
+	lineWave,eqWidth,sigma = lines.T * (1+z)
+	A = eqWidth/(np.sqrt(2*np.pi)*sigma)
+	twosig2 = 2*sigma**2
+	nsig = (np.sqrt(-2*np.log(1e-3/A))*np.array([[-1.],[1]])).T
+	ii = np.where(np.logical_and(lineWave>wave[0],lineWave<wave[-1]))[0]
+	for i in ii:
+		i1,i2 = np.searchsorted(wave,lineWave[i]+nsig[i]*sigma[i])
+		emspec[i1:i2] += A[i]*np.exp(-(wave[i1:i2]-lineWave[i])**2
+		                                   / twosig2[i])
+	return emspec
+
+class GaussianEmissionLineVar(EmissionFeatureVar,MultiDimVar):
 	def render(self,wave,z,par):
-		# XXX copied below
-		emspec = np.zeros_like(wave)
-		lineWave,eqWidth,sigma = par * (1+z)
-		A = eqWidth/(np.sqrt(2*np.pi)*sigma)
-		twosig2 = 2*sigma**2
-		nsig = (np.sqrt(-2*np.log(1e-3/A))*np.array([[-1.],[1]])).T
-		i1,i2 = np.searchsorted(wave,lineWave+nsig*sigma)
-		emspec[i1:i2] += A*np.exp(-(wave[i1:i2]-lineWave)**2 / twosig2)
-		return emspec
+		return render_gaussians(wave,z,np.array([par]))
+
+class GaussianLineEqWidthVar(EmissionFeatureVar):
+	'''this is an arguably kludgy way of making it possible to include
+	   line EW as a variable in grids, by reducing the line to a single
+	    parameter'''
+	def __init__(self,sampler,name,wave0,width0):
+		super(GaussianLineEqWidthVar,self).__init__(sampler,name)
+		self.wave0 = wave0
+		self.width0 = width0
+	def render(self,wave,z,ew0):
+		return render_gaussians(wave,z,
+		                        np.array([[self.wave0,ew0,self.width0]]))
 
 class GaussianEmissionLinesTemplateVar(EmissionFeatureVar,MultiDimVar):
-	nDim = 2
 	name = 'emLines'
-	def __init__(self,sampler,linePars):
-		super(GaussianEmissionLinesTemplateVar,self).__init__(sampler)
-		self._init_samplers(linePars)
-	def render(self,wave,z,emlines):
-		emspec = np.zeros_like(wave)
-		lineWave,eqWidth,sigma = emlines.T * (1+z)
-		A = eqWidth/(np.sqrt(2*np.pi)*sigma)
-		twosig2 = 2*sigma**2
-		nsig = (np.sqrt(-2*np.log(1e-3/A))*np.array([[-1.],[1]])).T
-		ii = np.where(np.logical_and(lineWave>wave[0],lineWave<wave[-1]))[0]
-		for i in ii:
-			i1,i2 = np.searchsorted(wave,lineWave[i]+nsig[i]*sigma[i])
-			emspec[i1:i2] += A[i]*np.exp(-(wave[i1:i2]-lineWave[i])**2
-			                                   / twosig2[i])
-		return emspec
+	def render(self,wave,z,lines):
+		return render_gaussians(wave,z,lines)
 
 class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
 	'''translates the log values'''
@@ -518,11 +504,11 @@ def generateBEffEmissionLines(M1450,**kwargs):
 	if onlyLines is not None:
 		useLines &= np.in1d(lineCatalog['name'],onlyLines)
 	#
-	lineList = [ ((l['wavelength'],M_i,x1),
-	              (l['logEW'],M_i,x2),
-	              (l['logWidth'],M_i,x3))
+	lineList = [ (BaldwinEffectSampler(l['wavelength'],M_i,x1),
+	              BaldwinEffectSampler(l['logEW'],M_i,x2),
+	              BaldwinEffectSampler(l['logWidth'],M_i,x3))
 	             for l in lineCatalog[useLines] ]
-	lines = BossDr9EmissionLineTemplateVar(BaldwinEffectSampler,lineList)
+	lines = BossDr9EmissionLineTemplateVar(lineList)
 	lines.update = True # XXX a better way?
 	return lines
 
@@ -540,8 +526,9 @@ def generateVdBCompositeEmLines(minEW=1.0,noFe=False):
 		lines = lines[~isFe]
 	print 'using the following lines from VdB template: ',
 	print ','.join(list(lines['ID']))
-	lineList = [ [(l['OWave'],l['EqWid'],l['Width'])] for l in lines ]
-	lines = GaussianEmissionLinesTemplateVar(ConstSampler,lineList)
+	c = ConstSampler
+	lineList = [ [c(l['OWave']),c(l['EqWid']),c(l['Width'])] for l in lines ]
+	lines = GaussianEmissionLinesTemplateVar(lineList)
 	return lines
 
 

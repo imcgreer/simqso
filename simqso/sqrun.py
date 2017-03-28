@@ -136,8 +136,9 @@ def buildContinuumModels(qsoGrid,simParams):
 	                                                'BrokenPowerLaw']:
 		if cmodel in ['GaussianPLawDistribution','FixedPLawDistribution']:
 			print 'WARNING: %s continuum is deprecated' % cmodel
-		continuumVars = [ grids.BrokenPowerLawContinuumVar(
-		                         grids.GaussianSampler,slopes,breakpts) ]
+		slopeVars = [ grids.GaussianSampler(*s) for s in slopes ]
+		continuumVars = [ grids.BrokenPowerLawContinuumVar(slopeVars,
+		                                                   breakpts) ]
 	else:
 		raise ValueError
 	qsoGrid.addVars(continuumVars)
