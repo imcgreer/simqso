@@ -275,7 +275,7 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 					par = None
 				else:
 					par = obj[feature.name]
-				emspec += feature.add_to_spec(emspec,par)
+				emspec = feature.add_to_spec(emspec,par)
 			spec *= emspec + 1
 			# add any remaining features
 			for feature in qsoGrid.getVars(grids.SpectralFeatureVar):
@@ -286,7 +286,7 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 					par = None
 				else:
 					par = obj[feature.name]
-				feature.add_to_spec(spec,par)
+				spec = feature.add_to_spec(spec,par)
 			# apply HI forest blanketing
 			spec.f_lambda[:nforest] *= forest['T'][i]
 			# calculate synthetic magnitudes from the spectra through the

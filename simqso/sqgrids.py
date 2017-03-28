@@ -210,8 +210,9 @@ class MultiDimVar(QsoSimVar):
 		self._recurse_resample(self.sampler,*args,**kwargs)
 
 class SpectralFeatureVar(object):
-	def add_to_spec(self,spec,par):
-		raise NotImplementedError
+	def add_to_spec(self,spec,par,**kwargs):
+		spec.f_lambda[:] += self.render(spec.wave,spec.z,par,**kwargs)
+		return spec
 
 class AppMagVar(QsoSimVar):
 	name = 'appMag'
@@ -230,9 +231,7 @@ class RedshiftVar(QsoSimVar):
 	name = 'z'
 
 class ContinuumVar(QsoSimVar,SpectralFeatureVar):
-	def add_to_spec(self,spec,par,**kwargs):
-		spec.f_lambda[:] += self.render(spec.wave,spec.z,par,**kwargs)
-		return spec
+	pass
 
 def _Mtoflam(lam0,M,z,DM):
 	nu0 = (lam0 * u.Angstrom).to(u.Hz,equivalencies=u.spectral()).value
@@ -253,7 +252,7 @@ class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
 		alpha_lams = -(2+np.asarray(slopes)) # a_nu --> a_lam
 		# add a breakpoint beyond the red edge of the spectrum in order
 		# to fill using the last power law slope if necessary
-		breakpts = np.concatenate([self.breakPts,[wave[-1]+1]])
+		breakpts = np.concatenate([[0,],self.breakPts,[wave[-1]+1]])
 		wb = np.searchsorted(wave,breakpts*z1)
 		ii = np.where((wb>0)&(wb<=len(wave)))[0]
 		wb = wb[ii]
@@ -287,10 +286,7 @@ class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
 		return spec
 
 class EmissionFeatureVar(QsoSimVar,SpectralFeatureVar):
-	# XXX if treating as additive then move into SpectralFeatureVar with cont.
-	def add_to_spec(self,spec,par,**kwargs):
-		spec.f_lambda[:] += self.render(spec.wave,spec.z,par,**kwargs)
-		return spec
+	pass
 
 def render_gaussians(wave,z,lines):
 	emspec = np.zeros_like(wave)
