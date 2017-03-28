@@ -28,6 +28,13 @@ def buildWaveGrid(simParams):
 	return wave
 
 
+def reseed(par):
+	try:
+		np.random.seed(par['RandomSeed'])
+	except KeyError:
+		pass
+
+
 def buildMzGrid(simParams):
 	'''
 	Create a grid of points in (M,z) space, each of these points are
@@ -40,7 +47,7 @@ def buildMzGrid(simParams):
 	except KeyError:
 		raise ValueError('Must specify a GridType')
 	m2M = lambda z: sqbase.mag2lum('SDSS-i',1450,z,cosmodef) # XXX
-	np.random.seed(gridPars.get('RandomSeed',simParams.get('RandomSeed')))
+	reseed(gridPars)
 	#
 	if gridType.endswith('RedshiftGrid'):
 		m1,m2,nm = gridPars['mRange']
@@ -102,8 +109,7 @@ def buildForest(wave,z,simParams,outputDir):
 	in redshift steps as each QSO redshift is iterated.
 	'''
 	forestParams = simParams['ForestParams']
-	np.random.seed(forestParams.get('RandomSeed',
-	               simParams.get('RandomSeed')))
+	reseed(forestParams)
 	forestType = forestParams.get('ForestType','Sightlines')
 	nlos = forestParams.get('NumLinesOfSight',-1)
 	forestFn = forestParams['FileName']
@@ -132,8 +138,7 @@ def buildForest(wave,z,simParams,outputDir):
 
 def buildContinuumModels(qsoGrid,simParams):
 	continuumParams = simParams['QuasarModelParams']['ContinuumParams']
-	np.random.seed(continuumParams.get('RandomSeed',
-	               simParams.get('RandomSeed')))
+	reseed(continuumParams)
 	slopes = continuumParams['PowerLawSlopes'][::2]
 	breakpts = continuumParams['PowerLawSlopes'][1::2]
 	print '... building continuum grid'
@@ -145,36 +150,25 @@ def buildContinuumModels(qsoGrid,simParams):
 		slopeVars = [ grids.GaussianSampler(*s) for s in slopes ]
 		continuumVars = [ grids.BrokenPowerLawContinuumVar(slopeVars,
 		                                                   breakpts) ]
+	elif isinstance(cmodel,grids.QsoSimVar):
+		continuumVars = [ cmodel ]
 	else:
 		raise ValueError
 	qsoGrid.addVars(continuumVars)
 
 
-
 def buildEmissionLineGrid(qsoGrid,simParams):
 	emLineParams = simParams['QuasarModelParams']['EmissionLineParams']
-	np.random.seed(emLineParams.get('RandomSeed',simParams.get('RandomSeed')))
-#	try:
-#		# if the user has passed in a model, instantiate it
-#		emLineGrid = emLineParams['EmissionLineModel'](Mz.mGrid,Mz.zGrid,
-#		                                               **emLineParams)
-#		return emLineGrid
-#	except TypeError:
-#		pass
-	# otherwise construct a model from the existing set
+	reseed(emLineParams)
 	if emLineParams['EmissionLineModel'] == 'FixedVdBCompositeLines':
 		emLineGrid = grids.generateVdBCompositeEmLines(
 		                             minEW=emLineParams.get('minEW',1.0),
 		                             noFe=emLineParams.get('VdB_noFe',False))
-#		# XXX hacky
-#		if emLineParams.get('addSBB',False):
-#			emLineGrid.addSBB()
-#	elif emLineParams['EmissionLineModel'] == 'FixedLBQSEmissionLines':
-#		emLineGrid = qsotemplates.FixedLBQSemLineGrid(
-#		                                noFe=emLineParams.get('LBQSnoFe',False))
 	elif emLineParams['EmissionLineModel'] == 'VariedEmissionLineGrid':
 		emLineGrid = grids.generateBEffEmissionLines(qsoGrid.absMag,
 		                                             **emLineParams)
+	elif isinstance(emLineParams['EmissionLineModel'],grids.QsoSimVar):
+		emLineGrid = emLineParams['EmissionLineModel']
 	else:
 		raise ValueError('invalid emission line model: ' +
 		                    emLineParams['EmissionLineModel'])
@@ -183,7 +177,7 @@ def buildEmissionLineGrid(qsoGrid,simParams):
 def buildDustGrid(qsoGrid,simParams):
 	print '... building dust extinction grid'
 	dustParams = simParams['QuasarModelParams']['DustExtinctionParams']
-	np.random.seed(dustParams.get('RandomSeed',simParams.get('RandomSeed')))
+	reseed(dustParams)
 	if dustParams['DustExtinctionModel'] == 'Fixed E(B-V)':
 		sampler = grids.ConstSampler(dustParams['E(B-V)'])
 	elif dustParams['DustExtinctionModel']=='Exponential E(B-V) Distribution':
@@ -404,6 +398,7 @@ def qsoSimulation(simParams,**kwargs):
 	# build or restore the grid of (M,z) for each QSO
 	#
 	wave = buildWaveGrid(simParams)
+	reseed(simParams)
 	timerLog = TimerLog()
 	try:
 		# simulation data already exists, load the Mz grid
@@ -470,8 +465,7 @@ def qsoSimulation(simParams,**kwargs):
 	#
 	if not noPhotoMap:
 		print 'mapping photometry'
-		np.random.seed(simParams['PhotoMapParams'].get('RandomSeed',
-		               simParams.get('RandomSeed')))
+		reseed(simParams['PhotoMapParams'])
 		photoData = sqphoto.calcObsPhot(Mz.synFlux,photoMap)
 		timerLog('PhotoMap')
 	else:
