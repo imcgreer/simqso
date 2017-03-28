@@ -353,7 +353,7 @@ def readSimulationData(fileName,outputDir,retParams=False):
 		return qsoGrid,simPars
 	return qsoGrid
 
-def writeSimulationData(simParams,Mz,outputDir):
+def writeSimulationData(simParams,Mz,photoData,outputDir):
 	# Primary extension just contains model parameters in header
 	simPar = copy(simParams)
 	# XXX need to write parameters out or something...
@@ -362,9 +362,10 @@ def writeSimulationData(simParams,Mz,outputDir):
 		del simPar['GridParams']['QLFmodel']
 	except:
 		pass
-	Mz.data.meta['SQPARAMS'] = str(simPar)
-	Mz.data.write(os.path.join(outputDir,simPar['FileName']+'.fits'),
-	         overwrite=True)
+	tab = hstack([Mz.data,Table(photoData)])
+	tab.meta['SQPARAMS'] = str(simPar)
+	tab.write(os.path.join(outputDir,simPar['FileName']+'.fits'),
+	          overwrite=True)
 
 
 def qsoSimulation(simParams,**kwargs):
@@ -471,7 +472,7 @@ def qsoSimulation(simParams,**kwargs):
 		photoData = None
 	timerLog.dump()
 	if not noWriteOutput:
-		writeSimulationData(simParams,Mz,outputDir)
+		writeSimulationData(simParams,Mz,photoData,outputDir)
 	if saveSpectra:
 		fits.writeto(os.path.join(outputDir,
 		                          simParams['FileName']+'_spectra.fits'),
