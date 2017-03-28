@@ -151,7 +151,7 @@ class LinearTrendWithAsymScatterSampler(Sampler):
 	def _sample(self,x):
 		xlo = self.loSampler._sample(self.loSampler._getpoints(x))
 		xhi = self.hiSampler._sample(self.hiSampler._getpoints(x))
-		return np.choose(x<0.5,[xlo,xhi])
+		return np.clip(np.choose(x>0.5,[xlo,xhi]),0,np.inf)
 
 class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
 	def __init__(self,coeffs,absMag,x=None,low=-np.inf,high=np.inf):
@@ -290,6 +290,7 @@ class EmissionFeatureVar(QsoSimVar,SpectralFeatureVar):
 
 def render_gaussians(wave,z,lines):
 	emspec = np.zeros_like(wave)
+	lines = lines[lines[:,1]>0]
 	lineWave,eqWidth,sigma = lines.T * (1+z)
 	A = eqWidth/(np.sqrt(2*np.pi)*sigma)
 	twosig2 = 2*sigma**2
