@@ -583,9 +583,10 @@ def generateVdBCompositeEmLines(minEW=1.0,noFe=False):
 
 
 class VW01FeTemplateGrid(object):
-	def __init__(self,z,wave,fwhm=5000.,scales=None):
+	def __init__(self,z,wave,fwhm=5000.,scales=None,useopt=True):
 		self.zbins = np.arange(z.min(),z.max()+0.005,0.005)
 		self.feGrid = np.empty((self.zbins.shape[0],wave.shape[0]))
+		self.useopt = useopt
 		# the Fe template is an equivalent width spectrum
 		wave0,ew0 = self._restFrameFeTemplate(fwhm,scales)
 		for i,zbin in enumerate(self.zbins):
@@ -596,28 +597,27 @@ class VW01FeTemplateGrid(object):
 	def _loadVW01Fe(self,wave):
 		fepath = datadir+'VW01_Fe/'
 		feTemplate = np.zeros_like(wave)
-		#for fn in ['Fe_UVtemplt_B.asc','Fe2_UV191.asc','Fe3_UV47.asc']:
-		for fn in ['Fe_UVOPT_V01_T06_BR92.asc','Fe2_UV191.asc','Fe3_UV47.asc']:
-			w,f = np.loadtxt(fepath+fn,unpack=True)
-			spec = interp1d(w,f,kind='slinear')
-			w1,w2 = np.searchsorted(wave,[w[0],w[-1]])
+		if self.useopt:
+			templnames = ['Fe_UVOPT_V01_T06_BR92','Fe2_UV191','Fe3_UV47']
+		else:
+			templnames = ['Fe_UVtemplt_B','Fe2_UV191','Fe3_UV47']
+		tmplfits = fits.open(os.path.join(datadir,'simqso_templates.fits'))
+		for t in templnames:
+			extnm = t if 'UVOPT' in t else 'VW01_'+t
+			tspec = tmplfits[extnm].data
+			spec = interp1d(tspec['wave'],tspec['f_lambda'],kind='slinear')
+			w1,w2 = np.searchsorted(wave,[tspec['wave'][0],tspec['wave'][-1]])
 			feTemplate[w1:w2] += spec(wave[w1:w2])
-		# continuum parameters given in VW01 pg. 6
-		a_nu = -1.9
-		fcont = 3.45e-14 * (wave/1500.)**(-2-a_nu)
-		w1 = np.searchsorted(wave,1716.)
-		a_nu = -1.0
-		fcont[w1:] = 3.89e-14 * (wave[w1:]/1500.)**(-2-a_nu)
-		feTemplate /= fcont
 		return feTemplate
 	def _restFrameFeTemplate(self,FWHM_kms,feScalings):
-		#wave = np.logspace(np.log(1075.),np.log(3089.),5000,base=np.e)
-		wave = np.logspace(np.log(1075.),np.log(7500.),5000,base=np.e)
+		if self.useopt:
+			wave = np.logspace(np.log(1075.),np.log(7500.),9202,base=np.e)
+		else:
+			wave = np.logspace(np.log(1075.),np.log(3089.),5000,base=np.e)
 		feTemplate = self._loadVW01Fe(wave)
 		# rescale segments of the Fe template
 		if feScalings is None:
-			#feScalings = [(0,3500,1.0),]
-			feScalings = [(0,7500,1.0),]
+			feScalings = [(0,1e4,1.0),]
 		print 'using Fe scales: ',feScalings
 		for w1,w2,fscl in feScalings:
 			wi1,wi2 = np.searchsorted(wave,(w1,w2))
