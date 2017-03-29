@@ -111,6 +111,8 @@ def buildForest(wave,z,simParams,outputDir):
 	forestType = forestParams.get('ForestType','Sightlines')
 	nlos = forestParams.get('NumLinesOfSight',-1)
 	forestFn = forestParams['FileName']
+	waveMax = (1+z.max()+0.2)*1217
+	wave = wave[:np.searchsorted(wave,waveMax)]
 	if forestType == 'OneToOne':
 		nlos = -1
 	forestSpec = None
@@ -195,7 +197,7 @@ def buildDustGrid(qsoGrid,simParams):
 	qsoGrid.addVar(dustVar)
 
 
-def buildFeatures(qsoGrid,wave,simParams):
+def buildFeatures(qsoGrid,wave,simParams,forest=None):
 	buildContinuumModels(qsoGrid,simParams)
 	qsoParams = simParams['QuasarModelParams']
 	if 'EmissionLineParams' in qsoParams:
@@ -207,10 +209,13 @@ def buildFeatures(qsoGrid,wave,simParams):
 		qsoGrid.addVar(grids.FeTemplateVar(feGrid))
 	if 'DustExtinctionParams' in qsoParams:
 		buildDustGrid(qsoGrid,simParams)
+	if forest is not None:
+		forestVar = grids.HIAbsorptionVar(forest)
+		qsoGrid.addVar(forestVar)
 
 
-def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
-                    maxIter,saveSpectra=False):
+def buildQSOspectra(wave,qsoGrid,forest,photoMap=None,
+                    maxIter=1,saveSpectra=False):
 	'''
 	Assemble the spectral components of each QSO from the input parameters.
 	---
@@ -229,15 +234,13 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 		spectra = np.zeros((qsoGrid.nObj,len(wave)))
 	else:
 		spectra = None
-	nforest = len(forest['wave'])
-	assert np.all(np.abs(forest['wave']-wave[:nforest]<1e-3))
-	buildFeatures(qsoGrid,wave,simParams)
 	spec = Spectrum(wave)
-	synMag = np.zeros((qsoGrid.nObj,len(photoMap['bandpasses'])))
-	synFlux = np.zeros_like(synMag)
-	photoCache = sqphoto.getPhotoCache(wave,photoMap)
+	if photoMap is not None:
+		synMag = np.zeros((qsoGrid.nObj,len(photoMap['bandpasses'])))
+		synFlux = np.zeros_like(synMag)
+		photoCache = sqphoto.getPhotoCache(wave,photoMap)
 	print 'units are ',qsoGrid.units
-	if qsoGrid.units == 'luminosity':
+	if qsoGrid.units == 'luminosity' or photoMap is None:
 		nIter = 1
 	else:
 		nIter = maxIter
@@ -255,6 +258,8 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 	def _getpar(feature,obj):
 		if isinstance(feature.sampler,grids.NullSampler):
 			return None
+		elif isinstance(feature.sampler,grids.IndexSampler):
+			return obj.index
 		else:
 			return obj[feature.name]
 	#
@@ -278,8 +283,6 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 				   isinstance(feature,grids.EmissionFeatureVar):
 					continue
 				spec = feature.add_to_spec(spec,_getpar(feature,obj))
-			# apply HI forest blanketing # XXX move up obj.index
-			spec.f_lambda[:nforest] *= forest['T'][i]
 			# calculate synthetic magnitudes from the spectra through the
 			# specified bandpasses
 			synMag[i],synFlux[i] = sqphoto.calcSynPhot(spec,photoMap,
@@ -429,6 +432,7 @@ def qsoSimulation(simParams,**kwargs):
 	if forestOnly:
 		timerLog.dump()
 		return
+	assert np.allclose(forest['wave'],wave[:len(forest['wave'])])
 	timerLog('Generate Forest')
 	#
 	# Use continuum and emission line distributions to build the components
@@ -436,7 +440,8 @@ def qsoSimulation(simParams,**kwargs):
 	#
 	photoMap = sqphoto.load_photo_map(simParams['PhotoMapParams'])
 	if not onlyMap:
-		_,spectra = buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
+		buildFeatures(qsoGrid,wave,simParams,forest)
+		_,spectra = buildQSOspectra(wave,qsoGrid,forest,photoMap=photoMap,
 		                            maxIter=simParams.get('maxFeatureIter',5),
 		                            saveSpectra=saveSpectra)
 	timerLog('Build Quasar Spectra')

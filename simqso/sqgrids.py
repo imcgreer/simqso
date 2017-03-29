@@ -50,6 +50,12 @@ class NullSampler(Sampler):
 	def sample(self,n):
 		return None
 
+class IndexSampler(Sampler):
+	def __init__(self):
+		pass
+	def sample(self,n):
+		return None
+
 class ConstSampler(Sampler):
 	def __init__(self,*val):
 		self.low = None
@@ -350,6 +356,15 @@ class FeTemplateVar(EmissionFeatureVar):
 		self.feGrid = feGrid
 	def render(self,wave,z,par):
 		return self.feGrid.get(z)
+
+class HIAbsorptionVar(QsoSimVar,SpectralFeatureVar):
+	def __init__(self,forest,name=None):
+		super(HIAbsorptionVar,self).__init__(IndexSampler())
+		self.forest = forest
+		self.nforest = len(forest['wave'])
+	def add_to_spec(self,spec,i,**kwargs):
+		spec.f_lambda[:self.nforest] *= self.forest['T'][i]
+		return spec
 
 class DustExtinctionVar(QsoSimVar,SpectralFeatureVar):
 	@staticmethod
