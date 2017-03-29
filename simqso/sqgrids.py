@@ -1,11 +1,15 @@
 #!/usr/bin/env python
 
+import os
+import ast
+from copy import copy
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.integrate import simps
 from scipy.signal import convolve
 from scipy.stats import norm,lognorm,expon
-from astropy.table import Table
+from astropy.io import fits
+from astropy.table import Table,hstack
 from astropy import units as u
 from astropy import cosmology
 
@@ -183,12 +187,16 @@ class QsoSimVar(object):
 		if name is not None:
 			self.name = name
 		self.update = False
+		self.meta = {}
 	def __call__(self,n):
 		return self.sampler(n)
 	def resample(self,*args,**kwargs):
 		self.sampler.resample(*args,**kwargs)
 	def __str__(self):
 		return str(self.sampler)
+	def updateMeta(self,meta):
+		for k,v in self.meta.items():
+			meta[k] = v
 
 class MultiDimVar(QsoSimVar):
 	# obviously these should be combined...
@@ -244,6 +252,7 @@ class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
 	def __init__(self,samplers,breakPts):
 		super(BrokenPowerLawContinuumVar,self).__init__(samplers)
 		self.breakPts = np.asarray(breakPts).astype(np.float32)
+		self.meta['CNTBKPTS'] = ','.join(['%.1f' % b for b in self.breakPts])
 	def render(self,wave,z,slopes,fluxNorm=None):
 		spec = np.zeros_like(wave)
 		w1 = 1
@@ -325,6 +334,11 @@ class GaussianEmissionLinesTemplateVar(EmissionFeatureVar,MultiDimVar):
 
 class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
 	'''translates the log values'''
+	def __init__(self,samplers,lineNames):
+		super(BossDr9EmissionLineTemplateVar,self).__init__(samplers)
+		self.lineNames = lineNames
+		self.meta['LINEMODL'] = 'BOSS DR9 Log-linear trends with luminosity'
+		self.meta['LINENAME'] = ','.join(lineNames)
 	def __call__(self,n=None):
 		lpar = super(BossDr9EmissionLineTemplateVar,self).__call__(n)
 		lpar[...,1:] = np.power(10,lpar[...,1:])
@@ -348,10 +362,12 @@ class DustExtinctionVar(QsoSimVar,SpectralFeatureVar):
 class SMCDustVar(DustExtinctionVar):
 	name = 'smcDustEBV'
 	dustCurveName = 'SMC'
+	meta = {'DUSTMODL':'SMC'}
 
 class CalzettiDustVar(DustExtinctionVar):
 	name = 'calzettiDustEBV'
 	dustCurveName = 'CalzettiSB'
+	meta = {'DUSTMODL':'Calzetti Starburst'}
 
 class BlackHoleMassVar(QsoSimVar):
 	name = 'logBhMass'
@@ -387,13 +403,15 @@ class SynFluxVar(QsoSimVar):
 ##############################################################################
 
 class QsoSimObjects(object):
-	def __init__(self,qsoVars=None,cosmo=None,units=None):
+	def __init__(self,qsoVars=[],cosmo=None,units=None):
 		self.qsoVars = qsoVars
 		self.cosmo = cosmo
 		self.units = units
 	def setCosmology(self,cosmodef):
 		if type(cosmodef) is dict:
 			self.cosmo = cosmology.FlatLambdaCDM(**cosmodef)
+		elif isinstance(cosmodef,basestring):
+			self.cosmo = cosmology.FlatLambdaCDM(**eval(cosmodef))
 		elif isinstance(cosmodef,cosmology.FLRW):
 			self.cosmo = cosmodef
 		elif cosmodef is None:
@@ -416,6 +434,8 @@ class QsoSimObjects(object):
 	def addVars(self,newVars):
 		for var in newVars:
 			self.addVar(var)
+	def addData(self,data):
+		self.data = hstack([self.data,data])
 	def getVars(self,varType=QsoSimVar):
 		return filter(lambda v: isinstance(v,varType),self.qsoVars)
 	def resample(self):
@@ -431,6 +451,36 @@ class QsoSimObjects(object):
 	def read(self,gridFile):
 		self.data = Table.read(gridFile)
 		self.nObj = len(self.data)
+		hdr = fits.getheader(gridFile,1)
+		self.units = hdr['GRIDUNIT']
+		self.gridShape = eval(hdr['GRIDDIM'])
+		hdr = fits.getheader(gridFile,1)
+		self.simPars = ast.literal_eval(hdr['SQPARAMS'])
+		self.setCosmology(self.simPars['Cosmology'])
+	@staticmethod
+	def cosmo_str(cosmodef):
+		if isinstance(cosmodef,cosmology.FLRW):
+			d = dict(name=cosmodef.name,H0=cosmodef.H0.value,
+			         Om0=cosmodef.Om0)
+			if cosmodef.Ob0:
+				d['Ob0'] = cosmodef.Ob0
+			cosmodef = d
+		return str(cosmodef)
+	def write(self,simPars,outputDir='.',outFn=None):
+		tab = self.data
+		simPars = copy(simPars)
+		simPars['Cosmology'] = self.cosmo_str(simPars['Cosmology'])
+		if 'QLFmodel' in simPars['GridParams']:
+			s = str(simPars['GridParams']['QLFmodel']).replace('\n',';')
+			simPars['GridParams']['QLFmodel'] = s
+		tab.meta['SQPARAMS'] = str(simPars)
+		tab.meta['GRIDUNIT'] = self.units
+		tab.meta['GRIDDIM'] = str(self.gridShape)
+		for var in self.qsoVars:
+			var.updateMeta(tab.meta)
+		if outFn is None:
+			outFn = simPars['FileName']+'.fits'
+		tab.write(os.path.join(outputDir,outFn),overwrite=True)
 
 class QsoSimPoints(QsoSimObjects):
 	def __init__(self,qsoVars,n=None,**kwargs):
@@ -438,6 +488,7 @@ class QsoSimPoints(QsoSimObjects):
 		data = { var.name:var(n) for var in qsoVars }
 		self.data = Table(data)
 		self.nObj = len(self.data)
+		self.gridShape = (self.nObj,)
 	def __str__(self):
 		return str(self.data)
 
@@ -505,7 +556,8 @@ def generateBEffEmissionLines(M1450,**kwargs):
 	              BaldwinEffectSampler(l['logEW'],M_i,x2),
 	              BaldwinEffectSampler(l['logWidth'],M_i,x3))
 	             for l in lineCatalog[useLines] ]
-	lines = BossDr9EmissionLineTemplateVar(lineList)
+	lines = BossDr9EmissionLineTemplateVar(lineList,
+	                                       lineCatalog['name'][useLines])
 	lines.update = True # XXX a better way?
 	return lines
 
@@ -526,6 +578,7 @@ def generateVdBCompositeEmLines(minEW=1.0,noFe=False):
 	c = ConstSampler
 	lineList = [ [c(l['OWave']),c(l['EqWid']),c(l['Width'])] for l in lines ]
 	lines = GaussianEmissionLinesTemplateVar(lineList)
+	lines.meta['LINEMODL'] = 'Fixed Vanden Berk et al. 2001 emission lines'
 	return lines
 
 

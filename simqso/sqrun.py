@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 
 import os
-import ast
-from copy import copy
 import time
 import numpy as np
 from astropy.io import fits
@@ -197,18 +195,18 @@ def buildDustGrid(qsoGrid,simParams):
 	qsoGrid.addVar(dustVar)
 
 
-def buildFeatures(Mz,wave,simParams):
-	buildContinuumModels(Mz,simParams)
+def buildFeatures(qsoGrid,wave,simParams):
+	buildContinuumModels(qsoGrid,simParams)
 	qsoParams = simParams['QuasarModelParams']
 	if 'EmissionLineParams' in qsoParams:
-		buildEmissionLineGrid(Mz,simParams)
+		buildEmissionLineGrid(qsoGrid,simParams)
 	if 'IronEmissionParams' in qsoParams:
 		# only option for now is the VW01 template
 		scalings = qsoParams['IronEmissionParams'].get('FeScalings')
-		feGrid = grids.VW01FeTemplateGrid(Mz.z,wave,scales=scalings)
-		Mz.addVar(grids.FeTemplateVar(feGrid))
+		feGrid = grids.VW01FeTemplateGrid(qsoGrid.z,wave,scales=scalings)
+		qsoGrid.addVar(grids.FeTemplateVar(feGrid))
 	if 'DustExtinctionParams' in qsoParams:
-		buildDustGrid(Mz,simParams)
+		buildDustGrid(qsoGrid,simParams)
 
 
 def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
@@ -252,7 +250,14 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 		except:
 			raise ValueError('band ',obsBand,' not found in ',bands)
 		print 'fluxBand is ',fluxBand,bands
+	#
 	fluxNorm = {'wavelength':1450.,'M_AB':None,'DM':qsoGrid.distMod}
+	def _getpar(feature,obj):
+		if isinstance(feature.sampler,grids.NullSampler):
+			return None
+		else:
+			return obj[feature.name]
+	#
 	for iterNum in range(nIter):
 		print 'buildQSOspectra iteration ',iterNum+1,' out of ',nIter
 		for i,obj in enumerate(qsoGrid):
@@ -260,28 +265,20 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
 			# start with continuum
 			fluxNorm['M_AB'] = obj['absMag']
 			for feature in qsoGrid.getVars(grids.ContinuumVar):
-				par = obj[feature.name]
-				spec = feature.add_to_spec(spec,par,fluxNorm=fluxNorm)
+				spec = feature.add_to_spec(spec,_getpar(feature,obj),
+				                           fluxNorm=fluxNorm)
 			# add emission (multiplicative) features
 			emspec = Spectrum(wave,z=obj['z'])
 			for feature in qsoGrid.getVars(grids.EmissionFeatureVar):
-				if isinstance(feature.sampler,grids.NullSampler):
-					par = None
-				else:
-					par = obj[feature.name]
-				emspec = feature.add_to_spec(emspec,par)
+				emspec = feature.add_to_spec(emspec,_getpar(feature,obj))
 			spec *= emspec + 1
 			# add any remaining features
 			for feature in qsoGrid.getVars(grids.SpectralFeatureVar):
 				if isinstance(feature,grids.ContinuumVar) or \
 				   isinstance(feature,grids.EmissionFeatureVar):
 					continue
-				if isinstance(feature.sampler,grids.NullSampler):
-					par = None
-				else:
-					par = obj[feature.name]
-				spec = feature.add_to_spec(spec,par)
-			# apply HI forest blanketing
+				spec = feature.add_to_spec(spec,_getpar(feature,obj))
+			# apply HI forest blanketing # XXX move up obj.index
 			spec.f_lambda[:nforest] *= forest['T'][i]
 			# calculate synthetic magnitudes from the spectra through the
 			# specified bandpasses
@@ -343,29 +340,22 @@ def writeGridData(simParams,Mz,outputDir):
 def readSimulationData(fileName,outputDir,retParams=False):
 	qsoGrid = grids.QsoSimObjects()
 	qsoGrid.read(os.path.join(outputDir,fileName+'.fits'))
+	simPars = qsoGrid.simPars
+	gridPars = simPars['GridParams']
+	if True:
+		mSampler = grids.FixedSampler(qsoGrid.appMag)
+		m = grids.AppMagVar(mSampler,band=gridPars['ObsBand'])
+	try:
+		mSampler = grids.FixedSampler(qsoGrid.appMag)
+		m = grids.AppMagVar(mSampler,band=gridPars['ObsBand'])
+	except:
+		mSampler = grids.FixedSampler(qsoGrid.absMag)
+		m = grids.AbsMagVar(mSampler,restWave=gridPars['LumUnits'])
+	z = grids.RedshiftVar(grids.FixedSampler(qsoGrid.z))
+	qsoGrid.addVars([m,z])
 	if retParams:
-		hdr = fits.getheader(os.path.join(outputDir,fileName+'.fits'),1)
-		simPars = ast.literal_eval(hdr['SQPARAMS'])
-		# XXX get it from parameters...
-###		simPars['Cosmology'] = {
-###		  'WMAP9':cosmology.WMAP9,
-###		}[simPars['Cosmology']]
 		return qsoGrid,simPars
 	return qsoGrid
-
-def writeSimulationData(simParams,Mz,photoData,outputDir):
-	# Primary extension just contains model parameters in header
-	simPar = copy(simParams)
-	# XXX need to write parameters out or something...
-	simPar['Cosmology'] = simPar['Cosmology'].name
-	try:
-		del simPar['GridParams']['QLFmodel']
-	except:
-		pass
-	tab = hstack([Mz.data,Table(photoData)])
-	tab.meta['SQPARAMS'] = str(simPar)
-	tab.write(os.path.join(outputDir,simPar['FileName']+'.fits'),
-	          overwrite=True)
 
 
 def qsoSimulation(simParams,**kwargs):
@@ -401,36 +391,26 @@ def qsoSimulation(simParams,**kwargs):
 	reseed(simParams)
 	timerLog = TimerLog()
 	try:
-		# simulation data already exists, load the Mz grid
-		cosmo = simParams['Cosmology'] # XXX
-		try:
-			# XXX a hack until figuring out how to save this in header
-			qlf = simParams['GridParams']['QLFmodel']
-		except:
-			qlf = None
-		Mz,simParams = readSimulationData(simParams['FileName'],
-		                                  outputDir,retParams=True)
-		# XXX hack copy back in
-		simParams['GridParams']['QLFmodel'] = qlf
-		simParams['Cosmology'] = cosmo
+		qsoGrid,simParams = readSimulationData(simParams['FileName'],
+		                                       outputDir,retParams=True)
 	except IOError:
 		print simParams['FileName']+' output not found'
 		if 'GridFileName' in simParams:
-			print 'restoring MzGrid from ',simParams['GridFileName']
+			print 'restoring grid from ',simParams['GridFileName']
 			try:
-				Mz,simParams = readSimulationData(simParams['GridFileName'],
-				                                  outputDir,retParams=True)
+				qsoGrid = readSimulationData(simParams['GridFileName'],
+				                             outputDir)
 			except IOError:
 				print simParams['GridFileName'],' not found, generating'
-				Mz = buildMzGrid(simParams)
-				writeGridData(simParams,Mz,outputDir)
+				qsoGrid = buildMzGrid(simParams)
+				writeGridData(simParams,qsoGrid,outputDir)
 		else:
 			print 'generating Mz grid'
-			Mz = buildMzGrid(simParams)
+			qsoGrid = buildMzGrid(simParams)
 		if not forestOnly:
 			if not noWriteOutput and 'GridFileName' in simParams:
-				writeGridData(simParams,Mz,outputDir)
-	Mz.setCosmology(simParams.get('Cosmology'))
+				writeGridData(simParams,qsoGrid,outputDir)
+	qsoGrid.setCosmology(simParams.get('Cosmology'))
 	timerLog('Initialize Grid')
 	#
 	# get the forest transmission spectra, or build if needed
@@ -443,9 +423,9 @@ def qsoSimulation(simParams,**kwargs):
 					return 1
 			forest = dict(wave=wave[:2],T=NullForest())
 		else:
-			forest = buildForest(wave,Mz.z,simParams,outputDir)
+			forest = buildForest(wave,qsoGrid.z,simParams,outputDir)
 		# make sure that the forest redshifts actually match the grid
-		assert np.allclose(forest['z'],Mz.z)
+		assert np.allclose(forest['z'],qsoGrid.z)
 	if forestOnly:
 		timerLog.dump()
 		return
@@ -456,9 +436,9 @@ def qsoSimulation(simParams,**kwargs):
 	#
 	photoMap = sqphoto.load_photo_map(simParams['PhotoMapParams'])
 	if not onlyMap:
-		_,spectra = buildQSOspectra(wave,Mz,forest,photoMap,simParams,
-		                          maxIter=simParams.get('maxFeatureIter',5),
-		                          saveSpectra=saveSpectra)
+		_,spectra = buildQSOspectra(wave,qsoGrid,forest,photoMap,simParams,
+		                            maxIter=simParams.get('maxFeatureIter',5),
+		                            saveSpectra=saveSpectra)
 	timerLog('Build Quasar Spectra')
 	#
 	# map the simulated photometry to observed values with uncertainties
@@ -466,13 +446,12 @@ def qsoSimulation(simParams,**kwargs):
 	if not noPhotoMap:
 		print 'mapping photometry'
 		reseed(simParams['PhotoMapParams'])
-		photoData = sqphoto.calcObsPhot(Mz.synFlux,photoMap)
+		photoData = sqphoto.calcObsPhot(qsoGrid.synFlux,photoMap)
+		qsoGrid.addData(photoData)
 		timerLog('PhotoMap')
-	else:
-		photoData = None
 	timerLog.dump()
 	if not noWriteOutput:
-		writeSimulationData(simParams,Mz,photoData,outputDir)
+		qsoGrid.write(simParams,outputDir=outputDir)
 	if saveSpectra:
 		fits.writeto(os.path.join(outputDir,
 		                          simParams['FileName']+'_spectra.fits'),
