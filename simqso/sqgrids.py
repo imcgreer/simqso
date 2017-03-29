@@ -599,7 +599,10 @@ def generateVdBCompositeEmLines(minEW=1.0,noFe=False):
 
 class VW01FeTemplateGrid(object):
 	def __init__(self,z,wave,fwhm=5000.,scales=None,useopt=True):
-		self.zbins = np.arange(z.min(),z.max()+0.005,0.005)
+		z1 = max(0,z.min()-0.1)
+		z2 = z.max() + 0.1
+		nz = int((z2-z1)/0.005) + 1
+		self.zbins = np.linspace(z1,z2,nz)
 		self.feGrid = np.empty((self.zbins.shape[0],wave.shape[0]))
 		self.useopt = useopt
 		# the Fe template is an equivalent width spectrum

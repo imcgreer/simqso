@@ -214,7 +214,7 @@ def buildFeatures(qsoGrid,wave,simParams,forest=None):
 		qsoGrid.addVar(forestVar)
 
 
-def buildQSOspectra(wave,qsoGrid,forest,photoMap=None,
+def buildQSOspectra(wave,qsoGrid,photoMap=None,
                     maxIter=1,saveSpectra=False):
 	'''
 	Assemble the spectral components of each QSO from the input parameters.
@@ -283,12 +283,13 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap=None,
 				   isinstance(feature,grids.EmissionFeatureVar):
 					continue
 				spec = feature.add_to_spec(spec,_getpar(feature,obj))
-			# calculate synthetic magnitudes from the spectra through the
-			# specified bandpasses
-			synMag[i],synFlux[i] = sqphoto.calcSynPhot(spec,photoMap,
-			                                           photoCache,
-			                                           synMag[i],
-			                                           synFlux[i])
+			if photoMap is not None:
+				# calculate synthetic magnitudes from the spectra through the
+				# specified bandpasses
+				synMag[i],synFlux[i] = sqphoto.calcSynPhot(spec,photoMap,
+				                                           photoCache,
+				                                           synMag[i],
+				                                           synFlux[i])
 			if saveSpectra:
 				spectra[i] = spec.f_lambda
 			spec.clear()
@@ -303,8 +304,9 @@ def buildQSOspectra(wave,qsoGrid,forest,photoMap=None,
 			qsoGrid.resample()
 			if dmagMax < 0.01:
 				break
-	qsoGrid.addVar(grids.SynMagVar(grids.FixedSampler(synMag)))
-	qsoGrid.addVar(grids.SynFluxVar(grids.FixedSampler(synFlux)))
+	if photoMap is not None:
+		qsoGrid.addVar(grids.SynMagVar(grids.FixedSampler(synMag)))
+		qsoGrid.addVar(grids.SynFluxVar(grids.FixedSampler(synFlux)))
 	return qsoGrid,spectra
 
 
@@ -441,7 +443,7 @@ def qsoSimulation(simParams,**kwargs):
 	photoMap = sqphoto.load_photo_map(simParams['PhotoMapParams'])
 	if not onlyMap:
 		buildFeatures(qsoGrid,wave,simParams,forest)
-		_,spectra = buildQSOspectra(wave,qsoGrid,forest,photoMap=photoMap,
+		_,spectra = buildQSOspectra(wave,qsoGrid,photoMap=photoMap,
 		                            maxIter=simParams.get('maxFeatureIter',5),
 		                            saveSpectra=saveSpectra)
 	timerLog('Build Quasar Spectra')
