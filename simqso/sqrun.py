@@ -461,7 +461,8 @@ def load_spectra(simFileName,outputDir='.'):
 	simdat,par = readSimulationData(simFileName,outputDir,retParams=True)
 	sp = fits.getdata(os.path.join(outputDir,simFileName+'_spectra.fits'))
 	wave = buildWaveGrid(par)
-	return wave,simdat,sp
+	qsos = hstack([simdat.data,Table(dict(spec=sp))])
+	return wave,qsos
 
 def generateForestGrid(simParams,**kwargs):
 	forestParams = simParams['ForestParams']
