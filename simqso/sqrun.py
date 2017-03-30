@@ -483,6 +483,7 @@ def generateForestGrid(simParams,**kwargs):
 	wave = buildWaveGrid(simParams)
 	zbins = np.arange(*forestParams['GridzBins'])
 	nlos = forestParams['NumLinesOfSight']
+	reseed(forestParams)
 	timerLog = TimerLog()
 	tgrid = hiforest.generate_grid_spectra(wave,zbins,nlos,**forestParams)
 	timerLog('BuildForest')

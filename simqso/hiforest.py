@@ -561,9 +561,9 @@ def save_spectra(spec,forestName,outputDir):
 	hdr = {'CD1_1':np.diff(logwave)[0],'CRPIX1':1,'CRVAL1':logwave[0],
 	       'CRTYPE1':'LOGWAVE'}
 	if 'zbins' in spec:
-		hdr['NLOS'] = spec['nLOS']
-		hdr['ZBINS'] = ','.join('%.3f'%z for z in spec['zbins'])
-		hdr['GRIDSEED'] = spec['seed']
+		hdr['NLOS'] = spec.pop('nLOS')
+		hdr['ZBINS'] = ','.join('%.3f'%z for z in spec.pop('zbins'))
+		hdr['GRIDSEED'] = spec.pop('seed')
 	ftab = Table(spec,meta=hdr)
 	ftab.write(os.path.join(outputDir,forestName+'.fits'),overwrite=True)
 	# restore input wave vector
