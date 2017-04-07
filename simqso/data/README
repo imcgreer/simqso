@@ -1,0 +1,14 @@
+
+---------------------
+simqso_templates.fits
+---------------------
+Various template spectra.
+
+        ['Fe_UVtemplt_B']  Iron emission templates from 
+            ['Fe2_UV191']   Vestergaard & Wilkes 2001, ApJS, 134, 1, 1
+             ['Fe3_UV47']
+
+['Fe_UVOPT_V01_T06_BR92']  Fe_UVtemplt_B from VW01 extended to include longer
+                            wavelength iron features from:
+                            Tsuzuki et al. 2006, ApJ, 650, 1, 57
+                            Boroson & Green 1992, ApJS, 80, 1, 109

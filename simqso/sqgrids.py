@@ -1,327 +1,610 @@
 #!/usr/bin/env python
 
+import os
+import ast
+from copy import copy
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.integrate import simps
 from scipy.signal import convolve
+from scipy.stats import norm,lognorm,expon
+from astropy.io import fits
+from astropy.table import Table,hstack
+from astropy import units as u
 from astropy import cosmology
-from astropy.table import Table
-from astropy.io.fits import Header,getdata
-from astropy.io import ascii as ascii_io
 
-from .sqbase import datadir,mag2lum
+from .sqbase import datadir
+from .spectrum import Spectrum
 from . import dustextinction
 
-class MzGrid(object):
-	'''
-	A grid of points in (M,z) space.
-	The space is divided into cells with n points per cell, such that
-	the final grid dimensions are (M,z,nPerBin).
-	The grid can be iterated to obtain (M,z) pairs spanning the full grid. 
-	Individual cells can be accessed with grid.bin(i,j).
-	'''
-	def __init__(self,gridPar,cosmodef):
-		if len(gridPar['mRange'])==2:
-			self.mEdges = np.array(gridPar['mRange'])
+
+##############################################################################
+# Samplers
+##############################################################################
+
+class Sampler(object):
+	def __init__(self,low,high):
+		self.low = low
+		self.high = high
+	def sample(self,n):
+		raise NotImplementedError
+	def resample(self,*args,**kwargs):
+		pass
+	def __call__(self,n):
+		return self.sample(n)
+	def __str__(self):
+		s = str((self.low,self.high))
+		return s
+
+class FixedSampler(Sampler):
+	def __init__(self,vals):
+		self.low = None
+		self.high = None
+		self.vals = vals
+	def sample(self,n):
+		return self.vals
+
+class NullSampler(Sampler):
+	def __init__(self):
+		pass
+	def sample(self,n):
+		return None
+
+class IndexSampler(Sampler):
+	def __init__(self):
+		pass
+	def sample(self,n):
+		return None
+
+class ConstSampler(Sampler):
+	def __init__(self,*val):
+		self.low = None
+		self.high = None
+		self.val = val
+	def sample(self,n):
+		return np.repeat(self.val,n)
+
+class UniformSampler(Sampler):
+	def sample(self,n):
+		return np.linspace(self.low,self.high,n)
+
+class GridSampler(Sampler):
+	def __init__(self,low,high,nbins=None,stepsize=None):
+		if nbins is None and stepsize is None:
+			raise ValueError("Must specify nbins or stepsize")
+		super(GridSampler,self).__init__(low,high)
+		if stepsize:
+			nbins = int( np.floor((high - low) / stepsize) )
+		self.nbins = nbins+1
+	def sample(self,n):
+		arr = np.linspace(self.low,self.high,n*self.nbins)
+		return arr.reshape(self.nbins,n)
+
+class CdfSampler(Sampler):
+	def _init_cdf(self):
+		self.cdf_low = self.rv.cdf(self.low)
+		self.cdf_high = self.rv.cdf(self.high)
+	def _getpoints(self,x):
+		return self.cdf_low + (self.cdf_high-self.cdf_low)*x
+	def _sample(self,x):
+		return self.rv.ppf(x)
+	def sample(self,n):
+		x = np.random.random(n)
+		return self._sample(self._getpoints(x))
+
+class PowerLawSampler(CdfSampler):
+	def __init__(self,low,high,a):
+		self.rv = self
+		super(PowerLawSampler,self).__init__(low,high)
+		self.a = a
+	def cdf(self,x):
+		x1,x2,a = self.low,self.high,self.a
+		if np.any(x<x1) or np.any(x>x2):
+			raise ValueError
+		return (x**(a+1) - x1**(a+1)) / (a+1)
+	def ppf(self,y):
+		if np.any(y<0) or np.any(y>1):
+			raise ValueError
+		x1,x2,a = self.low,self.high,self.a
+		return np.power( (x2**(a+1)-x1**(a+1))*y + x1**(a+1), (a+1)**-1 )
+
+class GaussianSampler(CdfSampler):
+	def __init__(self,mean,sigma,low=-np.inf,high=np.inf):
+		super(GaussianSampler,self).__init__(low,high)
+		self.mean = mean
+		self.sigma = sigma
+		self._reset()
+		self._init_cdf()
+	def _reset(self):
+		self.rv = norm(loc=self.mean,scale=self.sigma)
+
+class LogNormalSampler(CdfSampler):
+	def __init__(self,mean,sigma,low=-np.inf,high=np.inf):
+		super(LogNormalSampler,self).__init__(low,high)
+		self.mean = mean
+		self.sigma = sigma
+		self.rv = lognorm(loc=self.mean,scale=self.sigma)
+		self._init_cdf()
+
+class ExponentialSampler(CdfSampler):
+	def __init__(self,scale,low=0,high=np.inf):
+		super(ExponentialSampler,self).__init__(low,high)
+		self.scale = scale
+		self._reset()
+		self._init_cdf()
+	def _reset(self):
+		self.rv = expon(scale=self.scale)
+
+class DoublePowerLawSampler(Sampler):
+	def __init__(self,a,b,x0,low=-np.inf,high=np.inf):
+		super(DoublePowerLawSampler,self).__init__(low,high)
+		self.a = a
+		self.b = b
+		self.x0 = x0
+	def sample(self,n):
+		raise NotImplementedError
+
+class LinearTrendWithAsymScatterSampler(Sampler):
+	def __init__(self,coeffs,pts,low=-np.inf,high=np.inf):
+		super(LinearTrendWithAsymScatterSampler,self).__init__(low,high)
+		self.coeffs = coeffs
+		self.npts = len(pts)
+		self._reset(pts)
+	def _reset(self,pts):
+		xmn,xlo,xhi = [ np.polyval(c,pts) for c in self.coeffs ]
+		siglo = np.clip(xmn-xlo,1e-10,np.inf)
+		sighi = np.clip(xhi-xmn,1e-10,np.inf)
+		self.loSampler = GaussianSampler(xmn,siglo,
+		                                 low=self.low,high=self.high)
+		self.hiSampler = GaussianSampler(xmn,sighi,
+		                                 low=self.low,high=self.high)
+	def _sample(self,x):
+		xlo = self.loSampler._sample(self.loSampler._getpoints(x))
+		xhi = self.hiSampler._sample(self.hiSampler._getpoints(x))
+		return np.clip(np.choose(x>0.5,[xlo,xhi]),0,np.inf)
+
+class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
+	def __init__(self,coeffs,absMag,x=None,low=-np.inf,high=np.inf):
+		super(BaldwinEffectSampler,self).__init__(coeffs,absMag,
+		                                          low=low,high=high)
+		self.x = x
+	def sample(self,n=None):
+		if n is None:
+			n = len(self.x)
+		elif n != self.npts:
+			raise ValueError("BaldwinEffectSampler input does not match "
+			                 "preset (%d != %d)" % (n,self.npts))
+		if self.x is None:
+			# save the x values for reuse
+			self.x = np.random.random(n)
+		return self._sample(self.x)
+	def resample(self,qsoGrid,**kwargs):
+		self._reset(qsoGrid.absMag)
+
+
+
+##############################################################################
+# Simulation variables
+##############################################################################
+
+class QsoSimVar(object):
+	def __init__(self,sampler,name=None):
+		self.sampler = sampler
+		if name is not None:
+			self.name = name
+		self.update = False
+		self.meta = {}
+	def __call__(self,n):
+		return self.sampler(n)
+	def resample(self,*args,**kwargs):
+		self.sampler.resample(*args,**kwargs)
+	def __str__(self):
+		return str(self.sampler)
+	def updateMeta(self,meta):
+		for k,v in self.meta.items():
+			meta[k] = v
+
+class MultiDimVar(QsoSimVar):
+	# obviously these should be combined...
+	def _recurse_call(self,samplers,n):
+		if isinstance(samplers,Sampler):
+			return samplers(n)
 		else:
-			self.mEdges = np.arange(*gridPar['mRange'])
-		if len(gridPar['zRange'])==2:
-			self.zEdges = np.array(gridPar['zRange'])
+			return [ self._recurse_call(sampler,n) for sampler in samplers ]
+	def _recurse_resample(self,samplers,*args,**kwargs):
+		if isinstance(samplers,Sampler):
+			samplers.resample(*args,**kwargs)
 		else:
-			self.zEdges = np.arange(*gridPar['zRange'])
-		self.nPerBin = gridPar['nPerBin']
-		self.nM = self.mEdges.shape[0] - 1
-		self.nz = self.zEdges.shape[0] - 1
-		self.zbincenters = (self.zEdges[:-1]+self.zEdges[1:])/2
-		self.setCosmology(cosmodef)
-	def __iter__(self):
-		itM = np.nditer(self.mGrid,flags=['multi_index'])
-		itz = np.nditer(self.zGrid)
-		while not itM.finished:
-			yield itM[0],itz[0],itM.multi_index
-			itM.iternext()
-			itz.iternext()
-	def getRedshifts(self,sorted=False,return_index=False):
-		zv = self.zGrid.flatten()
-		if sorted:
-			zi = zv.argsort()
-			if return_index:
-				return zv[zi],zi
+			for sampler in samplers:
+				self._recurse_resample(sampler,*args,**kwargs)
+	def __call__(self,n):
+		arr = self._recurse_call(self.sampler,n)
+		return np.rollaxis(np.array(arr),-1)
+	def resample(self,*args,**kwargs):
+		self._recurse_resample(self.sampler,*args,**kwargs)
+
+class SpectralFeatureVar(object):
+	def add_to_spec(self,spec,par,**kwargs):
+		spec.f_lambda[:] += self.render(spec.wave,spec.z,par,**kwargs)
+		return spec
+
+class AppMagVar(QsoSimVar):
+	name = 'appMag'
+	def __init__(self,sampler,band=None):
+		super(AppMagVar,self).__init__(sampler)
+		self.obsBand = band
+
+class AbsMagVar(QsoSimVar):
+	name = 'absMag'
+	def __init__(self,sampler,restWave=None):
+		'''if restWave is none then bolometric'''
+		super(AbsMagVar,self).__init__(sampler)
+		self.restWave = restWave
+
+class RedshiftVar(QsoSimVar):
+	name = 'z'
+
+class ContinuumVar(QsoSimVar,SpectralFeatureVar):
+	pass
+
+def _Mtoflam(lam0,M,z,DM):
+	nu0 = (lam0 * u.Angstrom).to(u.Hz,equivalencies=u.spectral()).value
+	fnu0 = 10**(-0.4*(M+DM(z)+48.599934))
+	flam0 = nu0*fnu0/lam0
+	return flam0/(1+z)
+
+class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
+	name = 'slopes'
+	def __init__(self,samplers,breakPts):
+		super(BrokenPowerLawContinuumVar,self).__init__(samplers)
+		self.breakPts = np.asarray(breakPts).astype(np.float32)
+		self.meta['CNTBKPTS'] = ','.join(['%.1f' % b for b in self.breakPts])
+	def render(self,wave,z,slopes,fluxNorm=None):
+		spec = np.zeros_like(wave)
+		w1 = 1
+		spec[0] = 1.0
+		z1 = 1 + z
+		alpha_lams = -(2+np.asarray(slopes)) # a_nu --> a_lam
+		# add a breakpoint beyond the red edge of the spectrum in order
+		# to fill using the last power law slope if necessary
+		breakpts = np.concatenate([[0,],self.breakPts,[wave[-1]+1]])
+		wb = np.searchsorted(wave,breakpts*z1)
+		ii = np.where((wb>0)&(wb<=len(wave)))[0]
+		wb = wb[ii]
+		for alpha_lam,w2 in zip(alpha_lams[ii-1],wb):
+			if w1==w2:
+				break
+			spec[w1:w2] = spec[w1-1] * (wave[w1:w2]/wave[w1-1])**alpha_lam
+			w1 = w2
+		if fluxNorm is not None:
+			normwave = fluxNorm['wavelength']
+			wave0 = wave/z1
+			fnorm = _Mtoflam(normwave,fluxNorm['M_AB'],z,fluxNorm['DM'])
+			if wave0[0] > normwave:
+				raise NotImplementedError("outside of wave range: ",
+				                          wave0[0],normwave)
+				# XXX come back to this; for normalizing the flux when the norm
+				#     wavelength is outside of the spectral range
+				for alam,bkpt in zip(alpha_lams,breakpts):
+					if bkpt > normwave:
+						fnorm *= (normwave/bkpt)**alam
+					if bkpt > wave0[0]:
+						break
+			elif wave0[-1] < normwave:
+				raise NotImplementedError("%.1f (%.1f) outside lower "
+				 "wavelength bound %.1f" % (wave0[-1],wave[-1],normwave))
 			else:
-				return zv[zi]
-		else:
-			return zv
-	def bin(self,i,j):
-		return self.mGrid[i,j,:],self.zGrid[i,j,:]
-	def get(self,i):
-		if type(i) is tuple:
-			idx = i
-		else:
-			idx = np.unravel_index(i,self.mGrid.shape)
-		return self.mGrid[idx],self.zGrid[idx]
-	def numQSO(self):
-		return self.mGrid.size
-	def get_mEdges(self):
-		return self.mEdges
-	def get_zrange(self):
-		return self.zEdges[0],self.zEdges[-1]
-	def get_zbincenters(self):
-		return self.zbincenters
+				# ... to be strictly correct, would need to account for power law
+				#     slope within the pixel
+				fscale = fnorm/spec[np.searchsorted(wave0,normwave)]
+			spec[:] *= fscale
+		return spec
+
+class EmissionFeatureVar(QsoSimVar,SpectralFeatureVar):
+	pass
+
+def render_gaussians(wave,z,lines):
+	emspec = np.zeros_like(wave)
+	lines = lines[lines[:,1]>0]
+	lineWave,eqWidth,sigma = lines.T * (1+z)
+	A = eqWidth/(np.sqrt(2*np.pi)*sigma)
+	twosig2 = 2*sigma**2
+	nsig = (np.sqrt(-2*np.log(1e-3/A))*np.array([[-1.],[1]])).T
+	ii = np.where(np.logical_and(lineWave>wave[0],lineWave<wave[-1]))[0]
+	for i in ii:
+		i1,i2 = np.searchsorted(wave,lineWave[i]+nsig[i]*sigma[i])
+		emspec[i1:i2] += A[i]*np.exp(-(wave[i1:i2]-lineWave[i])**2
+		                                   / twosig2[i])
+	return emspec
+
+class GaussianEmissionLineVar(EmissionFeatureVar,MultiDimVar):
+	def render(self,wave,z,par):
+		return render_gaussians(wave,z,np.array([par]))
+
+class GaussianLineEqWidthVar(EmissionFeatureVar):
+	'''this is an arguably kludgy way of making it possible to include
+	   line EW as a variable in grids, by reducing the line to a single
+	    parameter'''
+	def __init__(self,sampler,name,wave0,width0):
+		super(GaussianLineEqWidthVar,self).__init__(sampler,name)
+		self.wave0 = wave0
+		self.width0 = width0
+	def render(self,wave,z,ew0):
+		return render_gaussians(wave,z,
+		                        np.array([[self.wave0,ew0,self.width0]]))
+
+class GaussianEmissionLinesTemplateVar(EmissionFeatureVar,MultiDimVar):
+	name = 'emLines'
+	def render(self,wave,z,lines):
+		return render_gaussians(wave,z,lines)
+
+class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
+	'''translates the log values'''
+	def __init__(self,samplers,lineNames):
+		super(BossDr9EmissionLineTemplateVar,self).__init__(samplers)
+		self.lineNames = lineNames
+		self.meta['LINEMODL'] = 'BOSS DR9 Log-linear trends with luminosity'
+		self.meta['LINENAME'] = ','.join(lineNames)
+	def __call__(self,n=None):
+		lpar = super(BossDr9EmissionLineTemplateVar,self).__call__(n)
+		lpar[...,1:] = np.power(10,lpar[...,1:])
+		return lpar
+
+class FeTemplateVar(EmissionFeatureVar):
+	def __init__(self,feGrid,name=None):
+		super(FeTemplateVar,self).__init__(NullSampler())
+		self.feGrid = feGrid
+	def render(self,wave,z,par):
+		return self.feGrid.get(z)
+
+class HIAbsorptionVar(QsoSimVar,SpectralFeatureVar):
+	def __init__(self,forest,name=None):
+		super(HIAbsorptionVar,self).__init__(IndexSampler())
+		self.forest = forest
+		self.nforest = len(forest['wave'])
+	def add_to_spec(self,spec,i,**kwargs):
+		spec.f_lambda[:self.nforest] *= self.forest['T'][i]
+		return spec
+
+class DustExtinctionVar(QsoSimVar,SpectralFeatureVar):
+	@staticmethod
+	def dustCurve(name):
+		return dustextinction.dust_fn[name]
+	def add_to_spec(self,spec,ebv,**kwargs):
+		spec.convolve_restframe(self.dustCurve(self.dustCurveName),ebv)
+		return spec
+
+class SMCDustVar(DustExtinctionVar):
+	name = 'smcDustEBV'
+	dustCurveName = 'SMC'
+	meta = {'DUSTMODL':'SMC'}
+
+class CalzettiDustVar(DustExtinctionVar):
+	name = 'calzettiDustEBV'
+	dustCurveName = 'CalzettiSB'
+	meta = {'DUSTMODL':'Calzetti Starburst'}
+
+class BlackHoleMassVar(QsoSimVar):
+	name = 'logBhMass'
+
+class EddingtonRatioVar(QsoSimVar):
+	name = 'logEddRatio'
+
+class AbsMagFromAppMagVar(AbsMagVar):
+	def __init__(self,appMag,m2M,restWave=None):
+		absMag = m2M(appMag)
+		sampler = FixedSampler(absMag)
+		super(AbsMagFromAppMagVar,self).__init__(sampler,restWave)
+
+class AbsMagFromBHMassEddRatioVar(AbsMagVar):
+	def __init__(self,logBhMass,logEddRatio,restWave=None):
+		eddLum = 1.26e38 * 10**logBhMass
+		lum = 10**logEddRatio * eddLum
+		BC1450 = 5.0 # rough value from Richards+06
+		lnu1450 = lum / BC1450
+		M1450 = magnitude_AB_from_L_nu(lnu1450/2e15)
+		sampler = FixedSampler(M1450)
+		super(AbsMagFromBHMassEddRatioVar,self).__init__(sampler,restWave)
+
+class SynMagVar(QsoSimVar):
+	name = 'synMag'
+
+class SynFluxVar(QsoSimVar):
+	name = 'synFlux'
+
+
+##############################################################################
+# Simulation grids
+##############################################################################
+
+class QsoSimObjects(object):
+	def __init__(self,qsoVars=[],cosmo=None,units=None):
+		self.qsoVars = qsoVars
+		self.cosmo = cosmo
+		self.units = units
 	def setCosmology(self,cosmodef):
 		if type(cosmodef) is dict:
 			self.cosmo = cosmology.FlatLambdaCDM(**cosmodef)
+		elif isinstance(cosmodef,basestring):
+			self.cosmo = cosmology.FlatLambdaCDM(**eval(cosmodef))
 		elif isinstance(cosmodef,cosmology.FLRW):
 			self.cosmo = cosmodef
 		elif cosmodef is None:
 			self.cosmo = cosmology.get_current()
 		else:
-			raiseValueError
+			raise ValueError
+	def __iter__(self):
+		for obj in self.data:
+			yield obj
+	def __getattr__(self,name):
+		try:
+			return self.data[name]
+		except KeyError:
+			raise AttributeError("no attribute "+name)
+	def addVar(self,var):
+		self.qsoVars.append(var)
+		vals = var(self.nObj)
+		if vals is not None:
+			self.data[var.name] = vals
+	def addVars(self,newVars):
+		for var in newVars:
+			self.addVar(var)
+	def addData(self,data):
+		self.data = hstack([self.data,data])
+	def getVars(self,varType=QsoSimVar):
+		return filter(lambda v: isinstance(v,varType),self.qsoVars)
+	def resample(self):
+		for var in self.qsoVars:
+			# how to more reasonably know what variables are needed to
+			# be passed down? the nominal use case is updating variables
+			# which depend on absMag. for now just passing the whole object...
+			if var.update:
+				var.resample(self)
+				self.data[var.name] = var(self.nObj)
 	def distMod(self,z):
 		return self.cosmo.distmod(z).value
+	def read(self,gridFile):
+		self.data = Table.read(gridFile)
+		self.nObj = len(self.data)
+		hdr = fits.getheader(gridFile,1)
+		self.units = hdr['GRIDUNIT']
+		self.gridShape = eval(hdr['GRIDDIM'])
+		hdr = fits.getheader(gridFile,1)
+		self.simPars = ast.literal_eval(hdr['SQPARAMS'])
+		self.setCosmology(self.simPars['Cosmology'])
+	@staticmethod
+	def cosmo_str(cosmodef):
+		if isinstance(cosmodef,cosmology.FLRW):
+			d = dict(name=cosmodef.name,H0=cosmodef.H0.value,
+			         Om0=cosmodef.Om0)
+			if cosmodef.Ob0:
+				d['Ob0'] = cosmodef.Ob0
+			cosmodef = d
+		return str(cosmodef)
+	def write(self,simPars,outputDir='.',outFn=None):
+		tab = self.data
+		simPars = copy(simPars)
+		simPars['Cosmology'] = self.cosmo_str(simPars['Cosmology'])
+		if 'QLFmodel' in simPars['GridParams']:
+			s = str(simPars['GridParams']['QLFmodel']).replace('\n',';')
+			simPars['GridParams']['QLFmodel'] = s
+		tab.meta['SQPARAMS'] = str(simPars)
+		tab.meta['GRIDUNIT'] = self.units
+		tab.meta['GRIDDIM'] = str(self.gridShape)
+		for var in self.qsoVars:
+			var.updateMeta(tab.meta)
+		if outFn is None:
+			outFn = simPars['FileName']+'.fits'
+		tab.write(os.path.join(outputDir,outFn),overwrite=True)
 
-class LuminosityGrid(MzGrid):
-	def __init__(self,gridPar,cosmodef):
-		super(LuminosityGrid,self).__init__(gridPar,cosmodef)
-		if gridPar['LumUnits'] != 'M1450':
-			raise NotImplementedError('only M1450 supported for now')
-		self.units = 'luminosity'
+class QsoSimPoints(QsoSimObjects):
+	def __init__(self,qsoVars,n=None,**kwargs):
+		super(QsoSimPoints,self).__init__(qsoVars,**kwargs)
+		data = { var.name:var(n) for var in qsoVars }
+		self.data = Table(data)
+		self.nObj = len(self.data)
+		self.gridShape = (self.nObj,)
+	def __str__(self):
+		return str(self.data)
 
-# XXX need to update
-class FixedMzGrid(MzGrid):
-	def __init__(self,M,z):
-		self.nM = len(M)
-		self.nz = len(z)
-		self.Marr = M
-		self.zarr = z
-		self.mGrid = np.repeat(M,len(z)).reshape(len(M),len(z),1)
-		self.zGrid = np.tile(z,len(M)).reshape(len(M),len(z),1)
-	def get_zrange(self):
-		return self.zarr.min(),self.zarr.max()
+class QsoSimGrid(QsoSimObjects):
+	def __init__(self,qsoVars,nPerBin,**kwargs):
+		super(QsoSimGrid,self).__init__(qsoVars,**kwargs)
+		self.gridShape = tuple( v.sampler.nbins-1 for v in qsoVars ) + \
+		                    (nPerBin,)
+		# for grid variables this returns the edges of the bins
+		axes = [ var(1) for var in qsoVars ]
+		self.gridEdges = np.meshgrid(*axes,indexing='ij')
+		data = {}
+		for i,(v,g) in enumerate(zip(qsoVars,self.gridEdges)):
+			x = np.random.random(self.gridShape)
+			s = [ slice(0,-1,1) for j in range(len(qsoVars)) ]
+			pts0 = g[s][...,np.newaxis] 
+			binsz = np.diff(g,axis=i)
+			s[i] = slice(None)
+			pts = pts0 + x*binsz[s][...,np.newaxis]
+			data[v.name] = pts.flatten()
+		self.data = Table(data)
+		self.nObj = len(self.data)
+	def asGrid(self,name):
+		return np.asarray(self.data[name]).reshape(self.gridShape)
+	def __str__(self):
+		s = "grid dimensions: "+str(self.gridShape)+"\n"
+		s += str(self.gridEdges)+"\n"
+		s += str(self.data)
+		return s
 
-class LuminosityRedshiftGrid(LuminosityGrid):
-	def __init__(self,gridPar,cosmodef):
-		super(LuminosityRedshiftGrid,self).__init__(gridPar,cosmodef)
-		self.mGrid = np.zeros((self.nM,self.nz,self.nPerBin))
-		self.zGrid = np.zeros((self.nM,self.nz,self.nPerBin))
-		dM = np.diff(self.mEdges)
-		dz = np.diff(self.zEdges)
-		for i in range(self.nM):
-			for j in range(self.nz):
-				binM = self.mEdges[i] + dM[i]*np.random.rand(self.nPerBin)
-				binz = self.zEdges[j] + dz[j]*np.random.rand(self.nPerBin)
-				zi = binz.argsort()
-				self.mGrid[i,j,:] = binM[zi]
-				self.zGrid[i,j,:] = binz[zi]
-	def getLuminosities(self,units='ergs/s/Hz'):
-		# convert M1450 -> ergs/s/Hz
-		pass
 
-class FluxGrid(MzGrid):
-	def __init__(self,gridPar,cosmodef):
-		super(FluxGrid,self).__init__(gridPar,cosmodef)
-		self.obsBand = gridPar.get('ObsBand','SDSS-i')
-		self.restBand = gridPar.get('RestBand',1450.)
-		self.m2M = lambda z: mag2lum(self.obsBand,self.restBand,z,self.cosmo)
-		self.units = 'flux'
-	def updateMags(self,m):
-		dm = m - self.appMagGrid
-		print '--> delta mag mean = %.7f, rms = %.7f, |max| = %.7f' % \
-		              (dm.mean(),dm.std(),np.abs(dm).max())
-		self.mGrid[:] -= dm
-		return np.abs(dm).max()
 
-class FluxRedshiftGrid(FluxGrid):
-	'''
-	Construct a grid in (mag,z) having a fixed number of points within each 
-	bin. The bin spacings need not be uniform, as long as they are 
-	monotonically increasing.
-	'''
-	def __init__(self,gridPar,cosmodef):
-		super(FluxRedshiftGrid,self).__init__(gridPar,cosmodef)
-		self.appMagGrid = np.zeros((self.nM,self.nz,self.nPerBin))
-		self.zGrid = np.zeros((self.nM,self.nz,self.nPerBin))
-		dm = np.diff(self.mEdges)
-		dz = np.diff(self.zEdges)
-		# distribute quasars into bins of flux 
-		for i in range(self.nM):
-			for j in range(self.nz):
-				binm = self.mEdges[i] + dm[i]*np.random.rand(self.nPerBin)
-				binz = self.zEdges[j] + dz[j]*np.random.rand(self.nPerBin)
-				zi = binz.argsort()
-				self.appMagGrid[i,j,:] = binm[zi]
-				self.zGrid[i,j,:] = binz[zi]
-		self.mGrid = self.appMagGrid - self.m2M(self.zGrid)
+def generateQlfPoints(qlf,mRange,zRange,m2M,cosmo,band,**kwargs):
+	m,z = qlf.sample_from_fluxrange(mRange,zRange,m2M,cosmo,**kwargs)
+	m = AppMagVar(FixedSampler(m),band=band)
+	z = RedshiftVar(FixedSampler(z))
+	return QsoSimPoints([m,z],units='flux',cosmo=cosmo)
 
-# XXX needs updating
-class MzGrid_QLFresample(FluxGrid):
-	'''
-	Beginning with an already populated (M,z) grid, transfer the points
-	to a new grid sampled with a luminosity function. The z points remain
-	the same, while M bins are selected to span a range in observed flux
-	at each redshift, such that the number of points within each bin
-	(nperbin) is fixed, but the bin widths shrink as one moves up the
-	luminosity function. The M points are also sampled from the QLF within
-	the bins, so that the overall M distribution follows the QLF smoothly.
+def generateBEffEmissionLines(M1450,**kwargs):
+	trendFn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v6')
+	indy = kwargs.get('EmLineIndependentScatter',False)
+	noScatter = kwargs.get('NoScatter',False)
+	excludeLines = kwargs.get('ExcludeLines',[])
+	onlyLines = kwargs.get('OnlyLines')
+	M_i = M1450 - 1.486 + 0.596
+	lineCatalog = Table.read(datadir+trendFn+'.fits')
+	for line,scl in kwargs.get('scaleEWs',{}).items():
+		i = np.where(lineCatalog['name']==line)[0][0]
+		lineCatalog['logEW'][i,:,1] += np.log10(scl)
+	if noScatter:
+		for k in ['wavelength','logEW','logWidth']:
+			lineCatalog[k][:,1:] = lineCatalog[k][:,[0]]
+	if indy:
+		x1 = x2 = x3 = None
+	else:
+		x1 = np.random.random(len(M_i))
+		x2 = np.random.random(len(M_i))
+		x3 = np.random.random(len(M_i))
+	#
+	useLines = ~np.in1d(lineCatalog['name'],excludeLines)
+	if onlyLines is not None:
+		useLines &= np.in1d(lineCatalog['name'],onlyLines)
+	#
+	lineList = [ (BaldwinEffectSampler(l['wavelength'],M_i,x1),
+	              BaldwinEffectSampler(l['logEW'],M_i,x2),
+	              BaldwinEffectSampler(l['logWidth'],M_i,x3))
+	             for l in lineCatalog[useLines] ]
+	lines = BossDr9EmissionLineTemplateVar(lineList,
+	                                       lineCatalog['name'][useLines])
+	lines.update = True # XXX a better way?
+	return lines
 
-	The idea is to reuse a set of forest spectra generated for a previous
-	grid, since the forest spectra depend only on z, not M.
-	'''
-	def __init__(self,grid,qlf,**kwargs):
-		self.m2M = grid.m2M
-		self.nM = grid.nM
-		self.nz = grid.nz
-		self.nPerBin = grid.nPerBin
-		self.zEdges = grid.zEdges
-		self.zGrid = grid.zGrid
-		self.zbins = self.zEdges[:-1] + np.diff(self.zEdges)
-		self.obsBand = grid.obsBand
-		self.restBand = grid.restBand
-		self.cosmo = grid.cosmo
-		self.units = grid.units
-		mrange = (grid.mEdges[0],grid.mEdges[-1])
-		medges,mgrid = qlf.sample_at_flux_intervals(mrange,self.zbins,
-		                                            self.m2M,self.nM,self.nPerBin)
-		self.mEdges = medges
-		self.mEdges = medges - self.m2M(self.zbins)
-		self.mgrid = mgrid
-		self.mGrid = mgrid - self.m2M(self.zGrid)
-	def get_Medges(self,zj=None):
-		if zj is None:
-			return self.mEdges
-		else:
-			return self.mEdges[zj]
+def generateVdBCompositeEmLines(minEW=1.0,noFe=False):
+	all_lines = Table.read(datadir+'VandenBerk2001_AJ122_549_table2.txt',
+	                       format='ascii')
+	# blended lines are repeated in the table
+	l,li = np.unique(all_lines['OWave'],return_index=True)
+	lines = all_lines[li]
+	li = np.where(lines['EqWid'] > minEW)[0]
+	lines = lines[li]
+	#
+	if noFe:
+		isFe = lines['ID'].find('Fe') == 0
+		lines = lines[~isFe]
+	print 'using the following lines from VdB template: ',
+	print ','.join(list(lines['ID']))
+	c = ConstSampler
+	lineList = [ [c(l['OWave']),c(l['EqWid']),c(l['Width'])] for l in lines ]
+	lines = GaussianEmissionLinesTemplateVar(lineList)
+	lines.meta['LINEMODL'] = 'Fixed Vanden Berk et al. 2001 emission lines'
+	return lines
 
-class FluxGridFromData(FluxGrid):
-	def __init__(self,mzdata,gridPar,cosmodef):
-		super(FluxGridFromData,self).__init__(gridPar,cosmodef)
-		gridshape = (self.nM,self.nz,self.nPerBin)
-		self.mGrid = mzdata['M'].copy().reshape(gridshape)
-		self.zGrid = mzdata['z'].copy().reshape(gridshape)
-		self.appMagGrid = mzdata['appMag'].copy().reshape(gridshape)
-
-class LuminosityGridFromData(LuminosityGrid):
-	def __init__(self,mzdata,gridPar,cosmodef,**kwargs):
-		# XXX hacks to deal with nPerBin,LumUnits not set for LFFluxGrids
-		gridPar.setdefault('nPerBin',0)
-		gridPar.setdefault('LumUnits','M1450')
-		# XXX b/c really they should be FluxGridFromData...
-		super(LuminosityGridFromData,self).__init__(gridPar,cosmodef,**kwargs)
-		gridshape = (self.nM,self.nz,self.nPerBin)
-		self.mGrid = mzdata['M'].copy().reshape(gridshape)
-		self.zGrid = mzdata['z'].copy().reshape(gridshape)
-
-class LuminosityFunctionFluxGrid(FluxGrid):
-	def __init__(self,gridPar,qlf,cosmodef,**kwargs):
-		# workaround -- base constructor needs this value, but we don't have
-		# it until we've done the sampling from the LF
-		gridPar['nPerBin'] = 0
-		super(LuminosityFunctionFluxGrid,self).__init__(gridPar,cosmodef)
-		m,z = qlf.sample_from_fluxrange(gridPar['mRange'],gridPar['zRange'],
-		                                self.m2M,cosmodef,**kwargs)
-		# and need to set it into the parameter list so that it gets saved
-		# properly with the simulation output
-		gridPar['nPerBin'] = len(z)
-		self.appMagGrid = m
-		self.zGrid = z
-		self.nPerBin = len(z)
-		self.mGrid = m - self.m2M(z)
-
-class FixedPLContinuumGrid(object):
-	def __init__(self,M,z,slopes,breakpoints):
-		self.slopes = np.asarray(slopes)
-		self.breakpoints = np.asarray(breakpoints)
-	def update(self,M,z):
-		# continuum are fixed in luminosity and redshift
-		return
-	def get(self,*args):
-		return self.slopes,self.breakpoints
-	def __iter__(self):
-		while True:
-			yield self.slopes,self.breakpoints
-
-class GaussianPLContinuumGrid(object):
-	def __init__(self,M,z,slopeMeans,slopeStds,breakpoints):
-		self.slopeMeans = slopeMeans
-		self.slopeStds = slopeStds
-		self.breakpoints = np.concatenate([[0,],breakpoints])
-		shape = z.shape+(len(slopeMeans),)
-		x = np.random.randn(*shape)
-		mu = np.asarray(slopeMeans)
-		sig = np.asarray(slopeStds)
-		self.slopes = mu + x*sig
-	def update(self,M,z):
-		# continuum are fixed in luminosity and redshift
-		return
-	def get(self,idx):
-		return self.slopes[idx],self.breakpoints
-	def getTable(self,hdr):
-		'''Return a Table of all parameters and header information'''
-		flatgrid = np.product(self.slopes.shape[:-1])
-		t = Table({'slopes':self.slopes.reshape(flatgrid,-1)})
-		hdr['CNTBKPTS'] = ','.join(['%.1f' % bkpt 
-		                            for bkpt in self.breakpoints])
-		return t
-
-class FixedVdBcompositeEMLineGrid(object):
-	def __init__(self,M,z,minEW=1.0,noFe=False):
-		self.minEW = minEW
-		self.all_lines = ascii_io.read(datadir+
-		                            'VandenBerk2001_AJ122_549_table2.txt')
-		# blended lines are repeated in the table.  
-		l,li = np.unique(self.all_lines['OWave'],return_index=True)
-		self.unique_lines = self.all_lines[li]
-		li = np.where(self.unique_lines['EqWid'] > minEW)[0]
-		self.lines = self.unique_lines[li]
-		if noFe:
-			isFe = self.lines['ID'].find('Fe') == 0
-			self.lines = self.lines[~isFe]
-		print 'using the following lines from VdB template: ',self.lines['ID']
-	def update(self,M,z):
-		# lines are fixed in luminosity and redshift
-		return
-	def addLine(self,name,rfwave,eqWidth,profileWidth):
-		self.lines = np.resize(self.lines,(self.lines.size+1,))
-		self.lines = self.lines.view(np.recarray)
-		self.lines.OWave[-1] = rfwave
-		self.lines.EqWid[-1] = eqWidth
-		self.lines.Width[-1] = profileWidth
-		self.lines.ID[-1] = name
-	def addSBB(self):
-		# XXX this is a hack!
-		self.addLine('SBBhack',3000.,300.,500.)
-	def _idmap(self,name):
-		if name.startswith('Ly'):
-			return 'Ly'+{'A':'{alpha}','B':'{beta}',
-			             'D':'{delta}','E':'{epsilon}'}[name[-1]]
-		else:
-			return name
-	def set(self,name,**kwargs):
-		li = np.where(self._idmap(name) == self.lines.ID)[0]
-		if len(li) == 0:
-			print self.lines.ID
-			raise ValueError
-		for k,v in kwargs.items():
-			if k == 'width':
-				self.lines['Width'][li] = v
-			elif k == 'eqWidth':
-				self.lines['EqWid'][li] = v
-			elif k == 'wave':
-				self.lines['OWave'][li] = v
-	def __iter__(self):
-		'''returns wave, equivalent width, gaussian sigma'''
-		while True:
-			yield self.get(None)
-	def get(self,idx):
-		return self.lines['OWave'],self.lines['EqWid'],self.lines['Width']
-	def getTable(self,hdr):
-		'''Return a Table of all parameters and header information'''
-		hdr['LINEMODL'] = 'Fixed Vanden Berk et al. 2001 emission lines'
-		return None
 
 class VW01FeTemplateGrid(object):
-	def __init__(self,M,z,wave,fwhm=5000.,scales=None):
-		self.zbins = np.arange(z.min(),z.max()+0.005,0.005)
+	def __init__(self,z,wave,fwhm=5000.,scales=None,useopt=True):
+		z1 = max(0,z.min()-0.1)
+		z2 = z.max() + 0.1
+		nz = int((z2-z1)/0.005) + 1
+		self.zbins = np.linspace(z1,z2,nz)
 		self.feGrid = np.empty((self.zbins.shape[0],wave.shape[0]))
+		self.useopt = useopt
 		# the Fe template is an equivalent width spectrum
 		wave0,ew0 = self._restFrameFeTemplate(fwhm,scales)
 		for i,zbin in enumerate(self.zbins):
@@ -329,32 +612,30 @@ class VW01FeTemplateGrid(object):
 			rfEW = interp1d(wave0*(1+zbin),ew0,kind='slinear',
 			                bounds_error=False,fill_value=0.0)
 			self.feGrid[i] = rfEW(wave)
-		self.zi = np.searchsorted(self.zbins,z)
 	def _loadVW01Fe(self,wave):
 		fepath = datadir+'VW01_Fe/'
 		feTemplate = np.zeros_like(wave)
-		#for fn in ['Fe_UVtemplt_B.asc','Fe2_UV191.asc','Fe3_UV47.asc']:
-		for fn in ['Fe_UVOPT_V01_T06_BR92.asc','Fe2_UV191.asc','Fe3_UV47.asc']:
-			w,f = np.loadtxt(fepath+fn,unpack=True)
-			spec = interp1d(w,f,kind='slinear')
-			w1,w2 = np.searchsorted(wave,[w[0],w[-1]])
+		if self.useopt:
+			templnames = ['Fe_UVOPT_V01_T06_BR92','Fe2_UV191','Fe3_UV47']
+		else:
+			templnames = ['Fe_UVtemplt_B','Fe2_UV191','Fe3_UV47']
+		tmplfits = fits.open(os.path.join(datadir,'simqso_templates.fits'))
+		for t in templnames:
+			extnm = t if 'UVOPT' in t else 'VW01_'+t
+			tspec = tmplfits[extnm].data
+			spec = interp1d(tspec['wave'],tspec['f_lambda'],kind='slinear')
+			w1,w2 = np.searchsorted(wave,[tspec['wave'][0],tspec['wave'][-1]])
 			feTemplate[w1:w2] += spec(wave[w1:w2])
-		# continuum parameters given in VW01 pg. 6
-		a_nu = -1.9
-		fcont = 3.45e-14 * (wave/1500.)**(-2-a_nu)
-		w1 = np.searchsorted(wave,1716.)
-		a_nu = -1.0
-		fcont[w1:] = 3.89e-14 * (wave[w1:]/1500.)**(-2-a_nu)
-		feTemplate /= fcont
 		return feTemplate
 	def _restFrameFeTemplate(self,FWHM_kms,feScalings):
-		#wave = np.logspace(np.log(1075.),np.log(3089.),5000,base=np.e)
-		wave = np.logspace(np.log(1075.),np.log(7500.),5000,base=np.e)
+		if self.useopt:
+			wave = np.logspace(np.log(1075.),np.log(7500.),9202,base=np.e)
+		else:
+			wave = np.logspace(np.log(1075.),np.log(3089.),5000,base=np.e)
 		feTemplate = self._loadVW01Fe(wave)
 		# rescale segments of the Fe template
 		if feScalings is None:
-			#feScalings = [(0,3500,1.0),]
-			feScalings = [(0,7500,1.0),]
+			feScalings = [(0,1e4,1.0),]
 		print 'using Fe scales: ',feScalings
 		for w1,w2,fscl in feScalings:
 			wi1,wi2 = np.searchsorted(wave,(w1,w2))
@@ -372,146 +653,7 @@ class VW01FeTemplateGrid(object):
 		feFlux = broadenedTemp
 		feFlux *= flux0/simps(feFlux,wave)
 		return wave,feFlux
-	def update(self,M,z):
-		# template fixed in luminosity and redshift
-		return
-	def get(self,idx):
-		return self.feGrid[self.zi[idx]]
-	def getTable(self,hdr):
-		'''Return a Table of all parameters and header information'''
-		hdr['FETEMPL'] = 'Vestergaard & Wilkes 2001 Iron Emission'
-		return None
-
-class VariedEmissionLineGrid(object):
-	def __init__(self,M1450,z,**kwargs):
-		#trendfn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v5',)
-		trendfn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v6',)
-		self.fixed = kwargs.get('fixLineProfiles',False)
-		self.minEW = kwargs.get('minEW',0.0)
-		indy = kwargs.get('EmLineIndependentScatter',False)
-		# emission line trends are calculated w.r.t. M_i, so
-		#  convert M1450 to M_i(z=0) using Richards+06 eqns. 1 and 3
-		M_i = M1450 - 1.486 + 0.596
-		# load the emission line trend data, and restrict to lines for which
-		# the mean EW trend at the lowest luminosity exceeds minEW
-		t = getdata(datadir+trendfn+'.fits')
-		maxEW = 10**(t['logEW'][:,0,1]+t['logEW'][:,0,0]*M_i.max())
-		ii = np.where(maxEW > self.minEW)[0]
-		self.lineTrends = t[ii]
-		self.nLines = len(ii)
-		# random deviate used to sample line profile values - if independent
-		# scatter, each line gets its own random scatter, otherwise each 
-		# object gets a single deviation and the lines are perfectly correlated
-		nx = self.nLines if indy else 1
-		xshape = z.shape + (nx,)
-		self.xv = {}
-		for k in ['wavelength','logEW','logWidth']:
-			self.xv[k] = np.random.standard_normal(xshape)
-		# store the line profile values in a structured array with each
-		# element having the same shape as the input grid
-		nf4 = str(z.shape)+'f4'
-		self.lineGrids = np.zeros(self.nLines,
-		                      dtype=[('name','S15'),('wavelength',nf4),
-		                             ('eqWidth',nf4),('width',nf4)])
-		self.lineGrids['name'] = self.lineTrends['name']
-		self._edit_trends(**kwargs)
-		self.update(M1450,z)
-	def _edit_trends(self,**kwargs):
-		# the optional argument 'scaleEWs' allows the caller to arbitrarily
-		# rescale both the output equivalent widths and the input scatter
-		# to the EW distribution for individual lines. construct the
-		# scaling vector here
-		self.sigscl = np.ones(self.nLines)
-		self.ewscl = np.ones(self.nLines)
-		for line,scl in kwargs.get('scaleEWs',{}).items():
-			i = np.where(self.lineGrids['name']==line)[0][0]
-			if type(scl) is tuple:
-				self.ewscl[i],self.sigscl[i] = scl
-			else:
-				self.ewscl[i] = scl
-	def update(self,M1450,z):
-		# derive the line profile parameters using the input luminosities
-		# and redshifts
-		M_i = M1450 - 1.486 + 0.596
-		M = M_i[...,np.newaxis]
-		# loop over the three line profile parameters and obtain the
-		# randomly sampled values using the input trends
-		for k in ['wavelength','logEW','logWidth']:
-			a = self.lineTrends[k][...,0]
-			b = self.lineTrends[k][...,1]
-			meanVal = a[...,0]*M + b[...,0]
-			siglo = a[...,1]*M + b[...,1] - meanVal
-			sighi = a[...,2]*M + b[...,2] - meanVal
-			x = self.xv[k]
-			sig = np.choose(x<0,[sighi,-siglo])
-			if k=='logEW':
-				sig *= self.sigscl
-			v = meanVal + x*sig
-			if k.startswith('log'):
-				v[:] = 10**v
-				k2 = {'logEW':'eqWidth','logWidth':'width'}[k]
-			else:
-				k2 = k
-			if k=='logEW':
-				v *= self.ewscl
-			self.lineGrids[k2] = np.rollaxis(v,-1)
-	def get(self,idx):
-		# shape of lineGrids is (Nlines,)+gridshape, and idx is an index
-		# into the grid, so add a dummy slice along the first axis
-		idx2 = (np.s_[:],)+idx
-		return (self.lineGrids['wavelength'][idx2],
-		        self.lineGrids['eqWidth'][idx2],
-		        self.lineGrids['width'][idx2])
-	def getTable(self,hdr):
-		'''Return a Table of all parameters and header information'''
-		hdr['LINEMODL'] = 'Log-linear trends with luminosity'
-		hdr['LINENAME'] = ','.join(self.lineGrids['name'])
-		flatgrid = np.product(self.lineGrids['wavelength'].shape[1:])
-		def squash(a):
-			return a.reshape(-1,flatgrid).transpose()
-		t = Table({'lineWave':squash(self.lineGrids['wavelength']),
-		           'lineEW':squash(self.lineGrids['eqWidth']),
-		           'lineWidth':squash(self.lineGrids['width']),})
-		return t
-
-class FixedDustGrid(object):
-	def __init__(self,M,z,dustModel,E_BmV):
-		self.dustModel = dustModel
-		self.E_BmV = E_BmV
-		self.dust_fn = dustextinction.dust_fn[dustModel]
-	def update(self,M,z):
-		# fixed in luminosity and redshift
-		return
-	def get(self,idx):
-		return self.dust_fn,self.E_BmV
-	def getTable(self,hdr):
-		'''Return a Table of all parameters and header information'''
-		hdr['DUSTMODL'] = self.dustModel
-		hdr['FIXEDEBV'] = self.E_BmV
-		return None
-
-class ExponentialDustGrid(object):
-	def __init__(self,M,z,dustModel,E_BmV_scale,fraction=1):
-		self.dustModel = dustModel
-		self.E_BmV_scale = E_BmV_scale
-		self.dust_fn = dustextinction.dust_fn[dustModel]
-		if fraction==1:
-			self.EBVdist = np.random.exponential(E_BmV_scale,M.shape)
-		else:
-			print 'using dust LOS fraction ',fraction
-			self.EBVdist = np.zeros_like(M).astype(np.float32)
-			N = fraction * M.size
-			ii = np.random.randint(0,M.size,(N,))
-			self.EBVdist.flat[ii] = np.random.exponential(E_BmV_scale,(N,)).astype(np.float32)
-	def update(self,M,z):
-		# fixed in luminosity and redshift
-		return
-	def get(self,idx):
-		return self.dust_fn,self.EBVdist[idx]
-	def getTable(self,hdr):
-		'''Return a Table of all parameters and header information'''
-		t = Table({'E(B-V)':self.EBVdist.flatten()})
-		hdr['DUSTMODL'] = self.dustModel
-		hdr['EBVSCALE'] = self.E_BmV_scale
-		return t
+	def get(self,z):
+		zi = np.searchsorted(self.zbins,z)
+		return self.feGrid[zi]
 

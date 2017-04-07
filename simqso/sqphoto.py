@@ -8,6 +8,7 @@ from scipy.constants import c
 c_Angs = c*1e10
 
 from astropy.io import fits
+from astropy.table import Table
 
 from .sqbase import datadir
 
@@ -379,5 +380,5 @@ def calcObsPhot(synFlux,photoMap):
 			                                               obsFluxErr[...,j])
 		else:
 			raise ValueError
-	return {'obsFlux':obsFlux,'obsFluxErr':obsFluxErr,
-	        'obsMag':obsMag,'obsMagErr':obsMagErr}
+	return Table({'obsFlux':obsFlux,'obsFluxErr':obsFluxErr,
+	              'obsMag':obsMag,'obsMagErr':obsMagErr})
