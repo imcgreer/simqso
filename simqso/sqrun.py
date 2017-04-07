@@ -44,7 +44,8 @@ def buildMzGrid(simParams):
 		gridType = gridPars['GridType']
 	except KeyError:
 		raise ValueError('Must specify a GridType')
-	m2M = lambda z: sqbase.mag2lum('SDSS-i',1450,z,cosmodef) # XXX
+	m2M = lambda z: sqbase.mag2lum(gridPars['ObsBand'],gridPars['RestBand'],
+	                               z,cosmodef)
 	reseed(gridPars)
 	#
 	if gridType.endswith('RedshiftGrid'):
@@ -329,19 +330,6 @@ class TimerLog():
 			print '%20s %8.3f %8.3f %8.3f' % t
 		print
 
-def writeGridData(simParams,Mz,outputDir):
-	simPar = copy(simParams)
-	# XXX need to write parameters out or something...
-	simPar['Cosmology'] = simPar['Cosmology'].name
-	try:
-		del simPar['GridParams']['QLFmodel']
-	except:
-		pass
-	# XXX
-	Mz.data.meta['GRIDPARS'] = str(simPar['GridParams'])
-	Mz.data.write(os.path.join(outputDir,simPar['GridFileName']+'.fits'),
-	              overwrite=True)
-
 def readSimulationData(fileName,outputDir,retParams=False):
 	qsoGrid = grids.QsoSimObjects()
 	qsoGrid.read(os.path.join(outputDir,fileName+'.fits'))
@@ -408,13 +396,15 @@ def qsoSimulation(simParams,**kwargs):
 			except IOError:
 				print simParams['GridFileName'],' not found, generating'
 				qsoGrid = buildMzGrid(simParams)
-				writeGridData(simParams,qsoGrid,outputDir)
+				qsoGrid.write(simParams,outputDir,
+				              simPar['GridFileName']+'.fits')
 		else:
 			print 'generating Mz grid'
 			qsoGrid = buildMzGrid(simParams)
 		if not forestOnly:
 			if not noWriteOutput and 'GridFileName' in simParams:
-				writeGridData(simParams,qsoGrid,outputDir)
+				qsoGrid.write(simParams,outputDir,
+				              simPar['GridFileName']+'.fits')
 	qsoGrid.setCosmology(simParams.get('Cosmology'))
 	timerLog('Initialize Grid')
 	#
