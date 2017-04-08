@@ -60,6 +60,8 @@ simqso.sqgrids module
     :undoc-members:
     :show-inheritance:
 
+.. inheritance-diagram:: simqso.sqgrids
+
 simqso.sqphoto module
 ---------------------
 
