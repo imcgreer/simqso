@@ -9,7 +9,28 @@ from astropy import units as u
 datadir = os.path.split(__file__)[0]+'/data/'
 
 def fixed_R_dispersion(lam1,lam2,R):
-	'''Generate a wavelength grid with fixed resolution (i.e., logarithmic)'''
+	'''Generate a wavelength grid with fixed resolution using logarithmic
+	   wavelength bins.
+
+	   Parameters
+	   ----------
+	   lam1,lam2 : float
+	       Wavelengths endpoints in Angstroms.
+	   R : float
+	       Resolution [ d(lam)/lam ]
+
+	   Returns
+	   -------
+	   wave : `~numpy.ndarray`
+	       Wavelength array between lam1 and lam2 with resolution R.
+
+	   Examples
+	   --------
+	   >>> from simqso.sqbase import fixed_R_dispersion
+	   >>> wave = fixed_R_dispersion(3000,3010,1000)
+	   >>> print wave
+	   [ 3000.          3003.0015005   3006.006004    3009.01351351  3012.02403203]
+	'''
 	loglam1 = np.log(lam1)
 	loglam2 = np.log(lam2)
 	dloglam = R**-1
