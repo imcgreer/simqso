@@ -13,8 +13,7 @@ from astropy.table import Table,hstack
 from astropy import units as u
 from astropy import cosmology
 
-from .sqbase import datadir
-from .spectrum import Spectrum
+from .sqbase import datadir,Spectrum
 from . import dustextinction
 
 

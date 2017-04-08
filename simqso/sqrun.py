@@ -9,7 +9,6 @@ from astropy import cosmology
 
 from . import sqbase
 from . import sqgrids as grids
-from .spectrum import Spectrum
 from . import hiforest
 from . import dustextinction
 from . import sqphoto
@@ -235,7 +234,7 @@ def buildQSOspectra(wave,qsoGrid,photoMap=None,
 		spectra = np.zeros((qsoGrid.nObj,len(wave)))
 	else:
 		spectra = None
-	spec = Spectrum(wave)
+	spec = sqbase.Spectrum(wave)
 	if photoMap is not None:
 		synMag = np.zeros((qsoGrid.nObj,len(photoMap['bandpasses'])))
 		synFlux = np.zeros_like(synMag)
@@ -274,7 +273,7 @@ def buildQSOspectra(wave,qsoGrid,photoMap=None,
 				spec = feature.add_to_spec(spec,_getpar(feature,obj),
 				                           fluxNorm=fluxNorm)
 			# add emission (multiplicative) features
-			emspec = Spectrum(wave,z=obj['z'])
+			emspec = sqbase.Spectrum(wave,z=obj['z'])
 			for feature in qsoGrid.getVars(grids.EmissionFeatureVar):
 				emspec = feature.add_to_spec(emspec,_getpar(feature,obj))
 			spec *= emspec + 1
