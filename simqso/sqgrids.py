@@ -321,9 +321,11 @@ class GaussianEmissionLineVar(EmissionFeatureVar,MultiDimVar):
 		return render_gaussians(wave,z,np.array([par]))
 
 class GaussianLineEqWidthVar(EmissionFeatureVar):
-	'''this is an arguably kludgy way of making it possible to include
-	   line EW as a variable in grids, by reducing the line to a single
-	    parameter'''
+	'''
+	this is an arguably kludgy way of making it possible to include
+	line EW as a variable in grids, by reducing the line to a single
+	parameter
+	'''
 	def __init__(self,sampler,name,wave0,width0):
 		super(GaussianLineEqWidthVar,self).__init__(sampler,name)
 		self.wave0 = wave0

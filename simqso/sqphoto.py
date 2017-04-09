@@ -57,13 +57,15 @@ _sdss_phot_pars = {
 }
 
 class sdssPhotoUnc(object):
-	'''sdss_photo_unc(b,f_nmgy)
-	   In a given SDSS band b, provide the uncertainty for a given flux in
-	   nanomaggies (f_nmgy) based on the distribution of observing conditions.
-	   --> Currently underestimates true scatter by using gaussians for the
-	       scatter, whereas the true distributions generally have long tails
-		   to higher values for sky, nEff, etc.
-	   see http://classic.sdss.org/dr7/algorithms/fluxcal.html for details
+	'''
+	In a given SDSS band "b", provide the uncertainty for a given flux in
+	nanomaggies (f_nmgy) based on the distribution of observing conditions.
+
+	--> Currently underestimates true scatter by using gaussians for the
+	scatter, whereas the true distributions generally have long tails
+	to higher values for sky, nEff, etc.
+
+	see http://classic.sdss.org/dr7/algorithms/fluxcal.html for details
 	'''
 	def __init__(self,b):
 		i = 'ugriz'.find(b)

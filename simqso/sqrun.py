@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import os
-import time
 import numpy as np
 from astropy.io import fits
 from astropy.table import Table,hstack
@@ -32,10 +31,15 @@ def reseed(par):
 		pass
 
 
-def buildMzGrid(simParams):
+def buildQsoGrid(simParams):
 	'''
-	Create a grid of points in (M,z) space, each of these points are
-	assigned to an individual simulated quasar.
+	Create a grid of simulated quasar "points". This function parses the 
+	'GridParams' section of simParams, and intreprets the following options:
+
+	- FluxRedshiftGrid : points are defined by (appMag,z)
+	- LuminosityRedshiftGrid : points are defined by (absMag,z)
+	- LuminosityFunction : points are defined by (appMag,z) and sampled from
+	  a luminosity function.
 	'''
 	cosmodef = simParams.get('Cosmology')
 	gridPars = simParams['GridParams']
@@ -98,13 +102,12 @@ def buildMzGrid(simParams):
 
 
 def buildForest(wave,z,simParams,outputDir):
-	'''
-    Create a set of absorbers for a given number of lines-of-sight, 
-	sampled according to the input forest model. Then calculate the
-	transmission along each line of sight. The input redshifts correspond
-	to individual QSOs. The number of LOSs is generally smaller so that
-	fewer forest computations are needed; individual LOSs are built up
-	in redshift steps as each QSO redshift is iterated.
+	'''Create a set of absorbers for a given number of lines-of-sight, 
+	   sampled according to the input forest model. Then calculate the
+	   transmission along each line of sight. The input redshifts correspond
+	   to individual QSOs. The number of LOSs is generally smaller so that
+	   fewer forest computations are needed; individual LOSs are built up
+	   in redshift steps as each QSO redshift is iterated.
 	'''
 	forestParams = simParams['ForestParams']
 	reseed(forestParams)
@@ -216,19 +219,12 @@ def buildFeatures(qsoGrid,wave,simParams,forest=None):
 
 def buildQSOspectra(wave,qsoGrid,photoMap=None,
                     maxIter=1,saveSpectra=False):
-	'''
-	Assemble the spectral components of each QSO from the input parameters.
-	---
-	Required:
-	  'ContinuumModel'  :  'GaussianPLawDistribution','FixedPLawDistribution'
-	---
-	Optional:
-	  'EmissionLineModel'   : 'None',
-	                          'FixedVdBCompositeLines',
-	                          'FixedLBQSEmissionLines'
-	  'DustExtinctionModel' : 'None',
-	                          'Fixed E(B-V)',
-	                          'Exponential E(B-V) Distribution'
+	'''Assemble the spectral components of QSOs from the input parameters.
+
+	Parameters
+	----------
+	wave : `~numpy.ndarray`
+	    Input wavelength grid.
 	'''
 	if saveSpectra:
 		spectra = np.zeros((qsoGrid.nObj,len(wave)))
@@ -310,25 +306,6 @@ def buildQSOspectra(wave,qsoGrid,photoMap=None,
 	return qsoGrid,spectra
 
 
-class TimerLog():
-	def __init__(self):
-		self.stages = ['StartSimulation']
-		self.times = [time.time()]
-	def __call__(self,stage):
-		self.stages.append(stage)
-		self.times.append(time.time())
-	def dump(self):
-		self.__call__('Finish')
-		stages = self.stages[1:]
-		times = np.array(self.times[1:]) - self.times[0]
-		#itimes = np.concatenate([[0,],np.diff(times)]) 
-		itimes = np.diff(self.times)
-		ftimes = itimes / times[-1]
-		print '%20s %8s %8s %8s' % ('stage','time','elapsed','frac')
-		for t in zip(stages,itimes,times,ftimes):
-			print '%20s %8.3f %8.3f %8.3f' % t
-		print
-
 def readSimulationData(fileName,outputDir,retParams=False):
 	qsoGrid = grids.QsoSimObjects()
 	qsoGrid.read(os.path.join(outputDir,fileName+'.fits'))
@@ -353,22 +330,29 @@ def readSimulationData(fileName,outputDir,retParams=False):
 def qsoSimulation(simParams,**kwargs):
 	'''
 	Run a complete simulation.
-	1) Construct (M,z) grid of QSOs.
-	2) Generate Lyman forest transmission spectra from a subsample of 
-	   random LOSs.
-	3) Sample QSO spectral features (continuum, emission lines, dust).
-	4) Build simulated spectra and derive photometry.
-	5) Transfer the simulated photometry to observed photometry by 
-	   calculating errors and folding them in.
-	...
-	Keyword arguments:
-	  saveSpectra: save the simulated spectra, not just the photometry.
-	        Beware! filt could be quite large (Nqso x Npixels) [default:False]
-	  forestOnly: only generate the forest transmission spectra [default:False]
-      onlyMap: only do the simulation of observed photometry, assuming 
-	           synthetic photometry has already been generated [default:False]
-	  noPhotoMap: skip the simulation of observed photometry [default:False]
-	  outputDir: write files to this directory [default:'./']
+
+	1. Construct grid of QSOs.
+	2. Generate Lyman forest transmission spectra from a subsample of 
+	   random LOSs (optional).
+	3. Sample QSO spectral features (continuum, emission lines, dust).
+	4. Build simulated spectra and derive photometry (photometry is optional).
+	5. Transfer the simulated photometry to observed photometry by 
+	   calculating errors and folding them in (optional).
+
+	Parameters
+	----------
+	saveSpectra : bool 
+	    save the simulated spectra, not just the photometry.
+	    Beware! result may be quite large (Nqso x Npixels). [default:False]
+	forestOnly : bool
+	    Only generate the forest transmission spectra. [default:False]
+	onlyMap : bool
+	    Only do the simulation of observed photometry, assuming 
+	    synthetic photometry has already been generated [default:False]
+	noPhotoMap : bool
+	    skip the simulation of observed photometry [default:False]
+	outputDir : str
+	    write files to this directory [default:'./']
 	'''
 	saveSpectra = kwargs.get('saveSpectra',False)
 	forestOnly = kwargs.get('forestOnly',False)
@@ -381,7 +365,7 @@ def qsoSimulation(simParams,**kwargs):
 	#
 	wave = buildWaveGrid(simParams)
 	reseed(simParams)
-	timerLog = TimerLog()
+	timerLog = sqbase.TimerLog()
 	try:
 		qsoGrid,simParams = readSimulationData(simParams['FileName'],
 		                                       outputDir,retParams=True)
@@ -394,12 +378,12 @@ def qsoSimulation(simParams,**kwargs):
 				                             outputDir)
 			except IOError:
 				print simParams['GridFileName'],' not found, generating'
-				qsoGrid = buildMzGrid(simParams)
+				qsoGrid = buildQsoGrid(simParams)
 				qsoGrid.write(simParams,outputDir,
 				              simPar['GridFileName']+'.fits')
 		else:
-			print 'generating Mz grid'
-			qsoGrid = buildMzGrid(simParams)
+			print 'generating QSO grid'
+			qsoGrid = buildQsoGrid(simParams)
 		if not forestOnly:
 			if not noWriteOutput and 'GridFileName' in simParams:
 				qsoGrid.write(simParams,outputDir,
@@ -473,7 +457,7 @@ def generateForestGrid(simParams,**kwargs):
 	zbins = np.arange(*forestParams['GridzBins'])
 	nlos = forestParams['NumLinesOfSight']
 	reseed(forestParams)
-	timerLog = TimerLog()
+	timerLog = sqbase.TimerLog()
 	tgrid = hiforest.generate_grid_spectra(wave,zbins,nlos,**forestParams)
 	timerLog('BuildForest')
 	hiforest.save_spectra(tgrid,forestParams['FileName'],outputDir)

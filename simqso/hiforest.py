@@ -147,9 +147,10 @@ forestModels = {'Fan1999':Fan99_model,
                 'McGreer+2013':McG13hiz_model}
 
 def generate_los(model,zmin,zmax):
-	'''Given a model for the distribution of absorption systems, generate
-	   a random line-of-sight populated with absorbers.
-	   returns (z,logNHI,b) for each absorption system.
+	'''
+	Given a model for the distribution of absorption systems, generate
+	a random line-of-sight populated with absorbers.
+	returns (z,logNHI,b) for each absorption system.
 	'''
 	abs_dtype = [('z',np.float32),('logNHI',np.float32),('b',np.float32)]
 	absorbers = []
@@ -205,9 +206,10 @@ def voigt(a,x):
 	return H0 - (a/sqrt_pi)/x2 * (H0*H0*(4*x2*x2 + 7*x2 + 4 + Q) - Q - 1)
 
 def sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,b,tauMin,tauMax):
-	'''Given arrays of parameters, compute the summed optical depth
-	   spectrum of absorbers using Voigt profiles.
-	   Uses the Tepper-Garcia 2006 approximation for the Voigt function.
+	'''
+	Given arrays of parameters, compute the summed optical depth
+	spectrum of absorbers using Voigt profiles.
+	Uses the Tepper-Garcia 2006 approximation for the Voigt function.
 	'''
 	umax = np.clip(sqrt(c_voigt * (a/sqrt_pi)/tauMin),5.0,np.inf)
 	# ***assumes constant velocity bin spacings***
@@ -244,8 +246,12 @@ class Singleton:
 		return isinstance(inst,self._decorated)
 	#def _argcheck(self,*args):
 	#	raise NotImplementedError
+
 @Singleton
-class VoigtTable:
+class VoigtTable(object):
+	'''
+	Lookup table of Voigt profiles use to precompute low-density absorbers.
+	'''
 	def __init__(self,*args,**kwargs):
 		self._init_table(*args,**kwargs)
 	def _argcheck(self,*args):
@@ -310,11 +316,12 @@ class VoigtTable:
 
 def fast_sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,b,
                        tauMin,tauMax,tauSplit):
-	'''Given arrays of parameters, compute the summed optical depth
-	   spectrum of absorbers using Voigt profiles.
-	   Uses the Tepper-Garcia 2006 approximation for the Voigt function
-	   for large optical depth systems (defined by tauSplit), and
-	   a lookup table for low optical depth systems.
+	'''
+	Given arrays of parameters, compute the summed optical depth
+	spectrum of absorbers using Voigt profiles.
+	Uses the Tepper-Garcia 2006 approximation for the Voigt function
+	for large optical depth systems (defined by tauSplit), and
+	a lookup table for low optical depth systems.
 	'''
 	voigttab = VoigtTable.Instance(wave)
 	# split out strong absorbers and do full calc
@@ -328,9 +335,10 @@ def fast_sum_of_voigts(wave,tau_lam,c_voigt,a,lambda_z,b,
 	return tau_lam
 
 def sum_of_continuum_absorption(wave,tau_lam,NHI,z1,tauMin,tauMax):
-	'''Compute the summed optical depth for Lyman continuum blanketing
-	   given a series of absorbers with column densities NHI and
-	   redshifts z1 (=1+z).
+	'''
+	Compute the summed optical depth for Lyman continuum blanketing
+	given a series of absorbers with column densities NHI and
+	redshifts z1 (=1+z).
 	'''
 	tau_c_lim = sigma_c*NHI
 	lambda_z_c = 912.*z1
@@ -351,8 +359,9 @@ def sum_of_continuum_absorption(wave,tau_lam,NHI,z1,tauMin,tauMax):
 	return tau_lam
 
 def calc_tau_lambda(wave,los,**kwargs):
-	'''Compute the absorption spectrum, in units of optical depth, for
-	   a series of absorbers along a line-of-sight (los).
+	'''
+	Compute the absorption spectrum, in units of optical depth, for
+	a series of absorbers along a line-of-sight (los).
 	'''
 	lymanseries_range = kwargs.get('lymanseries_range',
 	                               default_lymanseries_range)
@@ -393,15 +402,16 @@ def calc_tau_lambda(wave,los,**kwargs):
 	return tau_lam
 
 def generate_spectra(wave,z_em,los,**kwargs):
-	'''Generate a transmission spectrum along a line-of-sight (los)
-	   given by a series of discrete absorbers. The returned spectra
-	   have the same dispersion as the input (wave), but are generated
-	   on a higher resolution grid (given by 'Rmin').
-	   The spectra are calculated at discrete redshift intervals given
-	   by z_em; i.e., the return value is a stack of transmission spectra
-	   for a single line-of-sight, with each row corresponding to a
-	   redshift in z_em.
-	   Returns: array with shape (Nz,Nwave)
+	'''
+	Generate a transmission spectrum along a line-of-sight (los)
+	given by a series of discrete absorbers. The returned spectra
+	have the same dispersion as the input (wave), but are generated
+	on a higher resolution grid (given by 'Rmin').
+	The spectra are calculated at discrete redshift intervals given
+	by z_em; i.e., the return value is a stack of transmission spectra
+	for a single line-of-sight, with each row corresponding to a
+	redshift in z_em.
+	Returns: array with shape (Nz,Nwave)
 	'''
 	# default is 10 km/s
 	forestRmin = kwargs.get('Rmin',3e4)
@@ -430,21 +440,35 @@ def generate_spectra(wave,z_em,los,**kwargs):
 	return tspec
 
 def generate_N_spectra(wave,z_em,nlos,**kwargs):
-	'''Generate a library of forest transmission spectra, randomly mapping 
-	   an array of emission redshifts to a set of lines-of-sight.
-	    wave - the input dispersion (forest is calculated on super-sampled grid)
-	    z_em - the list of emission redshifts
-	    nlos - the number of lines-of-sight to generate
-	   If nlos == -1, each emission redshift has an independent line-of-sight
-	   If losMap is provided in kwargs, this is the mapping from z_em to LOS,
-	    i.e., losMap has the same number of entries as z_em, and has elements 
-	    in the range 0..nlos-1
-	   Otherwise, losMap is generated randomly.
-	   Returns dictionary with
-	    T = transmission array (Nz,Nwave)
-	    losMap = line-of-sight to z_em mapping (Nz)
-	    z = z_em
-	    wave = wave
+	'''
+	Generate a library of forest transmission spectra, by mapping an array 
+	of emission redshifts to a set of sightlines.
+
+	Parameters
+	----------
+	wave : `~numpy.ndarray`
+	    Input wavelength grid (must be at fixed resolution!).
+	z_em : `~numpy.ndarray`
+	    Array containing emission redshifts.
+	nlos : int
+	    Number of lines-of-sight to generate.
+	    if -1, each emission redshift has an independent line-of-sight
+	losMap : sequence 
+	    Optional mapping from z_em to LOS. Must have the same number of 
+	    elements and be in the range 0..nlos-1.
+	    If not provided and nlos>0, losMap is randomly generated.
+
+	Returns
+	-------
+	spectra: dict
+	T : `~numpy.ndarray` 
+	    transmission spectra with shape (N(z),N(wave))
+	z : `~numpy.ndarray` 
+	    emission redshift for each spectrum
+	losMap : `~numpy.ndarray` 
+	    map of z_em <-> line-of-sight
+	wave : `~numpy.ndarray` 
+	    input wavelength grid
 	'''
 	forestModel = kwargs.get('ForestModel','Worseck&Prochaska2011')
 	if type(forestModel) is str:
@@ -479,11 +503,34 @@ def generate_N_spectra(wave,z_em,nlos,**kwargs):
 	return dict(T=specAll,losMap=losMap,z=z_em.copy(),wave=wave.copy())
 
 def generate_grid_spectra(wave,zbins,nlos,**kwargs):
-	'''Generate spectra on a grid at discrete redshift samplings zbins.
-	   nlos sets the number of times the grid is repeated along independent
-	    lines-of-sight.
-	   e.g., if zbins = [2.0,2.5,3.0] and nlos = 2, the returned spectra
-	    include two lines-of-sight with samplings at z = 2, 2.5, and 3.
+	'''
+	Generate spectra on a grid at discrete redshift points.
+
+	Parameters
+	----------
+	wave : `~numpy.ndarray`
+	    Input wavelength grid (must be at fixed resolution!).
+	zbins : sequence
+	    Redshift points to use as emission redshifts.
+	nlos : int
+	    Number of lines-of-sight to generate; i.e., generate nlos spectra
+	    at each redshift in zbins.
+
+	Returns
+	-------
+	spectra: dict
+	T : `~numpy.ndarray` 
+	    Transmission spectra with shape (N(z),N(wave))
+	z : `~numpy.ndarray` 
+	    Emission redshift for each spectrum
+	wave : `~numpy.ndarray` 
+	    Input wavelength grid
+	nLOS : int
+	    Number of sightlines generated
+	zbins : int
+	    Redshift bins
+	seed : int
+	    Random seed used to generate sightlines
 	'''
 	zem = np.tile(zbins,nlos)
 	losMap = np.repeat(np.arange(nlos),len(zbins))
@@ -497,16 +544,39 @@ def generate_grid_spectra(wave,zbins,nlos,**kwargs):
 	return sp
 
 def generate_spectra_from_grid(wave,z_em,tgrid,**kwargs):
-	'''Given an input grid of transmission spectra, calculate output spectra
-	   at redshift intervals given by z_em. This is used to 'extend' and grid
-	   spectrum to align with new redshift samplings.
-	   E.g., if tgrid has samples at z=[2.0,2.5.,3.0] and z_em=[2.2,2.7],
-	    then the returned spectra are sampled at z=2.2 and z=2.7, where the
-	    first spectrum is generated by taking the input grid spectrum at z=2.0
-	    and extending it to z=2.2 by adding additional absorbers.
-	   Similarly, the z=2.7 spectrum is generated from the z=2.5 grid spectrum.
-	   This is useful for quickly generating forest spectra at arbitrary
-	   redshifts without having to do the full calculation.
+	'''
+	Given an input grid of transmission spectra, calculate output spectra
+	at redshift intervals given by z_em. This is used to 'extend' a grid
+	spectrum to align with new redshift samplings.
+
+	E.g., if tgrid has samples at z=[2.0,2.5.,3.0] and z_em=[2.2,2.7],
+	then the returned spectra are sampled at z=2.2 and z=2.7, where the
+	first spectrum is generated by taking the input grid spectrum at z=2.0
+	and extending it to z=2.2 by adding additional absorbers.
+	Similarly, the z=2.7 spectrum is generated from the z=2.5 grid spectrum.
+	This is useful for quickly generating forest spectra at arbitrary
+	redshifts without having to do the full calculation.
+
+	Parameters
+	----------
+	wave : `~numpy.ndarray`
+	    Input wavelength grid (must be at fixed resolution!).
+	z_em : `~numpy.ndarray`
+	    Array containing emission redshifts.
+	tgrid : dict
+	    Transmission spectra grid returned from `generate_grid_spectra`
+
+	Returns
+	-------
+	spectra: dict
+	T : `~numpy.ndarray` 
+	    transmission spectra with shape (N(z),N(wave))
+	z : `~numpy.ndarray` 
+	    emission redshift for each spectrum
+	losMap : `~numpy.ndarray` 
+	    map of z_em <-> line-of-sight
+	wave : `~numpy.ndarray` 
+	    input wavelength grid
 	'''
 	nhiMin = kwargs.get('gridForestStep_minlogNHI',0)
 	# XXX these should all come out of the tgrid meta-data
