@@ -30,12 +30,14 @@ drawn from a cumulative distribution function. For example, :class:`simqso.sqgri
 :class:`simqso.sqgrids.ExponentialSampler`, and :class:`simqso.sqgrids.LogNormalSampler` all generate points sampled from
 the cdf of the eponymous function.
 
+A simple tutorial for working with samplers, variables, and grids is provided
+in https://github.com/imcgreer/simqso/blob/master/examples/GridExamples.ipynb.
+
 Reference/API
 =============
 
 .. automodule:: simqso.sqgrids
     :members:
-    :undoc-members:
     :show-inheritance:
 
 .. inheritance-diagram:: simqso.sqgrids

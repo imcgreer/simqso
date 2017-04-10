@@ -113,6 +113,17 @@ class UniformSampler(Sampler):
 		return np.linspace(self.low,self.high,n)
 
 class CdfSampler(Sampler):
+	'''
+	Returns values sampled from a cumulative distribution function, within
+	the bounds passed during instantiation.
+
+	Subclasses must implement the cdf(x) and ppf(x) functions.
+
+	Parameters
+	----------
+	    low,high : float
+	        Lower and upper bounds for the sampler.
+	'''
 	def _init_cdf(self):
 		self.cdf_low = self.rv.cdf(self.low)
 		self.cdf_high = self.rv.cdf(self.high)
@@ -125,15 +136,32 @@ class CdfSampler(Sampler):
 		return self._sample(self._getpoints(x))
 
 class PowerLawSampler(CdfSampler):
+	'''
+	Returns values sampled from a power law distribution with index a.
+
+	Unlike scipy.stats.powerlaw, allows a<0, but then requires low>0 in
+	that case.
+
+	Examples
+	--------
+	>>> from simqso.sqgrids import PowerLawSampler
+	>>> s = PowerLawSampler(1,2,-2)
+	>>> s(3)
+	array([ 1.4537,  1.1208,  1.1691])
+	'''
 	def __init__(self,low,high,a):
+		if a<0 and low<=0:
+			raise ValueError
+		# defining cdf and ppf function within this class
 		self.rv = self
 		super(PowerLawSampler,self).__init__(low,high)
 		self.a = a
+		self._init_cdf()
 	def cdf(self,x):
 		x1,x2,a = self.low,self.high,self.a
 		if np.any(x<x1) or np.any(x>x2):
 			raise ValueError
-		return (x**(a+1) - x1**(a+1)) / (a+1)
+		return (x**(a+1) - x1**(a+1)) / (x2**(a+1) - x1**(a+1))
 	def ppf(self,y):
 		if np.any(y<0) or np.any(y>1):
 			raise ValueError
@@ -141,6 +169,16 @@ class PowerLawSampler(CdfSampler):
 		return np.power( (x2**(a+1)-x1**(a+1))*y + x1**(a+1), (a+1)**-1 )
 
 class GaussianSampler(CdfSampler):
+	'''
+	Returns values sampled from a Gaussian distibution N(mean,sigma).
+
+	Examples
+	--------
+	>>> from simqso.sqgrids import GaussianSampler
+	>>> s = GaussianSampler(50.,10.)
+	>>> s(3)
+	array([ 50.07  ,  42.0223,  58.9512])
+	'''
 	def __init__(self,mean,sigma,low=-np.inf,high=np.inf):
 		super(GaussianSampler,self).__init__(low,high)
 		self.mean = mean
@@ -150,15 +188,34 @@ class GaussianSampler(CdfSampler):
 	def _reset(self):
 		self.rv = norm(loc=self.mean,scale=self.sigma)
 
-class LogNormalSampler(CdfSampler):
-	def __init__(self,mean,sigma,low=-np.inf,high=np.inf):
-		super(LogNormalSampler,self).__init__(low,high)
-		self.mean = mean
-		self.sigma = sigma
-		self.rv = lognorm(loc=self.mean,scale=self.sigma)
-		self._init_cdf()
+#class LogNormalSampler(CdfSampler):
+#	'''
+#	Returns values sampled from a lognormal distibution lognorm(mean,sigma).
+#
+#	Examples
+#	--------
+#	'''
+#	def __init__(self,mean,sigma,low,high):
+#		if low <= 0:
+#			raise ValueError
+#		super(LogNormalSampler,self).__init__(low,high)
+#		self.mean = mean
+#		self.sigma = sigma
+#		self.rv = lognorm(loc=self.mean,scale=self.sigma)
+#		self._init_cdf()
 
 class ExponentialSampler(CdfSampler):
+	'''
+	Returns values sampled from an exponential distibution with a given
+	scale parameter.
+
+	Examples
+	--------
+	>>> from simqso.sqgrids import ExponentialSampler
+	>>> s = ExponentialSampler(0.1)
+	>>> s(3)
+	array([ 0.08072409,  0.45771082,  0.03769428])
+	'''
 	def __init__(self,scale,low=0,high=np.inf):
 		super(ExponentialSampler,self).__init__(low,high)
 		self.scale = scale
@@ -167,16 +224,23 @@ class ExponentialSampler(CdfSampler):
 	def _reset(self):
 		self.rv = expon(scale=self.scale)
 
-class DoublePowerLawSampler(Sampler):
-	def __init__(self,a,b,x0,low=-np.inf,high=np.inf):
-		super(DoublePowerLawSampler,self).__init__(low,high)
-		self.a = a
-		self.b = b
-		self.x0 = x0
-	def sample(self,n):
-		raise NotImplementedError
+#class DoublePowerLawSampler(Sampler):
+#	def __init__(self,a,b,x0,low=-np.inf,high=np.inf):
+#		super(DoublePowerLawSampler,self).__init__(low,high)
+#		self.a = a
+#		self.b = b
+#		self.x0 = x0
+#	def sample(self,n):
+#		raise NotImplementedError
 
 class LinearTrendWithAsymScatterSampler(Sampler):
+	'''
+	Returns values sampled from a set of linear trends that define the
+	Gaussian mean and sigma at each point x.
+
+	Must be calibrated with a set of input points that define where to
+	sample the linear trends.
+	'''
 	def __init__(self,coeffs,pts,low=-np.inf,high=np.inf):
 		super(LinearTrendWithAsymScatterSampler,self).__init__(low,high)
 		self.coeffs = coeffs
@@ -191,11 +255,18 @@ class LinearTrendWithAsymScatterSampler(Sampler):
 		self.hiSampler = GaussianSampler(xmn,sighi,
 		                                 low=self.low,high=self.high)
 	def _sample(self,x):
+		if len(x) != self.npts:
+			raise ValueError
 		xlo = self.loSampler._sample(self.loSampler._getpoints(x))
 		xhi = self.hiSampler._sample(self.hiSampler._getpoints(x))
 		return np.clip(np.choose(x>0.5,[xlo,xhi]),0,np.inf)
 
 class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
+	'''
+	Uses LinearTrendWithAsymScatterSampler to implement the Baldwin Effect,
+	by sampling from mean, upper, and lower log-linear trends as a function
+	of absolute magnitude.
+	'''
 	def __init__(self,coeffs,absMag,x=None,low=-np.inf,high=np.inf):
 		super(BaldwinEffectSampler,self).__init__(coeffs,absMag,
 		                                          low=low,high=high)
@@ -220,6 +291,17 @@ class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
 ##############################################################################
 
 class QsoSimVar(object):
+	'''
+	Base class for variables used to define points within simulation grid.
+	Each variable must have a name and a Sampler instance for generating
+	values of the variable.
+
+	Parameters
+	----------
+	sampler : :class:`simqso.sqgrids.Sampler` instance
+	name : str
+	    Unique name for variable.
+	'''
 	def __init__(self,sampler,name=None):
 		self.sampler = sampler
 		if name is not None:
@@ -229,14 +311,25 @@ class QsoSimVar(object):
 	def __call__(self,n):
 		return self.sampler(n)
 	def resample(self,*args,**kwargs):
+		'''
+		Update the samplers of any dependent variables and then resample.
+		'''
 		self.sampler.resample(*args,**kwargs)
 	def __str__(self):
 		return str(self.sampler)
 	def updateMeta(self,meta):
+		'''
+		Update the meta-data dictionary associated with the variable.
+		'''
 		for k,v in self.meta.items():
 			meta[k] = v
 
 class MultiDimVar(QsoSimVar):
+	'''
+	Special case of QsoSimVar that handles multi-dimensional variables.
+	The last dimension must be a sequence of Sampler instances, which can
+	be nested in as many outer dimensions as necessary.
+	'''
 	# obviously these should be combined...
 	def _recurse_call(self,samplers,n):
 		if isinstance(samplers,Sampler):
@@ -256,17 +349,39 @@ class MultiDimVar(QsoSimVar):
 		self._recurse_resample(self.sampler,*args,**kwargs)
 
 class SpectralFeatureVar(object):
+	'''
+	Mix-in class to define variables that act on spectra.
+
+	Subclasses must define the render() function.
+	'''
+	def render(self,wave,z,par,**kwargs):
+		raise NotImplementedError
 	def add_to_spec(self,spec,par,**kwargs):
+		'''
+		Applies the variable to an input spectrum.
+
+		Parameters
+		----------
+		spec : :class:`simqso.sqbase.Spectrum` instance
+		par : sampled values of the variable that are passed to render()
+		'''
 		spec.f_lambda[:] += self.render(spec.wave,spec.z,par,**kwargs)
 		return spec
 
 class AppMagVar(QsoSimVar):
+	'''
+	An apparent magnitude variable, defined in an observed bandpass ``band``.
+	'''
 	name = 'appMag'
-	def __init__(self,sampler,band=None):
+	def __init__(self,sampler,band):
 		super(AppMagVar,self).__init__(sampler)
 		self.obsBand = band
 
 class AbsMagVar(QsoSimVar):
+	'''
+	An absolute magnitude variable, defined at rest-frame wavelength
+	``restWave`` in Angstroms.
+	'''
 	name = 'absMag'
 	def __init__(self,sampler,restWave=None):
 		'''if restWave is none then bolometric'''
@@ -274,9 +389,15 @@ class AbsMagVar(QsoSimVar):
 		self.restWave = restWave
 
 class RedshiftVar(QsoSimVar):
+	'''
+	A redshift variable.
+	'''
 	name = 'z'
 
 class ContinuumVar(QsoSimVar,SpectralFeatureVar):
+	'''
+	Base class for variables that define the quasar spectral continuum.
+	'''
 	pass
 
 def _Mtoflam(lam0,M,z,DM):
@@ -286,12 +407,47 @@ def _Mtoflam(lam0,M,z,DM):
 	return flam0/(1+z)
 
 class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
+	'''
+	Representation of a quasar continuum as a series of broken power laws.
+
+	Parameters
+	----------
+	samplers : sequence of :class:`simqso.sqgrids.Sampler` instances
+	    Each sampler instance defines the power law spectral index at a given
+	    section of the continuum, as alpha_nu where f_nu = nu^alpha_nu.
+	breakPts : sequence of floats
+	    Break wavelengths in Angstroms.
+
+	Examples
+	--------
+	>>> from simqso.sqgrids import BrokenPowerLawContinuumVar,GaussianSampler
+	>>> v = BrokenPowerLawContinuumVar([GaussianSampler(-1.5,0.3),GaussianSampler(-0.5,0.3)],[1215.7])
+	>>> v(3)
+	array([[-1.801, -1.217],
+	       [-1.56 , -0.594],
+	       [-1.605, -0.248]])
+	'''
 	name = 'slopes'
 	def __init__(self,samplers,breakPts):
 		super(BrokenPowerLawContinuumVar,self).__init__(samplers)
 		self.breakPts = np.asarray(breakPts).astype(np.float32)
 		self.meta['CNTBKPTS'] = ','.join(['%.1f' % b for b in self.breakPts])
 	def render(self,wave,z,slopes,fluxNorm=None):
+		'''
+		Renders the broken power law continuum at redshift ``z`` given the
+		set of sampled ``slopes``. Aribrarily normalized unless the
+		``fluxNorm`` parameter is supplied.
+
+		Parameters
+		----------
+		fluxNorm : dict
+		    wavelength : float
+		        rest-frame wavelength in Angstroms at which to normalize 
+		        spectrum.
+		    M_AB : float
+		        absolute AB magnitude at ``wavelength``
+		    DM : function to return distance modulus, as in ``DM(z)``
+		'''
 		spec = np.zeros_like(wave)
 		w1 = 1
 		spec[0] = 1.0
@@ -333,6 +489,9 @@ class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
 		return spec
 
 class EmissionFeatureVar(QsoSimVar,SpectralFeatureVar):
+	'''
+	Base class for variables that define quasar spectral emission features.
+	'''
 	pass
 
 def render_gaussians(wave,z,lines):
@@ -350,6 +509,20 @@ def render_gaussians(wave,z,lines):
 	return emspec
 
 class GaussianEmissionLineVar(EmissionFeatureVar,MultiDimVar):
+	'''
+	A single Gaussian emission line. Must be instantiated with three samplers
+	for the profile, namely (wavelength, equivalent width, sigma). All
+	parameters are given in the rest-frame and in Angstroms.
+
+	Examples
+	--------
+	>>> from simqso.sqgrids import GaussianEmissionLineVar
+	>>> v = GaussianEmissionLineVar([GaussianSampler(1215.7,0.1),GaussianSampler(100.,10.),GaussianSampler(10.,1.)])
+	>>> v(3)
+	array([[ 1215.645,   113.125,     9.099],
+	       [ 1215.987,   109.654,     9.312],
+	       [ 1215.74 ,   101.765,    10.822]])
+	'''
 	def render(self,wave,z,par):
 		return render_gaussians(wave,z,np.array([par]))
 
@@ -358,6 +531,16 @@ class GaussianLineEqWidthVar(EmissionFeatureVar):
 	this is an arguably kludgy way of making it possible to include
 	line EW as a variable in grids, by reducing the line to a single
 	parameter
+
+	Parameters
+	----------
+	sampler : :class:`simqso.sqgrids.Sampler` instance
+	    Sampler for generating equivalent width values.
+	name : str 
+	    Name of emission line.
+	wave0,width0 : float
+	    Fixed Gaussian parameters for the rest-frame wavelength and sigma
+	    in Angstroms. Only the equivalent width is sampled.
 	'''
 	def __init__(self,sampler,name,wave0,width0):
 		super(GaussianLineEqWidthVar,self).__init__(sampler,name)
@@ -368,12 +551,20 @@ class GaussianLineEqWidthVar(EmissionFeatureVar):
 		                        np.array([[self.wave0,ew0,self.width0]]))
 
 class GaussianEmissionLinesTemplateVar(EmissionFeatureVar,MultiDimVar):
+	'''
+	A multidimensional variable representing a template of Gaussian-profile
+	emission lines.
+	'''
 	name = 'emLines'
 	def render(self,wave,z,lines):
 		return render_gaussians(wave,z,lines)
 
 class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
-	'''translates the log values'''
+	'''
+	Subclass of GaussianEmissionLinesTemplateVar that obtains log-linear
+	trends for the emission lines from the BOSS DR9 model (Ross et al. 2013).
+	TODO: this should really start with the file
+	'''
 	def __init__(self,samplers,lineNames):
 		super(BossDr9EmissionLineTemplateVar,self).__init__(samplers)
 		self.lineNames = lineNames
@@ -385,14 +576,28 @@ class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
 		return lpar
 
 class FeTemplateVar(EmissionFeatureVar):
-	def __init__(self,feGrid,name=None):
+	'''
+	Variable used to store an iron emission template, and then render it
+	at an input redshift.
+
+	Since the template is fixed it uses a :class:`simqso.sqgrids.NullSampler`
+	instance internally.
+	'''
+	def __init__(self,feGrid):
 		super(FeTemplateVar,self).__init__(NullSampler())
 		self.feGrid = feGrid
 	def render(self,wave,z,par):
 		return self.feGrid.get(z)
 
 class HIAbsorptionVar(QsoSimVar,SpectralFeatureVar):
-	def __init__(self,forest,name=None):
+	'''
+	Variable used to store IGM HI absorption spectra.
+
+	Since the spectra are precomputed a :class:`simqso.sqgrids.IndexSampler`
+	instance is used internally to map the forest sightlines to individual 
+	spectra.
+	'''
+	def __init__(self,forest):
 		super(HIAbsorptionVar,self).__init__(IndexSampler())
 		self.forest = forest
 		self.nforest = len(forest['wave'])
@@ -401,6 +606,10 @@ class HIAbsorptionVar(QsoSimVar,SpectralFeatureVar):
 		return spec
 
 class DustExtinctionVar(QsoSimVar,SpectralFeatureVar):
+	'''
+	Base class for dust extinction features. Dust curves are provided in the
+	rest frame and convolved with input spectra.
+	'''
 	@staticmethod
 	def dustCurve(name):
 		return dustextinction.dust_fn[name]
@@ -409,28 +618,74 @@ class DustExtinctionVar(QsoSimVar,SpectralFeatureVar):
 		return spec
 
 class SMCDustVar(DustExtinctionVar):
+	'''
+	SMC dust extinction curve from XXX.
+	'''
 	name = 'smcDustEBV'
 	dustCurveName = 'SMC'
 	meta = {'DUSTMODL':'SMC'}
 
 class CalzettiDustVar(DustExtinctionVar):
+	'''
+	Calzetti XXX dust extinction curve for starburst galaxies.
+	'''
 	name = 'calzettiDustEBV'
 	dustCurveName = 'CalzettiSB'
 	meta = {'DUSTMODL':'Calzetti Starburst'}
 
 class BlackHoleMassVar(QsoSimVar):
+	'''
+	A black hole mass variable, in units of log(Msun).
+	'''
 	name = 'logBhMass'
 
 class EddingtonRatioVar(QsoSimVar):
+	'''
+	A dimensionless Eddington ratio variable, as lambda_edd = L/L_edd.
+	'''
 	name = 'logEddRatio'
 
 class AbsMagFromAppMagVar(AbsMagVar):
+	'''
+	A variable that provides a conversion from apparent magnitude to
+	absolute magnitude.
+
+	Internally uses a :class:`simqso.sqgrids.FixedSampler` instance after
+	converting to absMag.
+
+	Parameters
+	----------
+	appMag : ndarray
+	    Apparent magnitudes (usually from an AppMagVar).
+	m2M : function
+	    Conversion from apparent to absolute mag, as m2M(z) = K(z) + DM(z)
+	restWave : float
+		Rest wavelength in Angstroms for the absolute magnitudes.
+	'''
 	def __init__(self,appMag,m2M,restWave=None):
 		absMag = m2M(appMag)
 		sampler = FixedSampler(absMag)
 		super(AbsMagFromAppMagVar,self).__init__(sampler,restWave)
 
 class AbsMagFromBHMassEddRatioVar(AbsMagVar):
+	'''
+	A variable that provides a conversion from black hole mass and Eddington
+	ratio to absolute magnitude.
+
+	Internally uses a :class:`simqso.sqgrids.FixedSampler` instance after
+	converting to absMag.
+
+	TODO: uses a fixed BC estimate, should be an input.
+
+	Parameters
+	----------
+	logBhMass : ndarray
+	    Log of black hole mass in Msun. (e.g., from an BlackHoleMassVar).
+	logEddRatio : ndarray
+	    Log of dimensionless Eddington ratio (e.g., from an EddingtonRatioVar).
+	restWave : float
+		Rest wavelength in Angstroms for the absolute magnitudes.
+	'''
 	def __init__(self,logBhMass,logEddRatio,restWave=None):
 		eddLum = 1.26e38 * 10**logBhMass
 		lum = 10**logEddRatio * eddLum
@@ -441,9 +696,15 @@ class AbsMagFromBHMassEddRatioVar(AbsMagVar):
 		super(AbsMagFromBHMassEddRatioVar,self).__init__(sampler,restWave)
 
 class SynMagVar(QsoSimVar):
+	'''
+	Container for synthetic magnitudes.
+	'''
 	name = 'synMag'
 
 class SynFluxVar(QsoSimVar):
+	'''
+	Container for synthetic fluxes.
+	'''
 	name = 'synFlux'
 
 
@@ -452,6 +713,20 @@ class SynFluxVar(QsoSimVar):
 ##############################################################################
 
 class QsoSimObjects(object):
+	'''
+	A collection of simulated quasar objects. Objects are defined by a set
+	of variables (`QsoSimVar`). The values for the variables are maintained 
+	internally as an `astropy.table.Table`, which can be saved and restored.
+
+	Parameters
+	----------
+	qsoVars : list of `QsoSimVar` instances
+	    Set of variables used to initialize the simulation grid.
+	cosmo : `astropy.cosmology.FLRW` instance
+	    Cosmology used for the simulation.
+	units : str
+		One of "flux" or "luminosity", XXX should be handled internally...
+	'''
 	def __init__(self,qsoVars=[],cosmo=None,units=None):
 		self.qsoVars = qsoVars
 		self.cosmo = cosmo
@@ -476,16 +751,25 @@ class QsoSimObjects(object):
 		except KeyError:
 			raise AttributeError("no attribute "+name)
 	def addVar(self,var):
+		'''
+		Add a variable to the simulation.
+		'''
 		self.qsoVars.append(var)
 		vals = var(self.nObj)
 		if vals is not None:
 			self.data[var.name] = vals
 	def addVars(self,newVars):
+		'''
+		Add a list of variables to the simulation.
+		'''
 		for var in newVars:
 			self.addVar(var)
 	def addData(self,data):
 		self.data = hstack([self.data,data])
 	def getVars(self,varType=QsoSimVar):
+		'''
+		Return all variables that are instances of varType.
+		'''
 		return filter(lambda v: isinstance(v,varType),self.qsoVars)
 	def resample(self):
 		for var in self.qsoVars:
@@ -498,6 +782,9 @@ class QsoSimObjects(object):
 	def distMod(self,z):
 		return self.cosmo.distmod(z).value
 	def read(self,gridFile):
+		'''
+		Read a simulation grid from a file.
+		'''
 		self.data = Table.read(gridFile)
 		self.nObj = len(self.data)
 		hdr = fits.getheader(gridFile,1)
@@ -516,6 +803,10 @@ class QsoSimObjects(object):
 			cosmodef = d
 		return str(cosmodef)
 	def write(self,simPars,outputDir='.',outFn=None):
+		'''
+		Write a simulation grid to a FITS file as a binary table, storing 
+		meta-data in the header.
+		'''
 		tab = self.data
 		simPars = copy(simPars)
 		simPars['Cosmology'] = self.cosmo_str(simPars['Cosmology'])
@@ -532,6 +823,18 @@ class QsoSimObjects(object):
 		tab.write(os.path.join(outputDir,outFn),overwrite=True)
 
 class QsoSimPoints(QsoSimObjects):
+	'''
+	Simulation grid represented as a list of points.
+
+	Parameters
+	----------
+	qsoVars : list of `QsoSimVar` instances
+	    Set of variables used to initialize the simulation grid.
+	n : int
+	    Number of points in the grid. Not required (None) if the input
+	    variables already know how to sample the correct number of points
+	    (e.g., if they all use a `FixedSampler`).
+	'''
 	def __init__(self,qsoVars,n=None,**kwargs):
 		super(QsoSimPoints,self).__init__(qsoVars,**kwargs)
 		data = { var.name:var(n) for var in qsoVars }
@@ -542,6 +845,19 @@ class QsoSimPoints(QsoSimObjects):
 		return str(self.data)
 
 class QsoSimGrid(QsoSimObjects):
+	'''
+	Simulation grid represented as a uniform grid. Within each grid cell
+	``nPerBin`` objects are randomly sampled to fill the cell.
+
+	Parameters
+	----------
+	qsoVars : list of `QsoSimVar` instances
+	    Set of variables used to initialize the simulation grid.
+	nBins : tuple
+		Number of bins along each grid axis (i.e., each variable).
+	nPerBin : int
+		Number of objects within each grid cell.
+	'''
 	def __init__(self,qsoVars,nBins,nPerBin,**kwargs):
 		super(QsoSimGrid,self).__init__(qsoVars,**kwargs)
 		self.gridShape = nBins + (nPerBin,)
@@ -569,6 +885,10 @@ class QsoSimGrid(QsoSimObjects):
 
 
 def generateQlfPoints(qlf,mRange,zRange,m2M,cosmo,band,**kwargs):
+	'''
+	Generate a `QsoSimPoints` grid fed by `AppMagVar` and `RedshiftVar`
+	instances which are sampled from an input luminosity function.
+	'''
 	m,z = qlf.sample_from_fluxrange(mRange,zRange,m2M,cosmo,**kwargs)
 	m = AppMagVar(FixedSampler(m),band=band)
 	z = RedshiftVar(FixedSampler(z))
