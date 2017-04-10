@@ -62,7 +62,7 @@ class FixedSampler(Sampler):
 		self.high = None
 		self.vals = vals
 	def sample(self,n):
-		if n is None or n != len(self.vals):
+		if n is not None and n != len(self.vals):
 			raise ValueError
 		return self.vals
 
