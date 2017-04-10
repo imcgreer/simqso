@@ -51,17 +51,17 @@ def buildQsoGrid(simParams):
 	                               z,cosmodef)
 	reseed(gridPars)
 	#
+	def get_nbins(low,high,n):
+		if type(n) is int:
+			return n
+		else:
+			return int( np.floor((high - low) / n) )
 	if gridType.endswith('RedshiftGrid'):
 		m1,m2,nm = gridPars['mRange']
 		z1,z2,nz = gridPars['zRange']
-		if type(nm) is int:
-			mSampler = grids.GridSampler(m1,m2,nbins=nm)
-		else:
-			mSampler = grids.GridSampler(m1,m2,stepsize=nm)
-		if type(nz) is int:
-			zSampler = grids.GridSampler(z1,z2,nbins=nz)
-		else:
-			zSampler = grids.GridSampler(z1,z2,stepsize=nz)
+		nBins = ( get_nbins(m1,m2,nm), get_nbins(z1,z2,nz) )
+		mSampler = grids.UniformSampler(m1,m2)
+		zSampler = grids.UniformSampler(z1,z2)
 		if gridType.startswith('Luminosity'):
 			m = grids.AbsMagVar(mSampler,restWave=gridPars['LumUnits'])
 			units = 'luminosity'
@@ -71,6 +71,7 @@ def buildQsoGrid(simParams):
 			units = 'flux'
 		z = grids.RedshiftVar(zSampler)
 	elif gridType == 'FixedGrid':
+		raise NotImplementedError
 		m = grids.FixedSampler(gridPars['fixed_M'])
 		z = grids.FixedSampler(gridPars['fixed_z'])
 		# XXX units
@@ -88,7 +89,7 @@ def buildQsoGrid(simParams):
 	else:
 		raise ValueError('GridType %s unknown' % gridType)
 	if gridType != 'LuminosityFunction':
-		qsoGrid = grids.QsoSimGrid([m,z],gridPars['nPerBin'],
+		qsoGrid = grids.QsoSimGrid([m,z],nBins,gridPars['nPerBin'],
 		                           units=units,cosmo=cosmodef)
 	try:
 		_ = qsoGrid.absMag
@@ -380,14 +381,14 @@ def qsoSimulation(simParams,**kwargs):
 				print simParams['GridFileName'],' not found, generating'
 				qsoGrid = buildQsoGrid(simParams)
 				qsoGrid.write(simParams,outputDir,
-				              simPar['GridFileName']+'.fits')
+				              simParams['GridFileName']+'.fits')
 		else:
 			print 'generating QSO grid'
 			qsoGrid = buildQsoGrid(simParams)
 		if not forestOnly:
 			if not noWriteOutput and 'GridFileName' in simParams:
 				qsoGrid.write(simParams,outputDir,
-				              simPar['GridFileName']+'.fits')
+				              simParams['GridFileName']+'.fits')
 	qsoGrid.setCosmology(simParams.get('Cosmology'))
 	timerLog('Initialize Grid')
 	#

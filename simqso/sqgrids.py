@@ -62,7 +62,7 @@ class FixedSampler(Sampler):
 		self.high = None
 		self.vals = vals
 	def sample(self,n):
-		if n is not None or len(n) != len(self.vals):
+		if n is None or n != len(self.vals):
 			raise ValueError
 		return self.vals
 
@@ -111,18 +111,6 @@ class UniformSampler(Sampler):
 	'''
 	def sample(self,n):
 		return np.linspace(self.low,self.high,n)
-
-class GridSampler(Sampler):
-	def __init__(self,low,high,nbins=None,stepsize=None):
-		if nbins is None and stepsize is None:
-			raise ValueError("Must specify nbins or stepsize")
-		super(GridSampler,self).__init__(low,high)
-		if stepsize:
-			nbins = int( np.floor((high - low) / stepsize) )
-		self.nbins = nbins+1
-	def sample(self,n):
-		arr = np.linspace(self.low,self.high,n*self.nbins)
-		return arr.reshape(self.nbins,n)
 
 class CdfSampler(Sampler):
 	def _init_cdf(self):
@@ -554,12 +542,10 @@ class QsoSimPoints(QsoSimObjects):
 		return str(self.data)
 
 class QsoSimGrid(QsoSimObjects):
-	def __init__(self,qsoVars,nPerBin,**kwargs):
+	def __init__(self,qsoVars,nBins,nPerBin,**kwargs):
 		super(QsoSimGrid,self).__init__(qsoVars,**kwargs)
-		self.gridShape = tuple( v.sampler.nbins-1 for v in qsoVars ) + \
-		                    (nPerBin,)
-		# for grid variables this returns the edges of the bins
-		axes = [ var(1) for var in qsoVars ]
+		self.gridShape = nBins + (nPerBin,)
+		axes = [ var(n+1) for n,var in zip(nBins,qsoVars) ]
 		self.gridEdges = np.meshgrid(*axes,indexing='ij')
 		data = {}
 		for i,(v,g) in enumerate(zip(qsoVars,self.gridEdges)):
