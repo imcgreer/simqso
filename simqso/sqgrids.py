@@ -22,10 +22,23 @@ from . import dustextinction
 ##############################################################################
 
 class Sampler(object):
+	'''
+	Base class for sampling one-dimensional values within a given bound.
+
+	Subclasses must define the sample() function.
+
+	Parameters
+	----------
+	    low,high : float
+	        Lower and upper bounds for the sampler.
+	'''
 	def __init__(self,low,high):
 		self.low = low
 		self.high = high
 	def sample(self,n):
+		'''
+		Return a set of n values obtained from the sampler.
+		'''
 		raise NotImplementedError
 	def resample(self,*args,**kwargs):
 		pass
@@ -36,26 +49,50 @@ class Sampler(object):
 		return s
 
 class FixedSampler(Sampler):
+	'''
+	Use a fixed set of values as the sample.
+
+	>>> from simqso.sqgrids import FixedSampler
+	>>> s = FixedSampler([1.,2.,3.])
+	>>> s(3)
+	[1.0, 2.0, 3.0]
+	'''
 	def __init__(self,vals):
 		self.low = None
 		self.high = None
 		self.vals = vals
 	def sample(self,n):
+		if n is not None or len(n) != len(self.vals):
+			raise ValueError
 		return self.vals
 
 class NullSampler(Sampler):
+	'''
+	Special container for variables which are not sampled.
+	'''
 	def __init__(self):
 		pass
 	def sample(self,n):
 		return None
 
 class IndexSampler(Sampler):
+	'''
+	Special container for variables which need an index into the grid.
+	'''
 	def __init__(self):
 		pass
 	def sample(self,n):
 		return None
 
 class ConstSampler(Sampler):
+	'''
+	Returns a constant for all samples.
+
+	>>> from simqso.sqgrids import ConstSampler
+	>>> s = ConstSampler(17)
+	>>> s(3)
+	array([17, 17, 17])
+	'''
 	def __init__(self,*val):
 		self.low = None
 		self.high = None
@@ -64,6 +101,14 @@ class ConstSampler(Sampler):
 		return np.repeat(self.val,n)
 
 class UniformSampler(Sampler):
+	'''
+	Returns values uniformly sampled between ``low`` and ``high``, inclusive.
+
+	>>> from simqso.sqgrids import UniformSampler
+	>>> s = UniformSampler(0,1)
+	>>> s(3)
+	array([ 0. ,  0.5,  1. ])
+	'''
 	def sample(self,n):
 		return np.linspace(self.low,self.high,n)
 
