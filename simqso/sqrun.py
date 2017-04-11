@@ -461,6 +461,7 @@ def generateForestGrid(simParams,**kwargs):
 	timerLog = sqbase.TimerLog()
 	tgrid = hiforest.generate_grid_spectra(wave,zbins,nlos,**forestParams)
 	timerLog('BuildForest')
-	hiforest.save_spectra(tgrid,forestParams['FileName'],outputDir)
+	hiforest.save_spectra(tgrid,forestParams['FileName'],outputDir,
+	                      saveAbs=True)
 	timerLog.dump()
 

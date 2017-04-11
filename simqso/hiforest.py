@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 
 import os
+from collections import OrderedDict
 import numpy as np
 import scipy.stats as stats
 import scipy.constants as const
 from astropy.io import fits
-from astropy.table import Table
+from astropy.table import Table,vstack
 
 from .sqbase import datadir
 
@@ -500,7 +501,8 @@ def generate_N_spectra(wave,z_em,nlos,**kwargs):
 		if ( len(linesofsight)>100 and 
 		      ((losNum+1) % (len(linesofsight)//10) == 0) ):
 			print 'finished LOS #%d' % (losNum+1)
-	return dict(T=specAll,losMap=losMap,z=z_em.copy(),wave=wave.copy())
+	return dict(T=specAll,losMap=losMap,los=linesofsight,
+	            z=z_em.copy(),wave=wave.copy())
 
 def generate_grid_spectra(wave,zbins,nlos,**kwargs):
 	'''
@@ -529,18 +531,12 @@ def generate_grid_spectra(wave,zbins,nlos,**kwargs):
 	    Number of sightlines generated
 	zbins : int
 	    Redshift bins
-	seed : int
-	    Random seed used to generate sightlines
 	'''
 	zem = np.tile(zbins,nlos)
 	losMap = np.repeat(np.arange(nlos),len(zbins))
-	# This is needed for the absorber list to be reproducible.
-	seed = kwargs.get('GridSeed',1)
-	np.random.seed(seed)
 	sp = generate_N_spectra(wave,zem,nlos,losMap=losMap,**kwargs)
 	sp['nLOS'] = nlos
 	sp['zbins'] = zbins
-	sp['seed'] = seed
 	return sp
 
 def generate_spectra_from_grid(wave,z_em,tgrid,**kwargs):
@@ -594,15 +590,14 @@ def generate_spectra_from_grid(wave,z_em,tgrid,**kwargs):
 	nlos = tgrid['nLOS']
 	losMap = kwargs.get('losMap',np.random.randint(0,nlos,z_em.shape[0]))
 	T = tgrid['T'].reshape(nlos,len(tgrid['zbins']),-1)
-	np.random.seed(tgrid['seed'])
 	# generate spectra for each line-of-sight
 	for losNum in range(nlos):
 		ii = np.where(losMap == losNum)[0]
-		los = generate_los(forestModel,zmin,zmax)
 		if len(ii)==0:
 			# need to do it here, because all los'es must be generated for
 			# the random number generation to proceed in the correct order
 			continue
+		los = tgrid['los'].groups[losNum]
 		jj = np.digitize(z_em[ii],tgrid['zbins'])
 		for j in range(len(tgrid['zbins'])):
 			zi = np.where(jj-1==j)[0]
@@ -624,27 +619,47 @@ def generate_spectra_from_grid(wave,z_em,tgrid,**kwargs):
 			specAll[ii[zi],:] = T[losNum,j][np.newaxis,:] * spec[zs.argsort()]
 	return dict(T=specAll,losMap=losMap,z=z_em.copy(),wave=wave.copy())
 
-def save_spectra(spec,forestName,outputDir):
+def save_spectra(spec,forestName,outputDir,saveAbs=False):
 	'''Save a spectrum to a FITS file.'''
 	wave = spec.pop('wave')
+	try:
+		linesofsight = spec.pop('los')
+	except:
+		pass
 	logwave = np.log(wave[:2])
-	hdr = {'CD1_1':np.diff(logwave)[0],'CRPIX1':1,'CRVAL1':logwave[0],
-	       'CRTYPE1':'LOGWAVE'}
+	hdr = OrderedDict()
+	hdr['CD1_1'] = np.diff(logwave)[0]
+	hdr['CRPIX1'] = 1
+	hdr['CRVAL1'] = logwave[0]
+	hdr['CRTYPE1'] = 'LOGWAVE'
 	if 'zbins' in spec:
 		hdr['NLOS'] = spec.pop('nLOS')
 		hdr['ZBINS'] = ','.join('%.3f'%z for z in spec.pop('zbins'))
-		hdr['GRIDSEED'] = spec.pop('seed')
-	ftab = Table(spec,meta=hdr)
-	ftab.write(os.path.join(outputDir,forestName+'.fits'),overwrite=True)
-	# restore input wave vector
+	ftab = Table(spec)#,meta=hdr)
+	for k,v in hdr.items():
+		ftab.meta[k] = v
+	hdus = [ fits.PrimaryHDU(), fits.table_to_hdu(ftab) ]
+	if saveAbs:
+		absList = []
+		for losNum,los in enumerate(linesofsight):
+			t = Table(los)
+			t['losNum'] = np.int32(losNum)
+			absList.append(t)
+		absList = vstack(absList)
+		hdus.append(fits.table_to_hdu(absList))
+	outfn = os.path.join(outputDir,forestName+'.fits')
+	fits.HDUList(hdus).writeto(outfn,overwrite=True)
+	# restore inputs
 	spec['wave'] = wave
+	#spec['los'] = linesofsight
 
-def load_spectra(forestName,outputDir):
+def load_spectra(forestName,outputDir='.'):
 	'''Load a spectrum from a FITS file.'''
-	#spec,hdr = fits.getdata(os.path.join(outputDir,forestName+'.fits.gz'),
-	                        #header=True)
-	spec,hdr = fits.getdata(os.path.join(outputDir,forestName+'.fits'),
-	                        header=True)
+	fn = forestName
+	if not fn.endswith('.fits'):
+		fn += '.fits'
+	fn = os.path.join(outputDir,fn)
+	spec,hdr = fits.getdata(fn,1,header=True)
 	nwave = spec['T'].shape[1]
 	wave = np.arange(nwave)
 	logwave = hdr['CRVAL1'] + hdr['CD1_1']*(wave-(hdr['CRPIX1']-1))
@@ -653,6 +668,10 @@ def load_spectra(forestName,outputDir):
 	if 'ZBINS' in hdr:
 		rv['nLOS'] = hdr['NLOS']
 		rv['zbins'] = np.array(hdr['ZBINS'].split(',')).astype(np.float)
-		rv['seed'] = hdr['GRIDSEED']
+	rv['los'] = Table(fits.getdata(fn,2)).group_by('losNum')
+	try:
+		rv['los'] = Table(fits.getdata(fn,2)).group_by('losNum')
+	except:
+		pass
 	return rv
 
