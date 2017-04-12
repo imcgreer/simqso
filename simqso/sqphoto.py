@@ -327,7 +327,7 @@ def load_photo_map(params):
 	            magSys=magSys,filtName=filtName)
 
 def getPhotoCache(wave,photoMap):
-	photoCache = {}
+	photoCache = OrderedDict()
 	for b,bp in photoMap['bandpasses'].items():
 		bpdata = bp['data']
 		i1,i2 = np.searchsorted(wave,bpdata['lam'][[0,-1]],side='right')
@@ -338,20 +338,21 @@ def getPhotoCache(wave,photoMap):
 			dlam = np.diff(wave[i1:i2])
 			dlam = np.concatenate([dlam,[dlam[-1],]])
 			Rlam = bp['Rlam'](wave[i1:i2])
-		photoCache[b] = {'ii':(i1,i2),'lam_Rlam_dlam':lam*Rlam*dlam}
+		photoCache[b] = {'ii':(i1,i2),'lam_Rlam_dlam':lam*Rlam*dlam,
+		                 'norm':bp['norm']}
 	return photoCache
 
 conv_Slam_to_Snu = 1/(c_Angs * 3631e-23)
 
-def calcSynPhot(spec,photoMap,photoCache=None,mags=None,fluxes=None):
-	if mags is None:
-		mags = np.zeros(len(photoMap['bandpasses']))
-	if fluxes is None:
-		fluxes = np.zeros(len(photoMap['bandpasses']))
+def calcSynPhot(spec,photoMap=None,photoCache=None,mags=None,fluxes=None):
 	if photoCache is None:
 		photoCache = getPhotoCache(spec.wave,photoMap)
-	for j,b in enumerate(photoMap['bandpasses']):
-		fnorm = photoMap['bandpasses'][b]['norm']
+	if mags is None:
+		mags = np.zeros(len(photoCache))
+	if fluxes is None:
+		fluxes = np.zeros(len(photoCache))
+	for j,b in enumerate(photoCache):
+		fnorm = photoCache[b]['norm']
 		i1,i2 = photoCache[b]['ii']
 		lamRlamdlam = photoCache[b]['lam_Rlam_dlam']
 		flam = spec.f_lambda[i1:i2]

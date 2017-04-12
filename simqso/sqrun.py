@@ -2,6 +2,7 @@
 
 import os
 import numpy as np
+from functools import partial
 from astropy.io import fits
 from astropy.table import Table,hstack
 from astropy import cosmology
@@ -11,6 +12,8 @@ from . import sqgrids as grids
 from . import hiforest
 from . import dustextinction
 from . import sqphoto
+
+import multiprocessing
 
 
 def buildWaveGrid(simParams):
@@ -217,8 +220,55 @@ def buildFeatures(qsoGrid,wave,simParams,forest=None):
 		forestVar = grids.HIAbsorptionVar(forest)
 		qsoGrid.addVar(forestVar)
 
+def _getpar(feature,obj):
+	if isinstance(feature.sampler,grids.NullSampler):
+		return None
+	elif isinstance(feature.sampler,grids.IndexSampler):
+		return obj.index
+	else:
+		return obj[feature.name]
 
-def buildQSOspectra(wave,qsoGrid,photoMap=None,
+def buildQsoSpectrum(wave,cosmo,specFeatures,photoCache,saveSpectra,obj):
+	spec = sqbase.Spectrum(wave,z=obj['z'])
+	# start with continuum
+	distmod = lambda z: cosmo.distmod(z).value
+	fluxNorm = {'wavelength':1450.,'M_AB':obj['absMag'],'DM':distmod}
+	for feature in specFeatures: #qsoGrid.getVars(grids.ContinuumVar):
+		if isinstance(feature,grids.ContinuumVar):
+			spec = feature.add_to_spec(spec,_getpar(feature,obj),
+			                           fluxNorm=fluxNorm)
+	# add emission (multiplicative) features
+	emspec = sqbase.Spectrum(wave,z=obj['z'])
+	for feature in specFeatures: #qsoGrid.getVars(grids.EmissionFeatureVar):
+		if isinstance(feature,grids.EmissionFeatureVar):
+			emspec = feature.add_to_spec(emspec,_getpar(feature,obj))
+	spec *= emspec + 1
+	# add any remaining features
+	for feature in specFeatures: #qsoGrid.getVars(grids.SpectralFeatureVar):
+		if isinstance(feature,grids.ContinuumVar) or \
+		   isinstance(feature,grids.EmissionFeatureVar):
+			continue
+		spec = feature.add_to_spec(spec,_getpar(feature,obj))
+	if photoCache is not None:
+		# calculate synthetic magnitudes from the spectra through the
+		# specified bandpasses
+		rv = sqphoto.calcSynPhot(spec,photoCache=photoCache)
+	else:
+		rv = ()
+	if saveSpectra:
+		rv += (spec.f_lambda,)
+	return rv
+
+def _regroup(spOut):
+	# XXX tell me there's a better way to do this
+	n = len(spOut[0])
+	rv = [ [] for i in range(n) ]
+	for sp in spOut:
+		for j in range(n):
+			rv[j].append(sp[j])
+	return [ np.array(v) for v in rv ]
+
+def buildQsoSpectra(wave,qsoGrid,photoMap=None,
                     maxIter=1,saveSpectra=False):
 	'''Assemble the spectral components of QSOs from the input parameters.
 
@@ -227,15 +277,11 @@ def buildQSOspectra(wave,qsoGrid,photoMap=None,
 	wave : `~numpy.ndarray`
 	    Input wavelength grid.
 	'''
-	if saveSpectra:
-		spectra = np.zeros((qsoGrid.nObj,len(wave)))
-	else:
-		spectra = None
-	spec = sqbase.Spectrum(wave)
 	if photoMap is not None:
-		synMag = np.zeros((qsoGrid.nObj,len(photoMap['bandpasses'])))
-		synFlux = np.zeros_like(synMag)
 		photoCache = sqphoto.getPhotoCache(wave,photoMap)
+	else:
+		photoCache = None
+	print 'simulating ',qsoGrid.nObj,' quasar spectra'
 	print 'units are ',qsoGrid.units
 	if qsoGrid.units == 'luminosity' or photoMap is None:
 		nIter = 1
@@ -251,48 +297,27 @@ def buildQSOspectra(wave,qsoGrid,photoMap=None,
 			raise ValueError('band ',obsBand,' not found in ',bands)
 		print 'fluxBand is ',fluxBand,bands
 	#
-	fluxNorm = {'wavelength':1450.,'M_AB':None,'DM':qsoGrid.distMod}
-	def _getpar(feature,obj):
-		if isinstance(feature.sampler,grids.NullSampler):
-			return None
-		elif isinstance(feature.sampler,grids.IndexSampler):
-			return obj.index
-		else:
-			return obj[feature.name]
-	#
+	pool = multiprocessing.Pool(7)
 	for iterNum in range(nIter):
-		print 'buildQSOspectra iteration ',iterNum+1,' out of ',nIter
-		for i,obj in enumerate(qsoGrid):
-			spec.setRedshift(obj['z'])
-			# start with continuum
-			fluxNorm['M_AB'] = obj['absMag']
-			for feature in qsoGrid.getVars(grids.ContinuumVar):
-				spec = feature.add_to_spec(spec,_getpar(feature,obj),
-				                           fluxNorm=fluxNorm)
-			# add emission (multiplicative) features
-			emspec = sqbase.Spectrum(wave,z=obj['z'])
-			for feature in qsoGrid.getVars(grids.EmissionFeatureVar):
-				emspec = feature.add_to_spec(emspec,_getpar(feature,obj))
-			spec *= emspec + 1
-			# add any remaining features
-			for feature in qsoGrid.getVars(grids.SpectralFeatureVar):
-				if isinstance(feature,grids.ContinuumVar) or \
-				   isinstance(feature,grids.EmissionFeatureVar):
-					continue
-				spec = feature.add_to_spec(spec,_getpar(feature,obj))
-			if photoMap is not None:
-				# calculate synthetic magnitudes from the spectra through the
-				# specified bandpasses
-				synMag[i],synFlux[i] = sqphoto.calcSynPhot(spec,photoMap,
-				                                           photoCache,
-				                                           synMag[i],
-				                                           synFlux[i])
-			if saveSpectra:
-				spectra[i] = spec.f_lambda
-			spec.clear()
+		specFeatures = qsoGrid.getVars(grids.SpectralFeatureVar)
+		samplers = []
+		for f in specFeatures:
+			samplers.append(f.sampler)
+			if not ( isinstance(f.sampler,grids.NullSampler) or 
+			         isinstance(f.sampler,grids.IndexSampler) ):
+				f.sampler = None
+		build_one_spec = partial(buildQsoSpectrum,wave,qsoGrid.cosmo,
+		                         specFeatures,photoCache,saveSpectra)
+		print 'buildQsoSpectra iteration ',iterNum+1,' out of ',nIter
+		#specOut = map(build_one_spec,qsoGrid)
+		specOut = pool.map(build_one_spec,qsoGrid)
+		specOut = _regroup(specOut)
+		synMag,synFlux = specOut[:2]
+		for f,s in zip(specFeatures,samplers):
+			f.sampler = s
 		if nIter > 1:
 			# find the largest mag offset
-			dm = synMag[...,fluxBand] - qsoGrid.appMag
+			dm = synMag[:,fluxBand] - qsoGrid.appMag
 			print '--> delta mag mean = %.7f, rms = %.7f, |max| = %.7f' % \
 			              (dm.mean(),dm.std(),np.abs(dm).max())
 			qsoGrid.absMag[:] -= dm
@@ -301,6 +326,10 @@ def buildQSOspectra(wave,qsoGrid,photoMap=None,
 			qsoGrid.resample()
 			if dmagMax < 0.01:
 				break
+	if saveSpectra:
+		spectra = specOut[2]
+	else:
+		spectra = None
 	if photoMap is not None:
 		qsoGrid.addVar(grids.SynMagVar(grids.FixedSampler(synMag)))
 		qsoGrid.addVar(grids.SynFluxVar(grids.FixedSampler(synFlux)))
@@ -417,7 +446,7 @@ def qsoSimulation(simParams,**kwargs):
 	photoMap = sqphoto.load_photo_map(simParams['PhotoMapParams'])
 	if not onlyMap:
 		buildFeatures(qsoGrid,wave,simParams,forest)
-		_,spectra = buildQSOspectra(wave,qsoGrid,photoMap=photoMap,
+		_,spectra = buildQsoSpectra(wave,qsoGrid,photoMap=photoMap,
 		                            maxIter=simParams.get('maxFeatureIter',5),
 		                            saveSpectra=saveSpectra)
 	timerLog('Build Quasar Spectra')
