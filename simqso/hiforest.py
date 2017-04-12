@@ -10,7 +10,7 @@ from astropy.table import Table
 from .sqbase import datadir
 
 # shorthands
-exp,sqrt = np.exp,np.sqrt
+exp,sqrt,log = np.exp,np.sqrt,np.log
 c_kms = const.c/1e3
 sqrt_pi = sqrt(np.pi)
 sigma_c = 6.33e-18 # cm^-2
@@ -400,6 +400,96 @@ def calc_tau_lambda(wave,los,**kwargs):
 			                        c_voigt,a,lambda_z,b,
 			                        tauMin,tauMax)
 	return tau_lam
+
+class IGMTransmissionGrid(object):
+	'''
+	Generate a library of forest transmission spectra, by mapping an array 
+	of emission redshifts to a set of sightlines.
+
+	Parameters
+	----------
+	wave : `~numpy.ndarray`
+	    Input wavelength grid (must be at fixed resolution!).
+	z_em : `~numpy.ndarray`
+	    Array containing emission redshifts.
+	nlos : int
+	    Number of lines-of-sight to generate.
+	    if -1, each emission redshift has an independent line-of-sight
+	losMap : sequence 
+	    Optional mapping from z_em to LOS. Must have the same number of 
+	    elements and be in the range 0..nlos-1.
+	    If not provided and nlos>0, losMap is randomly generated.
+
+	Returns
+	-------
+	spectra: dict
+	T : `~numpy.ndarray` 
+	    transmission spectra with shape (N(z),N(wave))
+	z : `~numpy.ndarray` 
+	    emission redshift for each spectrum
+	losMap : `~numpy.ndarray` 
+	    map of z_em <-> line-of-sight
+	wave : `~numpy.ndarray` 
+	    input wavelength grid
+	'''
+	def __init__(self,wave,numSightLines,**kwargs):
+		self.specWave = wave
+		self.forestModel = kwargs.get('ForestModel','Worseck&Prochaska2011')
+		if type(self.forestModel) is str:
+			self.forestModel = forestModels[self.forestModel]
+		self.numSightLines = numSightLines
+		zrange = kwargs.get('zRange')
+		if zrange is None:
+			# pad the lower redshift by just a bit
+			self.zmin = wave.min() / 1215.7 - 1.01
+			self.zmax = np.inf
+		else:
+			self.zmin,self.zmax = zrange
+		# Generate the lines-of-sight first, to preserve random generator order
+		self.sightLines = [ generate_los(self.forestModel,self.zmin,self.zmax) 
+		                      for i in range(self.numSightLines) ]
+		# default is 10 km/s
+		forestRmin = kwargs.get('Rmin',3e4)
+		logwave = log(wave)
+		dloglam = np.diff(logwave)
+		if not np.allclose(dloglam,dloglam[0]):
+			raise ValueError("Must have constant dloglam")
+		specR = dloglam[0]**-1
+		self.nRebin = np.int(np.ceil(forestRmin/specR))
+		self.forestR = specR * self.nRebin
+		# go a half pixel below the minimum wavelength
+		wavemin = exp(logwave[0]-0.5/specR)
+		# go well beyond LyA to get maximum wavelength
+		wavemax = 1250*(1+self.zmax)
+		wavemax = min(wave[-1],1250*(1+self.zmax))
+		self.nSpecPix = np.searchsorted(wave,wavemax,side='right')
+		# now make sure it is an integer multiple 
+		wavemax = wave[self.nSpecPix-1]
+		self.nPix = self.nSpecPix * self.nRebin
+		self.forestWave = exp( log(wavemin) + 
+		                         self.forestR**-1*np.arange(self.nPix) )
+		dloglam = self.forestR**-1
+		self.forestWave = exp( log(wavemin) +  dloglam*np.arange(self.nPix) )
+		#
+		self.zi = np.zeros(self.numSightLines,dtype=np.int32)
+		#
+		self.tau = np.zeros((self.numSightLines,self.nPix))
+	def next_spec(self,sightLine,z,**kwargs):
+		los = self.sightLines[sightLine]
+		zi1 = self.zi[sightLine]
+		tau = self.tau[sightLine]
+		zi2 = np.searchsorted(los['z'],min(z,self.zmax))
+		if zi2 < zi1:
+			raise ValueError("must generate sightline in increasing redshift")
+		self.zi[sightLine] = zi2
+		tau = calc_tau_lambda(self.forestWave,los[zi1:zi2],tauIn=tau,
+		                      **kwargs)
+		T = exp(-tau).reshape(-1,self.nRebin)
+		return T.mean(axis=1)
+	def all_spec(self,sightLine,z_all,**kwargs):
+		return np.vstack( [ self.next_spec(sightLine,z) for z in z_all ] )
+	def write_grid(self,losMap,z_em,fileName):
+		pass
 
 def generate_spectra(wave,z_em,los,**kwargs):
 	'''
