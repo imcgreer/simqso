@@ -668,7 +668,6 @@ def load_spectra(forestName,outputDir='.'):
 	if 'ZBINS' in hdr:
 		rv['nLOS'] = hdr['NLOS']
 		rv['zbins'] = np.array(hdr['ZBINS'].split(',')).astype(np.float)
-	rv['los'] = Table(fits.getdata(fn,2)).group_by('losNum')
 	try:
 		rv['los'] = Table(fits.getdata(fn,2)).group_by('losNum')
 	except:
