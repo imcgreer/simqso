@@ -118,6 +118,10 @@ def buildForest(wave,z,simParams,outputDir):
 	forestType = forestParams.get('ForestType','Sightlines')
 	nlos = forestParams.get('NumLinesOfSight',-1)
 	forestFn = forestParams['FileName']
+	tgrid = hiforest.IGMTransmissionGrid(wave,nlos,zmax=z.max(),
+	                                     **forestParams)
+	return tgrid
+	####
 	waveMax = (1+z.max()+0.2)*1217
 	wave = wave[:np.searchsorted(wave,waveMax)]
 	if forestType == 'OneToOne':
@@ -298,7 +302,9 @@ def buildQsoSpectra(wave,qsoGrid,photoMap=None,
 		print 'fluxBand is ',fluxBand,bands
 	#
 	pool = multiprocessing.Pool(7)
-	for iterNum in range(nIter):
+	zi = qsoGrid.z.argsort()
+#	for iterNum in range(nIter):
+	if True:
 		specFeatures = qsoGrid.getVars(grids.SpectralFeatureVar)
 		samplers = []
 		for f in specFeatures:
@@ -306,16 +312,22 @@ def buildQsoSpectra(wave,qsoGrid,photoMap=None,
 			if not ( isinstance(f.sampler,grids.NullSampler) or 
 			         isinstance(f.sampler,grids.IndexSampler) ):
 				f.sampler = None
+		# XXX also is broken because requires each sightline to be
+		#     within one process, or build won't happen correctly
 		build_one_spec = partial(buildQsoSpectrum,wave,qsoGrid.cosmo,
 		                         specFeatures,photoCache,saveSpectra)
 		print 'buildQsoSpectra iteration ',iterNum+1,' out of ',nIter
-		#specOut = map(build_one_spec,qsoGrid)
-		specOut = pool.map(build_one_spec,qsoGrid)
+		specOut = map(build_one_spec,qsoGrid.iter_reorder(zi))
+		#specOut = pool.map(build_one_spec,qsoGrid.iter_reorder(zi))
 		specOut = _regroup(specOut)
 		synMag,synFlux = specOut[:2]
+		synMag = synMag[zi.argsort()]
+		synFlux = synFlux[zi.argsort()]
 		for f,s in zip(specFeatures,samplers):
 			f.sampler = s
-		if nIter > 1:
+		# XXX have to do iteration inside of buildspectrum, if forest is
+		#     disposable. but that requires sending all the samplers in again.
+		if False: #nIter > 1:
 			# find the largest mag offset
 			dm = synMag[:,fluxBand] - qsoGrid.appMag
 			print '--> delta mag mean = %.7f, rms = %.7f, |max| = %.7f' % \
@@ -323,11 +335,11 @@ def buildQsoSpectra(wave,qsoGrid,photoMap=None,
 			qsoGrid.absMag[:] -= dm
 			dmagMax = np.abs(dm).max()
 			# resample features with updated absolute mags
-			qsoGrid.resample()
+			qsoGrid.resample() # XXX but this happens on full grid @#^$@#
 			if dmagMax < 0.01:
 				break
 	if saveSpectra:
-		spectra = specOut[2]
+		spectra = specOut[2][zi.argsort()]
 	else:
 		spectra = None
 	if photoMap is not None:
@@ -432,12 +444,12 @@ def qsoSimulation(simParams,**kwargs):
 			forest = dict(wave=wave[:2],T=NullForest())
 		else:
 			forest = buildForest(wave,qsoGrid.z,simParams,outputDir)
-		# make sure that the forest redshifts actually match the grid
-		assert np.allclose(forest['z'],qsoGrid.z)
+###		# make sure that the forest redshifts actually match the grid
+###		assert np.allclose(forest['z'],qsoGrid.z)
 	if forestOnly:
 		timerLog.dump()
 		return
-	assert np.allclose(forest['wave'],wave[:len(forest['wave'])])
+###	assert np.allclose(forest['wave'],wave[:len(forest['wave'])])
 	timerLog('Generate Forest')
 	#
 	# Use continuum and emission line distributions to build the components

@@ -84,6 +84,12 @@ class IndexSampler(Sampler):
 	def sample(self,n):
 		return None
 
+class RandomSubSampler(Sampler):
+	def __init__(self,n):
+		super(RandomSubSampler,self).__init__(0,n)
+	def sample(self,n):
+		return np.random.randint(self.low,self.high,n)
+
 class ConstSampler(Sampler):
 	'''
 	Returns a constant for all samples.
@@ -597,12 +603,14 @@ class HIAbsorptionVar(QsoSimVar,SpectralFeatureVar):
 	instance is used internally to map the forest sightlines to individual 
 	spectra.
 	'''
+	name = 'igmlos'
 	def __init__(self,forest):
-		super(HIAbsorptionVar,self).__init__(IndexSampler())
+		N = forest.numSightLines
+		super(HIAbsorptionVar,self).__init__(RandomSubSampler(N))
 		self.forest = forest
-		self.nforest = len(forest['wave'])
-	def add_to_spec(self,spec,i,**kwargs):
-		spec.f_lambda[:self.nforest] *= self.forest['T'][i]
+	def add_to_spec(self,spec,sightLine,**kwargs):
+		T = self.forest.next_spec(sightLine,spec.z)
+		spec.f_lambda[:len(T)] *= T
 		return spec
 
 class DustExtinctionVar(QsoSimVar,SpectralFeatureVar):
@@ -744,6 +752,9 @@ class QsoSimObjects(object):
 			raise ValueError
 	def __iter__(self):
 		for obj in self.data:
+			yield obj
+	def iter_reorder(self,ii):
+		for obj in self.data[ii]:
 			yield obj
 	def __getattr__(self,name):
 		try:
