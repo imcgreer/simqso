@@ -439,13 +439,9 @@ class IGMTransmissionGrid(object):
 		if type(self.forestModel) is str:
 			self.forestModel = forestModels[self.forestModel]
 		self.numSightLines = numSightLines
-		zrange = kwargs.get('zRange')
-		if zrange is None:
-			# pad the lower redshift by just a bit
-			self.zmin = wave.min() / 1215.7 - 1.01
-			self.zmax = np.inf
-		else:
-			self.zmin,self.zmax = zrange
+		# pad the lower redshift by just a bit
+		self.zmin = wave.min() / 1215.7 - 1.01
+		self.zmax = kwargs.get('zmax',10)
 		# Generate the lines-of-sight first, to preserve random generator order
 		self.sightLines = [ generate_los(self.forestModel,self.zmin,self.zmax) 
 		                      for i in range(self.numSightLines) ]
