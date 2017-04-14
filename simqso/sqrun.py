@@ -263,6 +263,33 @@ def buildQsoSpectrum(wave,cosmo,specFeatures,photoCache,saveSpectra,obj):
 		rv += (spec.f_lambda,)
 	return rv
 
+def buildGrpSpectra(wave,cosmo,specFeatures,photoCache,saveSpectra,
+                    nIter,fluxBand,objGroup):
+	rv = []
+	zi = objGroup['z'].argsort()
+	for i in zi:
+		for iterNum in range(nIter):
+			_rv = buildQsoSpectrum(wave,cosmo,specFeatures,photoCache,
+			                       saveSpectra,objGroup[i])
+			if nIter > 1:
+				synMag = _rv[0]
+				dm = synMag[fluxBand] - objGroup['appMag'][i]
+				objGroup['absMag'][i] -= dm
+				# resample features with updated absolute mags
+				#qsoGrid.resample() 
+				for var in specFeatures:
+					if var.update:
+# XXX argh, latest problem is that this is a *subset* (in fact, single)
+# point in the variable, but from resample on down expect the full array...
+						import pdb; pdb.set_trace()
+						var.resample(objGroup[var.dependentVars][i])
+# XXX this can be passed up
+#						objGroup[var.name][i] = var(None)
+				if dm < 0.005:
+					break
+			rv.append(_rv)
+	return rv
+
 def _regroup(spOut):
 	# XXX tell me there's a better way to do this
 	n = len(spOut[0])
@@ -271,6 +298,57 @@ def _regroup(spOut):
 		for j in range(n):
 			rv[j].append(sp[j])
 	return [ np.array(v) for v in rv ]
+
+def buildQsoSpectra2(wave,qsoGrid,photoMap=None,
+                     maxIter=1,saveSpectra=False):
+	'''Assemble the spectral components of QSOs from the input parameters.
+
+	Parameters
+	----------
+	wave : `~numpy.ndarray`
+	    Input wavelength grid.
+	'''
+	if photoMap is not None:
+		photoCache = sqphoto.getPhotoCache(wave,photoMap)
+	else:
+		photoCache = None
+	print 'simulating ',qsoGrid.nObj,' quasar spectra'
+	print 'units are ',qsoGrid.units
+	if qsoGrid.units == 'luminosity' or photoMap is None:
+		nIter = 1
+	else:
+		nIter = maxIter
+		# this should be pushed up to something like photoMap.getIndex(band)
+		bands = photoMap['bandpasses'].keys()
+		try:
+			obsBand = qsoGrid.qsoVars[0].obsBand # XXX
+			fluxBand = next(j for j in range(len(bands)) 
+			                    if photoMap['filtName'][bands[j]]==obsBand)
+		except:
+			raise ValueError('band ',obsBand,' not found in ',bands)
+		print 'fluxBand is ',fluxBand,bands
+	#
+	pool = multiprocessing.Pool(7)
+	if True:
+		specFeatures = qsoGrid.getVars(grids.SpectralFeatureVar)
+		build_grp_spec = partial(buildGrpSpectra,wave,qsoGrid.cosmo,
+		                         specFeatures,photoCache,saveSpectra,
+		                         fluxBand,nIter)
+		specOut = map(build_grp_spec,qsoGrid.iter_sightlines())
+		#specOut = map(build_one_spec,qsoGrid.iter_reorder(zi))
+		#specOut = pool.map(build_one_spec,qsoGrid.iter_reorder(zi))
+		specOut = _regroup(specOut)
+		synMag,synFlux = specOut[:2]
+		synMag = synMag[zi.argsort()]
+		synFlux = synFlux[zi.argsort()]
+	if saveSpectra:
+		spectra = specOut[2][zi.argsort()]
+	else:
+		spectra = None
+	if photoMap is not None:
+		qsoGrid.addVar(grids.SynMagVar(grids.FixedSampler(synMag)))
+		qsoGrid.addVar(grids.SynFluxVar(grids.FixedSampler(synFlux)))
+	return qsoGrid,spectra
 
 def buildQsoSpectra(wave,qsoGrid,photoMap=None,
                     maxIter=1,saveSpectra=False):
@@ -302,9 +380,7 @@ def buildQsoSpectra(wave,qsoGrid,photoMap=None,
 		print 'fluxBand is ',fluxBand,bands
 	#
 	pool = multiprocessing.Pool(7)
-	zi = qsoGrid.z.argsort()
-#	for iterNum in range(nIter):
-	if True:
+	for iterNum in range(nIter):
 		specFeatures = qsoGrid.getVars(grids.SpectralFeatureVar)
 		samplers = []
 		for f in specFeatures:
@@ -312,22 +388,16 @@ def buildQsoSpectra(wave,qsoGrid,photoMap=None,
 			if not ( isinstance(f.sampler,grids.NullSampler) or 
 			         isinstance(f.sampler,grids.IndexSampler) ):
 				f.sampler = None
-		# XXX also is broken because requires each sightline to be
-		#     within one process, or build won't happen correctly
 		build_one_spec = partial(buildQsoSpectrum,wave,qsoGrid.cosmo,
 		                         specFeatures,photoCache,saveSpectra)
 		print 'buildQsoSpectra iteration ',iterNum+1,' out of ',nIter
-		specOut = map(build_one_spec,qsoGrid.iter_reorder(zi))
-		#specOut = pool.map(build_one_spec,qsoGrid.iter_reorder(zi))
+		specOut = map(build_one_spec,qsoGrid)
+		#specOut = pool.map(build_one_spec,qsoGrid)
 		specOut = _regroup(specOut)
 		synMag,synFlux = specOut[:2]
-		synMag = synMag[zi.argsort()]
-		synFlux = synFlux[zi.argsort()]
 		for f,s in zip(specFeatures,samplers):
 			f.sampler = s
-		# XXX have to do iteration inside of buildspectrum, if forest is
-		#     disposable. but that requires sending all the samplers in again.
-		if False: #nIter > 1:
+		if nIter > 1:
 			# find the largest mag offset
 			dm = synMag[:,fluxBand] - qsoGrid.appMag
 			print '--> delta mag mean = %.7f, rms = %.7f, |max| = %.7f' % \
@@ -335,11 +405,11 @@ def buildQsoSpectra(wave,qsoGrid,photoMap=None,
 			qsoGrid.absMag[:] -= dm
 			dmagMax = np.abs(dm).max()
 			# resample features with updated absolute mags
-			qsoGrid.resample() # XXX but this happens on full grid @#^$@#
+			qsoGrid.resample()
 			if dmagMax < 0.01:
 				break
 	if saveSpectra:
-		spectra = specOut[2][zi.argsort()]
+		spectra = specOut[2]
 	else:
 		spectra = None
 	if photoMap is not None:
@@ -458,7 +528,8 @@ def qsoSimulation(simParams,**kwargs):
 	photoMap = sqphoto.load_photo_map(simParams['PhotoMapParams'])
 	if not onlyMap:
 		buildFeatures(qsoGrid,wave,simParams,forest)
-		_,spectra = buildQsoSpectra(wave,qsoGrid,photoMap=photoMap,
+		#_,spectra = buildQsoSpectra(wave,qsoGrid,photoMap=photoMap,
+		_,spectra = buildQsoSpectra2(wave,qsoGrid,photoMap=photoMap,
 		                            maxIter=simParams.get('maxFeatureIter',5),
 		                            saveSpectra=saveSpectra)
 	timerLog('Build Quasar Spectra')

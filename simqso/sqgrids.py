@@ -261,8 +261,9 @@ class LinearTrendWithAsymScatterSampler(Sampler):
 		self.hiSampler = GaussianSampler(xmn,sighi,
 		                                 low=self.low,high=self.high)
 	def _sample(self,x):
-		if len(x) != self.npts:
-			raise ValueError
+		#if len(x) != self.npts:
+		#	raise ValueError
+		# XXX need to pass down that I'm subsampling here...
 		xlo = self.loSampler._sample(self.loSampler._getpoints(x))
 		xhi = self.hiSampler._sample(self.hiSampler._getpoints(x))
 		return np.clip(np.choose(x>0.5,[xlo,xhi]),0,np.inf)
@@ -277,7 +278,7 @@ class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
 		super(BaldwinEffectSampler,self).__init__(coeffs,absMag,
 		                                          low=low,high=high)
 		self.x = x
-	def sample(self,n=None):
+	def sample(self,n=None,ii=None):
 		if n is None:
 			n = len(self.x)
 		elif n != self.npts:
@@ -286,9 +287,10 @@ class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
 		if self.x is None:
 			# save the x values for reuse
 			self.x = np.random.random(n)
-		return self._sample(self.x)
-	def resample(self,qsoGrid,**kwargs):
-		self._reset(qsoGrid.absMag)
+		x = self.x if ii is None else x[ii]
+		return self._sample(x)
+	def resample(self,absMag,**kwargs):
+		self._reset(absMag)
 
 
 
@@ -759,6 +761,10 @@ class QsoSimObjects(object):
 	def iter_reorder(self,ii):
 		for obj in self.data[ii]:
 			yield obj
+	def iter_sightlines(self):
+		data_los = self.data.group_by('igmlos')
+		for objgrp in data_los.groups:
+			yield objgrp
 	def __getattr__(self,name):
 		try:
 			return self.data[name]
@@ -787,11 +793,8 @@ class QsoSimObjects(object):
 		return filter(lambda v: isinstance(v,varType),self.qsoVars)
 	def resample(self):
 		for var in self.qsoVars:
-			# how to more reasonably know what variables are needed to
-			# be passed down? the nominal use case is updating variables
-			# which depend on absMag. for now just passing the whole object...
 			if var.update:
-				var.resample(self)
+				var.resample(self.data[var.dependentVars])
 				self.data[var.name] = var(self.nObj)
 	def distMod(self,z):
 		return self.cosmo.distmod(z).value
@@ -943,6 +946,7 @@ def generateBEffEmissionLines(M1450,**kwargs):
 	lines = BossDr9EmissionLineTemplateVar(lineList,
 	                                       lineCatalog['name'][useLines])
 	lines.update = True # XXX a better way?
+	lines.dependentVars = 'absMag'
 	return lines
 
 def generateVdBCompositeEmLines(minEW=1.0,noFe=False):
