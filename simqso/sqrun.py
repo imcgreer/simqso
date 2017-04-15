@@ -264,8 +264,16 @@ def buildQsoSpectrum(wave,cosmo,specFeatures,photoCache,saveSpectra,obj):
 	return rv
 
 def buildGrpSpectra(wave,cosmo,specFeatures,photoCache,saveSpectra,
-                    nIter,fluxBand,objGroup):
-	rv = []
+                    fluxBand,nIter,objGroup):
+	n = len(objGroup)
+	rv = dict()
+	if photoCache:
+		nb = len(photoCache)
+		rv['synMag'] = np.zeros((n,nb),dtype=np.float32)
+		rv['synFlux'] = np.zeros((n,nb),dtype=np.float32)
+	if saveSpectra:
+		nw = len(wave)
+		rv['spectra'] = np.zeros((n,nw),dtype=np.float32)
 	zi = objGroup['z'].argsort()
 	for i in zi:
 		for iterNum in range(nIter):
@@ -276,18 +284,19 @@ def buildGrpSpectra(wave,cosmo,specFeatures,photoCache,saveSpectra,
 				dm = synMag[fluxBand] - objGroup['appMag'][i]
 				objGroup['absMag'][i] -= dm
 				# resample features with updated absolute mags
-				#qsoGrid.resample() 
 				for var in specFeatures:
 					if var.update:
-# XXX argh, latest problem is that this is a *subset* (in fact, single)
-# point in the variable, but from resample on down expect the full array...
-						import pdb; pdb.set_trace()
-						var.resample(objGroup[var.dependentVars][i])
-# XXX this can be passed up
-#						objGroup[var.name][i] = var(None)
-				if dm < 0.005:
+						var.resample(objGroup[var.dependentVars][i],ii=i)
+						# pass index as 1d-array to preserve correct shape
+						objGroup[var.name][i] = var(None,ii=np.array([i]))
+				if np.abs(dm) < 0.005:
 					break
-			rv.append(_rv)
+		if photoCache is not None:
+			rv['synMag'][i] = _rv[0]
+			rv['synFlux'][i] = _rv[1]
+		if saveSpectra:
+			rv['spectra'][i] = _rv[2]
+	rv['absMag'] = objGroup['absMag'].copy()
 	return rv
 
 def _regroup(spOut):
@@ -328,26 +337,28 @@ def buildQsoSpectra2(wave,qsoGrid,photoMap=None,
 			raise ValueError('band ',obsBand,' not found in ',bands)
 		print 'fluxBand is ',fluxBand,bands
 	#
-	pool = multiprocessing.Pool(7)
+	#pool = multiprocessing.Pool(7)
+	if photoMap:
+		def newarr():
+			return np.zeros((qsoGrid.nObj,len(bands)),dtype=np.float32)
+		qsoGrid.addVar(grids.SynMagVar(grids.FixedSampler(newarr())))
+		qsoGrid.addVar(grids.SynFluxVar(grids.FixedSampler(newarr())))
 	if True:
 		specFeatures = qsoGrid.getVars(grids.SpectralFeatureVar)
 		build_grp_spec = partial(buildGrpSpectra,wave,qsoGrid.cosmo,
 		                         specFeatures,photoCache,saveSpectra,
 		                         fluxBand,nIter)
-		specOut = map(build_grp_spec,qsoGrid.iter_sightlines())
-		#specOut = map(build_one_spec,qsoGrid.iter_reorder(zi))
-		#specOut = pool.map(build_one_spec,qsoGrid.iter_reorder(zi))
-		specOut = _regroup(specOut)
-		synMag,synFlux = specOut[:2]
-		synMag = synMag[zi.argsort()]
-		synFlux = synFlux[zi.argsort()]
+		qsoGroups,ii = qsoGrid.group_by('igmlos',with_index=True)
+		specOut = map(build_grp_spec,qsoGroups)
+	if True:
+		for objgrp,out in zip(qsoGroups,specOut):
+			for k in ['absMag','synMag','synFlux']:
+				qsoGrid.data[k][objgrp['_ii']] = out[k]
 	if saveSpectra:
-		spectra = specOut[2][zi.argsort()]
+		# XXX
+		spectra = np.vstack([s['spectra'] for s in specOut])
 	else:
 		spectra = None
-	if photoMap is not None:
-		qsoGrid.addVar(grids.SynMagVar(grids.FixedSampler(synMag)))
-		qsoGrid.addVar(grids.SynFluxVar(grids.FixedSampler(synFlux)))
 	return qsoGrid,spectra
 
 def buildQsoSpectra(wave,qsoGrid,photoMap=None,
