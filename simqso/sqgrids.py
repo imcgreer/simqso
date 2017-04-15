@@ -35,18 +35,24 @@ class Sampler(object):
 	def __init__(self,low,high):
 		self.low = low
 		self.high = high
-	def sample(self,n,ii=None):
+	def sample(self,n,**kwargs):
 		'''
 		Return a set of n values obtained from the sampler.
 		'''
 		raise NotImplementedError
 	def resample(self,*args,**kwargs):
 		pass
-	def __call__(self,n,ii=None):
-		return self.sample(n,ii=ii)
+	def __call__(self,n,**kwargs):
+		return self.sample(n,**kwargs)
 	def __str__(self):
 		s = str((self.low,self.high))
 		return s
+	@staticmethod
+	def _get_arrays(arr_list,ii):
+		if ii is None:
+			return arr_list
+		else:
+			return [ a[ii] for a in arr_list ]
 
 class FixedSampler(Sampler):
 	'''
@@ -61,10 +67,10 @@ class FixedSampler(Sampler):
 		self.low = None
 		self.high = None
 		self.vals = vals
-	def sample(self,n,ii=None):
+	def sample(self,n,**kwargs):
 		if n is not None and n != len(self.vals):
 			raise ValueError
-		return self.vals # XXX handle ii
+		return self.vals
 
 class NullSampler(Sampler):
 	'''
@@ -134,11 +140,8 @@ class CdfSampler(Sampler):
 		self.cdf_low = self.rv.cdf(self.low)
 		self.cdf_high = self.rv.cdf(self.high)
 	def _getpoints(self,x,ii=None):
-		if ii is None:
-			return self.cdf_low + (self.cdf_high-self.cdf_low)*x
-		else:
-			return self.cdf_low[ii] + (self.cdf_high[ii]-self.cdf_low[ii])*x
-	def _sample(self,x):
+		cdf_low,cdf_high = self._get_arrays((self.cdf_low,self.cdf_high),ii)
+		return cdf_low + (cdf_high-cdf_low)*x
 		return self.rv.ppf(x) # XXX get rid of self.rv
 	def sample(self,n,**kwargs):
 		x = np.random.random(n)
@@ -198,16 +201,11 @@ class GaussianSampler(CdfSampler):
 #	def _reset(self):
 #		self.rv = norm(loc=self.mean,scale=self.sigma)
 	def ppf(self,x,ii=None):
-		if ii is None:
-			# this is because these can be scalars...
-			return norm.ppf(x,loc=self.mean,scale=self.sigma)
-		else:
-			return norm.ppf(x,loc=self.mean[ii],scale=self.sigma[ii])
+		mean,sigma = self._get_arrays((self.mean,self.sigma),ii)
+		return norm.ppf(x,loc=mean,scale=sigma)
 	def cdf(self,x,ii=None):
-		if ii is None:
-			return norm.cdf(x,loc=self.mean,scale=self.sigma)
-		else:
-			return norm.cdf(x,loc=self.mean[ii],scale=self.sigma[ii])
+		mean,sigma = self._get_arrays((self.mean,self.sigma),ii)
+		return norm.cdf(x,loc=mean,scale=sigma)
 	def _sample(self,x,ii=None):
 		return self.ppf(x,ii)
 	def update(self,mean,sigma,ii=None):
@@ -342,8 +340,8 @@ class QsoSimVar(object):
 			self.name = name
 		self.update = False
 		self.meta = {}
-	def __call__(self,n,ii=None):
-		return self.sampler(n,ii)
+	def __call__(self,n,**kwargs):
+		return self.sampler(n,**kwargs)
 	def resample(self,*args,**kwargs):
 		'''
 		Update the samplers of any dependent variables and then resample.
