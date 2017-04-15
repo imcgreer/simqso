@@ -35,15 +35,15 @@ class Sampler(object):
 	def __init__(self,low,high):
 		self.low = low
 		self.high = high
-	def sample(self,n):
+	def sample(self,n,ii=None):
 		'''
 		Return a set of n values obtained from the sampler.
 		'''
 		raise NotImplementedError
 	def resample(self,*args,**kwargs):
 		pass
-	def __call__(self,n):
-		return self.sample(n)
+	def __call__(self,n,ii=None):
+		return self.sample(n,ii=ii)
 	def __str__(self):
 		s = str((self.low,self.high))
 		return s
@@ -61,10 +61,10 @@ class FixedSampler(Sampler):
 		self.low = None
 		self.high = None
 		self.vals = vals
-	def sample(self,n):
+	def sample(self,n,ii=None):
 		if n is not None and n != len(self.vals):
 			raise ValueError
-		return self.vals
+		return self.vals # XXX handle ii
 
 class NullSampler(Sampler):
 	'''
@@ -72,7 +72,7 @@ class NullSampler(Sampler):
 	'''
 	def __init__(self):
 		pass
-	def sample(self,n):
+	def sample(self,n,**kwargs):
 		return None
 
 class IndexSampler(Sampler):
@@ -81,13 +81,13 @@ class IndexSampler(Sampler):
 	'''
 	def __init__(self):
 		pass
-	def sample(self,n):
+	def sample(self,n,**kwargs):
 		return None
 
 class RandomSubSampler(Sampler):
 	def __init__(self,n):
 		super(RandomSubSampler,self).__init__(0,n)
-	def sample(self,n):
+	def sample(self,n,**kwargs):
 		return np.random.randint(self.low,self.high,n)
 
 class ConstSampler(Sampler):
@@ -103,7 +103,7 @@ class ConstSampler(Sampler):
 		self.low = None
 		self.high = None
 		self.val = val
-	def sample(self,n):
+	def sample(self,n,**kwargs):
 		return np.repeat(self.val,n)
 
 class UniformSampler(Sampler):
@@ -115,7 +115,7 @@ class UniformSampler(Sampler):
 	>>> s(3)
 	array([ 0. ,  0.5,  1. ])
 	'''
-	def sample(self,n):
+	def sample(self,n,**kwargs):
 		return np.linspace(self.low,self.high,n)
 
 class CdfSampler(Sampler):
@@ -133,11 +133,14 @@ class CdfSampler(Sampler):
 	def _init_cdf(self):
 		self.cdf_low = self.rv.cdf(self.low)
 		self.cdf_high = self.rv.cdf(self.high)
-	def _getpoints(self,x):
-		return self.cdf_low + (self.cdf_high-self.cdf_low)*x
+	def _getpoints(self,x,ii=None):
+		if ii is None:
+			return self.cdf_low + (self.cdf_high-self.cdf_low)*x
+		else:
+			return self.cdf_low[ii] + (self.cdf_high[ii]-self.cdf_low[ii])*x
 	def _sample(self,x):
-		return self.rv.ppf(x)
-	def sample(self,n):
+		return self.rv.ppf(x) # XXX get rid of self.rv
+	def sample(self,n,**kwargs):
 		x = np.random.random(n)
 		return self._sample(self._getpoints(x))
 
@@ -159,7 +162,7 @@ class PowerLawSampler(CdfSampler):
 		if a<0 and low<=0:
 			raise ValueError
 		# defining cdf and ppf function within this class
-		self.rv = self
+		self.rv = self # XXX get rid of self.rv
 		super(PowerLawSampler,self).__init__(low,high)
 		self.a = a
 		self._init_cdf()
@@ -189,10 +192,28 @@ class GaussianSampler(CdfSampler):
 		super(GaussianSampler,self).__init__(low,high)
 		self.mean = mean
 		self.sigma = sigma
-		self._reset()
+		self.rv = self
+#		self._reset()
 		self._init_cdf()
-	def _reset(self):
-		self.rv = norm(loc=self.mean,scale=self.sigma)
+#	def _reset(self):
+#		self.rv = norm(loc=self.mean,scale=self.sigma)
+	def ppf(self,x,ii=None):
+		if ii is None:
+			# this is because these can be scalars...
+			return norm.ppf(x,loc=self.mean,scale=self.sigma)
+		else:
+			return norm.ppf(x,loc=self.mean[ii],scale=self.sigma[ii])
+	def cdf(self,x,ii=None):
+		if ii is None:
+			return norm.cdf(x,loc=self.mean,scale=self.sigma)
+		else:
+			return norm.cdf(x,loc=self.mean[ii],scale=self.sigma[ii])
+	def _sample(self,x,ii=None):
+		return self.ppf(x,ii)
+	def update(self,mean,sigma,ii=None):
+		if ii is None: ii = np.s_[:]
+		self.mean[ii] = mean
+		self.sigma[ii] = sigma
 
 #class LogNormalSampler(CdfSampler):
 #	'''
@@ -251,21 +272,26 @@ class LinearTrendWithAsymScatterSampler(Sampler):
 		super(LinearTrendWithAsymScatterSampler,self).__init__(low,high)
 		self.coeffs = coeffs
 		self.npts = len(pts)
+		self.loSampler = None
+		self.hiSampler = None
 		self._reset(pts)
-	def _reset(self,pts):
+	def _reset(self,pts,ii=None):
 		xmn,xlo,xhi = [ np.polyval(c,pts) for c in self.coeffs ]
 		siglo = np.clip(xmn-xlo,1e-10,np.inf)
 		sighi = np.clip(xhi-xmn,1e-10,np.inf)
-		self.loSampler = GaussianSampler(xmn,siglo,
-		                                 low=self.low,high=self.high)
-		self.hiSampler = GaussianSampler(xmn,sighi,
-		                                 low=self.low,high=self.high)
-	def _sample(self,x):
-		#if len(x) != self.npts:
-		#	raise ValueError
-		# XXX need to pass down that I'm subsampling here...
-		xlo = self.loSampler._sample(self.loSampler._getpoints(x))
-		xhi = self.hiSampler._sample(self.hiSampler._getpoints(x))
+		if self.loSampler is None:
+			self.loSampler = GaussianSampler(xmn,siglo,
+			                                 low=self.low,high=self.high)
+		else:
+			self.loSampler.update(xmn,siglo,ii)
+		if self.hiSampler is None:
+			self.hiSampler = GaussianSampler(xmn,sighi,
+			                                 low=self.low,high=self.high)
+		else:
+			self.hiSampler.update(xmn,sighi,ii)
+	def _sample(self,x,ii=None):
+		xlo = self.loSampler._sample(self.loSampler._getpoints(x,ii),ii)
+		xhi = self.hiSampler._sample(self.hiSampler._getpoints(x,ii),ii)
 		return np.clip(np.choose(x>0.5,[xlo,xhi]),0,np.inf)
 
 class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
@@ -287,10 +313,10 @@ class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
 		if self.x is None:
 			# save the x values for reuse
 			self.x = np.random.random(n)
-		x = self.x if ii is None else x[ii]
-		return self._sample(x)
-	def resample(self,absMag,**kwargs):
-		self._reset(absMag)
+		x = self.x if ii is None else self.x[ii]
+		return self._sample(x,ii)
+	def resample(self,absMag,ii=None,**kwargs):
+		self._reset(absMag,ii=ii)
 
 
 
@@ -316,8 +342,8 @@ class QsoSimVar(object):
 			self.name = name
 		self.update = False
 		self.meta = {}
-	def __call__(self,n):
-		return self.sampler(n)
+	def __call__(self,n,ii=None):
+		return self.sampler(n,ii)
 	def resample(self,*args,**kwargs):
 		'''
 		Update the samplers of any dependent variables and then resample.
@@ -338,20 +364,20 @@ class MultiDimVar(QsoSimVar):
 	The last dimension must be a sequence of Sampler instances, which can
 	be nested in as many outer dimensions as necessary.
 	'''
-	# obviously these should be combined...
-	def _recurse_call(self,samplers,n):
+	def _recurse_call(self,samplers,n,**kwargs):
 		if isinstance(samplers,Sampler):
-			return samplers(n)
+			return samplers(n,**kwargs)
 		else:
-			return [ self._recurse_call(sampler,n) for sampler in samplers ]
+			return [ self._recurse_call(sampler,n,**kwargs) 
+			           for sampler in samplers ]
 	def _recurse_resample(self,samplers,*args,**kwargs):
 		if isinstance(samplers,Sampler):
 			samplers.resample(*args,**kwargs)
 		else:
 			for sampler in samplers:
 				self._recurse_resample(sampler,*args,**kwargs)
-	def __call__(self,n):
-		arr = self._recurse_call(self.sampler,n)
+	def __call__(self,n,**kwargs):
+		arr = self._recurse_call(self.sampler,n,**kwargs)
 		return np.rollaxis(np.array(arr),-1)
 	def resample(self,*args,**kwargs):
 		self._recurse_resample(self.sampler,*args,**kwargs)
@@ -581,8 +607,8 @@ class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
 		self.lineNames = lineNames
 		self.meta['LINEMODL'] = 'BOSS DR9 Log-linear trends with luminosity'
 		self.meta['LINENAME'] = ','.join(lineNames)
-	def __call__(self,n=None):
-		lpar = super(BossDr9EmissionLineTemplateVar,self).__call__(n)
+	def __call__(self,n=None,ii=None):
+		lpar = super(BossDr9EmissionLineTemplateVar,self).__call__(n,ii=ii)
 		lpar[...,1:] = np.power(10,lpar[...,1:])
 		return lpar
 
@@ -761,10 +787,30 @@ class QsoSimObjects(object):
 	def iter_reorder(self,ii):
 		for obj in self.data[ii]:
 			yield obj
+	# XXX
 	def iter_sightlines(self):
 		data_los = self.data.group_by('igmlos')
 		for objgrp in data_los.groups:
 			yield objgrp
+	def update_sightlines(self,output,keys):
+		# XXX argh
+		data_los = self.data.group_by('igmlos')
+		for objgrp,out in zip(data_los.groups,output):
+			for k in keys:
+				objgrp[k][:] = out[k]
+		for k in keys:
+			self.data[k][:] = data_los[k]
+	# XXX
+	def group_by(self,varName,with_index=False):
+		if with_index:
+			self.data['_ii'] = np.arange(self.nObj)
+		data_grouped = self.data.group_by(varName)
+		if with_index:
+			ii = self.data['_ii'].copy()
+			del self.data['_ii']
+			return data_grouped.groups,ii
+		else:
+			return data_grouped.groups
 	def __getattr__(self,name):
 		try:
 			return self.data[name]
