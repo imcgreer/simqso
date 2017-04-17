@@ -630,12 +630,21 @@ class HIAbsorptionVar(QsoSimVar,SpectralFeatureVar):
 	spectra.
 	'''
 	name = 'igmlos'
-	def __init__(self,forest):
+	def __init__(self,forest,losMap=None):
 		N = forest.numSightLines
-		super(HIAbsorptionVar,self).__init__(RandomSubSampler(N))
+		if losMap is None:
+			s = RandomSubSampler(N)
+		else:
+			s = FixedSampler(losMap)
+		super(HIAbsorptionVar,self).__init__(s)
 		self.forest = forest
-	def add_to_spec(self,spec,sightLine,**kwargs):
-		T = self.forest.next_spec(sightLine,spec.z)
+	def add_to_spec(self,spec,sightLine,advance=True,**kwargs):
+		if advance:
+			T = self.forest.next_spec(sightLine,spec.z)
+		else:
+			# this is needed when iterating the spectrum -- don't want to
+			# advance to the next redshift, just keep reusing current forest
+			T = self.forest.current_spec(sightLine,spec.z)
 		spec.f_lambda[:len(T)] *= T
 		return spec
 
@@ -839,11 +848,17 @@ class QsoSimObjects(object):
 				self.data[var.name] = var(self.nObj)
 	def distMod(self,z):
 		return self.cosmo.distmod(z).value
-	def read(self,gridFile):
+	def read(self,gridFile,clean=True):
 		'''
 		Read a simulation grid from a file.
 		'''
 		self.data = Table.read(gridFile)
+		if clean:
+			# XXX it's hacky to be aware of these colnames here, but need to
+			# know how to delete derived quantities that will be recomputed
+			for k in ['obsFlux','obsMag','obsFluxErr','obsMagErr',
+			          'synMag','synFlux']:
+				del self.data[k]
 		self.nObj = len(self.data)
 		hdr = fits.getheader(gridFile,1)
 		self.units = hdr['GRIDUNIT']

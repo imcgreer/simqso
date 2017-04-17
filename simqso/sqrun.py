@@ -117,34 +117,18 @@ def buildForest(wave,z,simParams,outputDir):
 	reseed(forestParams)
 	forestType = forestParams.get('ForestType','Sightlines')
 	nlos = forestParams.get('NumLinesOfSight',-1)
-	forestFn = forestParams['FileName']
-	tgrid = hiforest.IGMTransmissionGrid(wave,nlos,zmax=z.max(),
-	                                     **forestParams)
+	forestFn = forestParams.get('FileName')
+	tgrid = None
+	if forestFn:
+		try:
+			tgrid = hiforest.CachedIGMTransmissionGrid(wave,forestFn,
+			                                           outputDir)
+		except IOError:
+			pass
+	if tgrid is None:
+		tgrid = hiforest.IGMTransmissionGrid(wave,nlos,zmax=z.max(),
+		                                     **forestParams)
 	return tgrid
-	####
-	waveMax = (1+z.max()+0.2)*1217
-	wave = wave[:np.searchsorted(wave,waveMax)]
-	if forestType == 'OneToOne':
-		nlos = -1
-	forestSpec = None
-	try:
-		print 'loading forest ',forestFn
-		forestSpec = hiforest.load_spectra(forestFn,outputDir)
-	except IOError:
-		pass
-	if forestType in ['Sightlines','OneToOne']:
-		if forestSpec is None:
-			print '... not found, generating forest'
-			forestSpec = hiforest.generate_N_spectra(wave,z,nlos,
-			                                         **forestParams)
-			hiforest.save_spectra(forestSpec,forestFn,outputDir)
-	elif forestType == 'Grid':
-		if forestSpec is None:
-			raise ValueError('Need to supply a forest grid')
-		forestSpec = hiforest.generate_spectra_from_grid(wave,z,forestSpec,
-		                                                 **forestParams)
-	print 'done!'
-	return forestSpec
 
 
 def buildContinuumModels(qsoGrid,simParams):
@@ -221,8 +205,17 @@ def buildFeatures(qsoGrid,wave,simParams,forest=None):
 	if 'DustExtinctionParams' in qsoParams:
 		buildDustGrid(qsoGrid,simParams)
 	if forest is not None:
-		forestVar = grids.HIAbsorptionVar(forest)
+		if isinstance(forest,hiforest.CachedIGMTransmissionGrid):
+			losMap = qsoGrid.igmlos
+		else:
+			losMap = None
+		forestVar = grids.HIAbsorptionVar(forest,losMap=losMap)
 		qsoGrid.addVar(forestVar)
+		if isinstance(forest,hiforest.IGMTransmissionGrid):
+			forestFn = simParams.get('ForestParams',{}).get('FileName')
+			if forestFn:
+				# XXX move this up
+				forest.write(forestFn,'.',losMap=qsoGrid.igmlos,z_em=qsoGrid.z)#,**forestParams)
 
 def _getpar(feature,obj):
 	if isinstance(feature.sampler,grids.NullSampler):
@@ -232,27 +225,29 @@ def _getpar(feature,obj):
 	else:
 		return obj[feature.name]
 
-def buildQsoSpectrum(wave,cosmo,specFeatures,photoCache,saveSpectra,obj):
+def buildQsoSpectrum(wave,cosmo,specFeatures,photoCache,
+                     saveSpectra,iterNum,obj):
 	spec = sqbase.Spectrum(wave,z=obj['z'])
 	# start with continuum
 	distmod = lambda z: cosmo.distmod(z).value
 	fluxNorm = {'wavelength':1450.,'M_AB':obj['absMag'],'DM':distmod}
-	for feature in specFeatures: #qsoGrid.getVars(grids.ContinuumVar):
+	for feature in specFeatures:
 		if isinstance(feature,grids.ContinuumVar):
 			spec = feature.add_to_spec(spec,_getpar(feature,obj),
 			                           fluxNorm=fluxNorm)
 	# add emission (multiplicative) features
 	emspec = sqbase.Spectrum(wave,z=obj['z'])
-	for feature in specFeatures: #qsoGrid.getVars(grids.EmissionFeatureVar):
+	for feature in specFeatures:
 		if isinstance(feature,grids.EmissionFeatureVar):
 			emspec = feature.add_to_spec(emspec,_getpar(feature,obj))
 	spec *= emspec + 1
 	# add any remaining features
-	for feature in specFeatures: #qsoGrid.getVars(grids.SpectralFeatureVar):
+	for feature in specFeatures:
 		if isinstance(feature,grids.ContinuumVar) or \
 		   isinstance(feature,grids.EmissionFeatureVar):
 			continue
-		spec = feature.add_to_spec(spec,_getpar(feature,obj))
+		spec = feature.add_to_spec(spec,_getpar(feature,obj),
+		                           advance=(iterNum==1))
 	if photoCache is not None:
 		# calculate synthetic magnitudes from the spectra through the
 		# specified bandpasses
@@ -276,9 +271,9 @@ def buildGrpSpectra(wave,cosmo,specFeatures,photoCache,saveSpectra,
 		rv['spectra'] = np.zeros((n,nw),dtype=np.float32)
 	zi = objGroup['z'].argsort()
 	for i in zi:
-		for iterNum in range(nIter):
+		for iterNum in range(1,nIter+1):
 			_rv = buildQsoSpectrum(wave,cosmo,specFeatures,photoCache,
-			                       saveSpectra,objGroup[i])
+			                       saveSpectra,iterNum,objGroup[i])
 			if nIter > 1:
 				synMag = _rv[0]
 				dm = synMag[fluxBand] - objGroup['appMag'][i]
@@ -391,7 +386,7 @@ def buildQsoSpectra(wave,qsoGrid,photoMap=None,
 		print 'fluxBand is ',fluxBand,bands
 	#
 	pool = multiprocessing.Pool(7)
-	for iterNum in range(nIter):
+	for iterNum in range(1,nIter+1):
 		specFeatures = qsoGrid.getVars(grids.SpectralFeatureVar)
 		samplers = []
 		for f in specFeatures:
@@ -400,8 +395,8 @@ def buildQsoSpectra(wave,qsoGrid,photoMap=None,
 			         isinstance(f.sampler,grids.IndexSampler) ):
 				f.sampler = None
 		build_one_spec = partial(buildQsoSpectrum,wave,qsoGrid.cosmo,
-		                         specFeatures,photoCache,saveSpectra)
-		print 'buildQsoSpectra iteration ',iterNum+1,' out of ',nIter
+		                         specFeatures,photoCache,saveSpectra,iterNum)
+		print 'buildQsoSpectra iteration ',iterNum,' out of ',nIter
 		specOut = map(build_one_spec,qsoGrid)
 		#specOut = pool.map(build_one_spec,qsoGrid)
 		specOut = _regroup(specOut)
@@ -525,12 +520,9 @@ def qsoSimulation(simParams,**kwargs):
 			forest = dict(wave=wave[:2],T=NullForest())
 		else:
 			forest = buildForest(wave,qsoGrid.z,simParams,outputDir)
-###		# make sure that the forest redshifts actually match the grid
-###		assert np.allclose(forest['z'],qsoGrid.z)
 	if forestOnly:
 		timerLog.dump()
 		return
-###	assert np.allclose(forest['wave'],wave[:len(forest['wave'])])
 	timerLog('Generate Forest')
 	#
 	# Use continuum and emission line distributions to build the components
