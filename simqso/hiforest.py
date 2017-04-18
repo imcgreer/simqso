@@ -507,6 +507,7 @@ class IGMTransmissionGrid(object):
 		tspec.meta['CRPIX1'] = 1
 		tspec.meta['CRVAL1'] = logwave[0]
 		tspec.meta['CRTYPE1'] = 'LOGWAVE'
+		tspec.meta['IGMNLOS'] = self.numSightLines
 		tspec.write(os.path.join(outputDir,fileName+'.fits'),
 		            overwrite=True)
 		self._reset()
@@ -515,7 +516,7 @@ class IGMTransmissionGrid(object):
 class CachedIGMTransmissionGrid(object):
 	def __init__(self,wave,forestName,outputDir='.'):
 		fn = os.path.join(outputDir,forestName+'.fits')
-		tspec = Table.read(fn)
+		self.tspec = tspec = Table.read(fn)
 		hdr = fits.getheader(fn,1)
 		nwave = tspec['T'].shape[1]
 		wi = np.arange(nwave)
@@ -523,24 +524,12 @@ class CachedIGMTransmissionGrid(object):
 		self.specWave = exp(logwave)
 		if not np.allclose(wave[:len(self.specWave)],self.specWave):
 			raise ValueError("Input wavegrid doesn't match stored wavegrid")
-		self.tspec = tspec.group_by('sightLine')
-		self.zi = np.zeros(len(tspec['sightLine']),dtype=np.int32)
-		self.numSightLines = tspec['sightLine'].max()+1
+		self.numSightLines = hdr['IGMNLOS']
+		self.losIndex = { tuple(losNum_z):i for i,losNum_z 
+		                               in enumerate(tspec['sightLine','z']) }
 	def next_spec(self,sightLine,z,**kwargs):
-		j = np.searchsorted(self.tspec.groups.keys['sightLine'],sightLine)
-		spec = self.tspec.groups[j]
-		zi = spec['z'].argsort()
-		i = self.zi[sightLine]
-		if not np.allclose(z,spec['z'][zi[i]]):
-			raise ValueError
-		self.zi[sightLine] += 1
-		return spec['T'][zi[i]]
+		return self.current_spec(sightLine,z,**kwargs)
 	def current_spec(self,sightLine,z,**kwargs):
-		j = np.searchsorted(self.tspec.groups.keys['sightLine'],sightLine)
-		spec = self.tspec.groups[j]
-		zi = spec['z'].argsort()
-		i = self.zi[sightLine]-1 # XXX hmm..
-		if not np.allclose(z,spec['z'][zi[i]]):
-			raise ValueError
-		return spec['T'][zi[i]]
+		i = self.losIndex[(sightLine,z)]
+		return self.tspec['T'][i]
 

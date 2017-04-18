@@ -303,8 +303,8 @@ def _regroup(spOut):
 			rv[j].append(sp[j])
 	return [ np.array(v) for v in rv ]
 
-def buildQsoSpectra2(wave,qsoGrid,photoMap=None,
-                     maxIter=1,saveSpectra=False):
+def buildSpectraBySightLine(wave,qsoGrid,photoMap=None,
+                            maxIter=1,saveSpectra=False):
 	'''Assemble the spectral components of QSOs from the input parameters.
 
 	Parameters
@@ -338,26 +338,26 @@ def buildQsoSpectra2(wave,qsoGrid,photoMap=None,
 			return np.zeros((qsoGrid.nObj,len(bands)),dtype=np.float32)
 		qsoGrid.addVar(grids.SynMagVar(grids.FixedSampler(newarr())))
 		qsoGrid.addVar(grids.SynFluxVar(grids.FixedSampler(newarr())))
-	if True:
-		specFeatures = qsoGrid.getVars(grids.SpectralFeatureVar)
-		build_grp_spec = partial(buildGrpSpectra,wave,qsoGrid.cosmo,
-		                         specFeatures,photoCache,saveSpectra,
-		                         fluxBand,nIter)
-		qsoGroups,ii = qsoGrid.group_by('igmlos',with_index=True)
-		specOut = map(build_grp_spec,qsoGroups)
-	if True:
-		for objgrp,out in zip(qsoGroups,specOut):
-			for k in ['absMag','synMag','synFlux']:
-				qsoGrid.data[k][objgrp['_ii']] = out[k]
+	# extract the feature lists, group by sightline, and run
+	specFeatures = qsoGrid.getVars(grids.SpectralFeatureVar)
+	build_grp_spec = partial(buildGrpSpectra,wave,qsoGrid.cosmo,
+	                         specFeatures,photoCache,saveSpectra,
+	                         fluxBand,nIter)
+	qsoGroups,ii = qsoGrid.group_by('igmlos',with_index=True)
+	specOut = map(build_grp_spec,qsoGroups)
+	# the output needs to be remapped to the input locations
+	for objgrp,out in zip(qsoGroups,specOut):
+		for k in ['absMag','synMag','synFlux']:
+			qsoGrid.data[k][objgrp['_ii']] = out[k]
 	if saveSpectra:
-		# XXX
 		spectra = np.vstack([s['spectra'] for s in specOut])
+		spectra = spectra[qsoGroups.parent['_ii'].argsort()]
 	else:
 		spectra = None
 	return qsoGrid,spectra
 
-def buildQsoSpectra(wave,qsoGrid,photoMap=None,
-                    maxIter=1,saveSpectra=False):
+def buildSpectraBulk(wave,qsoGrid,photoMap=None,
+                     maxIter=1,saveSpectra=False):
 	'''Assemble the spectral components of QSOs from the input parameters.
 
 	Parameters
@@ -396,7 +396,7 @@ def buildQsoSpectra(wave,qsoGrid,photoMap=None,
 				f.sampler = None
 		build_one_spec = partial(buildQsoSpectrum,wave,qsoGrid.cosmo,
 		                         specFeatures,photoCache,saveSpectra,iterNum)
-		print 'buildQsoSpectra iteration ',iterNum,' out of ',nIter
+		print 'buildSpectra iteration ',iterNum,' out of ',nIter
 		specOut = map(build_one_spec,qsoGrid)
 		#specOut = pool.map(build_one_spec,qsoGrid)
 		specOut = _regroup(specOut)
@@ -464,9 +464,6 @@ def qsoSimulation(simParams,**kwargs):
 	    Beware! result may be quite large (Nqso x Npixels). [default:False]
 	forestOnly : bool
 	    Only generate the forest transmission spectra. [default:False]
-	onlyMap : bool
-	    Only do the simulation of observed photometry, assuming 
-	    synthetic photometry has already been generated [default:False]
 	noPhotoMap : bool
 	    skip the simulation of observed photometry [default:False]
 	outputDir : str
@@ -474,7 +471,6 @@ def qsoSimulation(simParams,**kwargs):
 	'''
 	saveSpectra = kwargs.get('saveSpectra',False)
 	forestOnly = kwargs.get('forestOnly',False)
-	onlyMap = kwargs.get('onlyMap',False)
 	noPhotoMap = kwargs.get('noPhotoMap',False)
 	noWriteOutput = kwargs.get('noWriteOutput',False)
 	outputDir = kwargs.get('outputDir','./')
@@ -511,15 +507,10 @@ def qsoSimulation(simParams,**kwargs):
 	#
 	# get the forest transmission spectra, or build if needed
 	#
-	if not onlyMap:
-		if 'ForestParams' not in simParams:
-			# no forest applied, overrides T to always return one
-			class NullForest(object):
-				def __getitem__(self,i):
-					return 1
-			forest = dict(wave=wave[:2],T=NullForest())
-		else:
-			forest = buildForest(wave,qsoGrid.z,simParams,outputDir)
+	if 'ForestParams' in simParams:
+		forest = buildForest(wave,qsoGrid.z,simParams,outputDir)
+	else:
+		forest = None
 	if forestOnly:
 		timerLog.dump()
 		return
@@ -529,12 +520,16 @@ def qsoSimulation(simParams,**kwargs):
 	# of the intrinsic QSO spectrum, then calculate photometry
 	#
 	photoMap = sqphoto.load_photo_map(simParams['PhotoMapParams'])
-	if not onlyMap:
-		buildFeatures(qsoGrid,wave,simParams,forest)
-		#_,spectra = buildQsoSpectra(wave,qsoGrid,photoMap=photoMap,
-		_,spectra = buildQsoSpectra2(wave,qsoGrid,photoMap=photoMap,
-		                            maxIter=simParams.get('maxFeatureIter',5),
-		                            saveSpectra=saveSpectra)
+	buildFeatures(qsoGrid,wave,simParams,forest)
+	if isinstance(forest,hiforest.IGMTransmissionGrid):
+		# build sightlines on-the-fly
+		buildSpec = buildSpectraBySightLine
+	else:
+		# else no forest or cached forest
+		buildSpec = buildSpectraBulk
+	_,spectra = buildSpec(wave,qsoGrid,photoMap=photoMap,
+	                      maxIter=simParams.get('maxFeatureIter',5),
+	                      saveSpectra=saveSpectra)
 	timerLog('Build Quasar Spectra')
 	#
 	# map the simulated photometry to observed values with uncertainties
