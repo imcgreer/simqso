@@ -105,9 +105,6 @@ simParams = {
     'ForestModel':'Worseck&Prochaska2011', 
     # redshift range over which to sample absorbers
     'zRange':(0.0,4.5),
-    # type of forest grid to use; 'Sightlines' means generate N independent
-    # sightlines, and then randomly associate each quasar with a sightline
-    'ForestType':'Sightlines',
     # the number of independent sightlines to generate
     # WP11 suggest a minimum of 2000 to properly sample the scatter
     #'NumLinesOfSight':2000,
