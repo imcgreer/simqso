@@ -442,9 +442,9 @@ class IGMTransmissionGrid(object):
 		# pad the lower redshift by just a bit
 		self.zmin = wave.min() / 1215.7 - 1.01
 		self.zmax = kwargs.get('zmax',10)
-		# Generate the lines-of-sight first, to preserve random generator order
-		self.sightLines = [ generate_los(self.forestModel,self.zmin,self.zmax) 
-		                      for i in range(self.numSightLines) ]
+#		# Generate the lines-of-sight first, to preserve random generator order
+#		self.sightLines = [ generate_los(self.forestModel,self.zmin,self.zmax) 
+#		                      for i in range(self.numSightLines) ]
 		# default is 10 km/s
 		forestRmin = kwargs.get('Rmin',3e4)
 		logwave = log(wave)
@@ -468,40 +468,41 @@ class IGMTransmissionGrid(object):
 		dloglam = self.forestR**-1
 		self.forestWave = exp( log(wavemin) +  dloglam*np.arange(self.nPix) )
 		#
-		self._reset()
-	def _reset(self):
-		self.zi = np.zeros(self.numSightLines,dtype=np.int32)
-		# XXX when grouped by sightlines this should be 1xNPIX
-		self.tau = np.zeros((self.numSightLines,self.nPix))
+		self.currentSightLineNum = -1
+		self.tau = np.zeros(self.nPix)
 	def next_spec(self,sightLine,z,**kwargs):
-		los = self.sightLines[sightLine]
-		zi1 = self.zi[sightLine]
-		tau = self.tau[sightLine]
+		if self.currentSightLineNum != sightLine:
+			self.currentSightLine = generate_los(self.forestModel,
+			                                     self.zmin,self.zmax) 
+			self.currentSightLineNum = sightLine
+			self.tau[:] = 0.0
+			self.zi = 0
+		zi1 = self.zi
+		los = self.currentSightLine
 		zi2 = np.searchsorted(los['z'],min(z,self.zmax))
 		if zi2 < zi1:
 			raise ValueError("must generate sightline in increasing redshift")
-		self.zi[sightLine] = zi2
-		tau = calc_tau_lambda(self.forestWave,los[zi1:zi2],tauIn=tau,
+		self.zi = zi2
+		tau = calc_tau_lambda(self.forestWave,los[zi1:zi2],tauIn=self.tau,
 		                      **kwargs)
-		T = exp(-tau).reshape(-1,self.nRebin)
-		return T.mean(axis=1)
+		self.T = exp(-tau).reshape(-1,self.nRebin).mean(axis=1)
+		return self.T
 	def current_spec(self,sightLine,z,**kwargs):
-		tau = self.tau[sightLine]
-		# XXX this results in a recalculation...
-		T = exp(-tau).reshape(-1,self.nRebin)
-		return T.mean(axis=1)
+		return self.T
 	def all_spec(self,losMap,z_em,**kwargs):
 		if len(losMap) != len(z_em):
 			raise ValueError
 		zi = z_em.argsort()
-		T = np.vstack( [ self.next_spec(losMap[i],z_em[i]) for i in zi ] )
+		T = np.vstack( [ self.next_spec(losMap[i],z_em[i],**kwargs) 
+		                   for i in zi ] )
 		return Table(dict(T=T[zi.argsort()],z=z_em,sightLine=losMap))
-	def write(self,fileName,outputDir,tspec=None,losMap=None,z_em=None):
+	def write(self,fileName,outputDir,tspec=None,
+	          losMap=None,z_em=None,**kwargs):
 		'''Save transmissionspectra to a FITS file.'''
 		if tspec is None:
 			if losMap is None or z_em is None:
 				raise ValueError("Must pass losMap and z")
-			tspec = self.all_spec(losMap,z_em)
+			tspec = self.all_spec(losMap,z_em,**kwargs)
 		logwave = np.log(self.specWave[:2])
 		dloglam = np.diff(logwave)
 		tspec.meta['CD1_1'] = float(dloglam)
@@ -509,9 +510,10 @@ class IGMTransmissionGrid(object):
 		tspec.meta['CRVAL1'] = logwave[0]
 		tspec.meta['CRTYPE1'] = 'LOGWAVE'
 		tspec.meta['IGMNLOS'] = self.numSightLines
+		tspec.meta['IGMMODL'] = str(self.forestModel)
+		tspec.meta['IGMRES'] = self.forestR
 		tspec.write(os.path.join(outputDir,fileName+'.fits'),
 		            overwrite=True)
-		self._reset()
 
 # for now just duck-typing this
 class CachedIGMTransmissionGrid(object):
@@ -528,6 +530,7 @@ class CachedIGMTransmissionGrid(object):
 		self.numSightLines = hdr['IGMNLOS']
 		self.losIndex = { tuple(losNum_z):i for i,losNum_z 
 		                               in enumerate(tspec['sightLine','z']) }
+		self.losMap = self.tspec['sightLine']
 	def next_spec(self,sightLine,z,**kwargs):
 		return self.current_spec(sightLine,z,**kwargs)
 	def current_spec(self,sightLine,z,**kwargs):

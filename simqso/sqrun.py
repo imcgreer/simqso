@@ -115,8 +115,7 @@ def buildForest(wave,z,simParams,outputDir):
 	'''
 	forestParams = simParams['ForestParams']
 	reseed(forestParams)
-	forestType = forestParams.get('ForestType','Sightlines')
-	nlos = forestParams.get('NumLinesOfSight',-1)
+	nlos = forestParams['NumLinesOfSight']
 	forestFn = forestParams.get('FileName')
 	tgrid = None
 	if forestFn:
@@ -206,16 +205,11 @@ def buildFeatures(qsoGrid,wave,simParams,forest=None):
 		buildDustGrid(qsoGrid,simParams)
 	if forest is not None:
 		if isinstance(forest,hiforest.CachedIGMTransmissionGrid):
-			losMap = qsoGrid.igmlos
+			losMap = forest.losMap
 		else:
 			losMap = None
 		forestVar = grids.HIAbsorptionVar(forest,losMap=losMap)
 		qsoGrid.addVar(forestVar)
-		if isinstance(forest,hiforest.IGMTransmissionGrid):
-			forestFn = simParams.get('ForestParams',{}).get('FileName')
-			if forestFn:
-				# XXX move this up
-				forest.write(forestFn,'.',losMap=qsoGrid.igmlos,z_em=qsoGrid.z)#,**forestParams)
 
 def _getpar(feature,obj):
 	if isinstance(feature.sampler,grids.NullSampler):
@@ -505,7 +499,7 @@ def qsoSimulation(simParams,**kwargs):
 	qsoGrid.setCosmology(simParams.get('Cosmology'))
 	timerLog('Initialize Grid')
 	#
-	# get the forest transmission spectra, or build if needed
+	# configure the IGM transmission spectra grid (load if cached)
 	#
 	if 'ForestParams' in simParams:
 		forest = buildForest(wave,qsoGrid.z,simParams,outputDir)
@@ -514,19 +508,36 @@ def qsoSimulation(simParams,**kwargs):
 	if forestOnly:
 		timerLog.dump()
 		return
-	timerLog('Generate Forest')
+	#
+	if isinstance(forest,hiforest.IGMTransmissionGrid):
+		# build sightlines on-the-fly
+		buildSpec = buildSpectraBySightLine
+		# if the user specified a file name, save the forest spectra in it
+		fpar = simParams.get('ForestParams',{})
+		forestFn = fpar.get('FileName')
+		if forestFn:
+			# map the objects to sightlines and save the forest spectra grid
+			losSampler = grids.RandomSubSampler(forest.numSightLines)
+			losMap = losSampler.sample(qsoGrid.nObj)
+			forest.write(forestFn,outputDir,losMap=losMap,
+			             z_em=qsoGrid.z,**fpar)
+			# now use the cached forest
+			forest = hiforest.CachedIGMTransmissionGrid(wave,forestFn,
+			                                            outputDir)
+			timerLog('Generate Forest')
+	else:
+		# else no forest or cached forest
+		buildSpec = buildSpectraBulk
+	#
+	# add the quasar model variables to the grid (does the random sampling)
+	#
+	buildFeatures(qsoGrid,wave,simParams,forest)
+	timerLog('Generate Features')
 	#
 	# Use continuum and emission line distributions to build the components
 	# of the intrinsic QSO spectrum, then calculate photometry
 	#
 	photoMap = sqphoto.load_photo_map(simParams['PhotoMapParams'])
-	buildFeatures(qsoGrid,wave,simParams,forest)
-	if isinstance(forest,hiforest.IGMTransmissionGrid):
-		# build sightlines on-the-fly
-		buildSpec = buildSpectraBySightLine
-	else:
-		# else no forest or cached forest
-		buildSpec = buildSpectraBulk
 	_,spectra = buildSpec(wave,qsoGrid,photoMap=photoMap,
 	                      maxIter=simParams.get('maxFeatureIter',5),
 	                      saveSpectra=saveSpectra)
