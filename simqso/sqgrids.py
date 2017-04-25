@@ -875,7 +875,9 @@ class QsoSimGrid(QsoSimObjects):
 		self.data = Table(data)
 		self.nObj = len(self.data)
 	def asGrid(self,name):
-		return np.asarray(self.data[name]).reshape(self.gridShape)
+		# in case the column has extra axes (i.e., for flux vectors)
+		outShape = self.gridShape + self.data[name].shape[1:]
+		return np.asarray(self.data[name]).reshape(outShape)
 	def __str__(self):
 		s = "grid dimensions: "+str(self.gridShape)+"\n"
 		s += str(self.gridEdges)+"\n"
