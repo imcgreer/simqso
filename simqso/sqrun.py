@@ -277,7 +277,7 @@ def buildGrpSpectra(wave,cosmo,specFeatures,photoCache,saveSpectra,
 				objGroup['absMag'][i] -= dm
 				# resample features with updated absolute mags
 				for var in specFeatures:
-					if var.update:
+					if var.dependentVars is not None:
 						var.resample(objGroup[var.dependentVars][i],ii=i)
 						# pass index as 1d-array to preserve correct shape
 						objGroup[var.name][i] = var(None,ii=np.array([i]))
