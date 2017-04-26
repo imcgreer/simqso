@@ -137,12 +137,13 @@ class CdfSampler(Sampler):
 	        Lower and upper bounds for the sampler.
 	'''
 	def _init_cdf(self):
-		self.cdf_low = self.rv.cdf(self.low)
-		self.cdf_high = self.rv.cdf(self.high)
+		self.cdf_low = self.cdf(self.low)
+		self.cdf_high = self.cdf(self.high)
 	def _getpoints(self,x,ii=None):
 		cdf_low,cdf_high = self._get_arrays((self.cdf_low,self.cdf_high),ii)
 		return cdf_low + (cdf_high-cdf_low)*x
-		return self.rv.ppf(x) # XXX get rid of self.rv
+	def _sample(self,x,ii=None):
+		return self.ppf(x,ii)
 	def sample(self,n,**kwargs):
 		x = np.random.random(n)
 		return self._sample(self._getpoints(x))
@@ -165,7 +166,6 @@ class PowerLawSampler(CdfSampler):
 		if a<0 and low<=0:
 			raise ValueError
 		# defining cdf and ppf function within this class
-		self.rv = self # XXX get rid of self.rv
 		super(PowerLawSampler,self).__init__(low,high)
 		self.a = a
 		self._init_cdf()
@@ -195,19 +195,13 @@ class GaussianSampler(CdfSampler):
 		super(GaussianSampler,self).__init__(low,high)
 		self.mean = mean
 		self.sigma = sigma
-		self.rv = self
-#		self._reset()
 		self._init_cdf()
-#	def _reset(self):
-#		self.rv = norm(loc=self.mean,scale=self.sigma)
 	def ppf(self,x,ii=None):
 		mean,sigma = self._get_arrays((self.mean,self.sigma),ii)
 		return norm.ppf(x,loc=mean,scale=sigma)
 	def cdf(self,x,ii=None):
 		mean,sigma = self._get_arrays((self.mean,self.sigma),ii)
 		return norm.cdf(x,loc=mean,scale=sigma)
-	def _sample(self,x,ii=None):
-		return self.ppf(x,ii)
 	def update(self,mean,sigma,ii=None):
 		if ii is None: ii = np.s_[:]
 		self.mean[ii] = mean
@@ -244,10 +238,13 @@ class ExponentialSampler(CdfSampler):
 	def __init__(self,scale,low=0,high=np.inf):
 		super(ExponentialSampler,self).__init__(low,high)
 		self.scale = scale
-		self._reset()
 		self._init_cdf()
-	def _reset(self):
-		self.rv = expon(scale=self.scale)
+	def ppf(self,x,ii=None):
+		scale = self._get_arrays((self.scale,),ii)[0]
+		return expon.ppf(x,scale=scale)
+	def cdf(self,x,ii=None):
+		scale = self._get_arrays((self.scale,),ii)[0]
+		return expon.cdf(x,scale=scale)
 
 #class DoublePowerLawSampler(Sampler):
 #	def __init__(self,a,b,x0,low=-np.inf,high=np.inf):
@@ -338,8 +335,8 @@ class QsoSimVar(object):
 		self.sampler = sampler
 		if name is not None:
 			self.name = name
-		self.update = False
 		self.meta = {}
+		self.dependentVars = None
 	def __call__(self,n,**kwargs):
 		return self.sampler(n,**kwargs)
 	def resample(self,*args,**kwargs):
@@ -829,7 +826,7 @@ class QsoSimObjects(object):
 		return filter(lambda v: isinstance(v,varType),self.qsoVars)
 	def resample(self):
 		for var in self.qsoVars:
-			if var.update:
+			if var.dependentVars is not None:
 				var.resample(self.data[var.dependentVars])
 				self.data[var.name] = var(self.nObj)
 	def distMod(self,z):
@@ -987,7 +984,6 @@ def generateBEffEmissionLines(M1450,**kwargs):
 	             for l in lineCatalog[useLines] ]
 	lines = BossDr9EmissionLineTemplateVar(lineList,
 	                                       lineCatalog['name'][useLines])
-	lines.update = True # XXX a better way?
 	lines.dependentVars = 'absMag'
 	return lines
 
