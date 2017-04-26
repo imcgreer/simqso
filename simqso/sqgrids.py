@@ -791,23 +791,6 @@ class QsoSimObjects(object):
 	def __iter__(self):
 		for obj in self.data:
 			yield obj
-	def iter_reorder(self,ii):
-		for obj in self.data[ii]:
-			yield obj
-	# XXX
-	def iter_sightlines(self):
-		data_los = self.data.group_by('igmlos')
-		for objgrp in data_los.groups:
-			yield objgrp
-	def update_sightlines(self,output,keys):
-		# XXX argh
-		data_los = self.data.group_by('igmlos')
-		for objgrp,out in zip(data_los.groups,output):
-			for k in keys:
-				objgrp[k][:] = out[k]
-		for k in keys:
-			self.data[k][:] = data_los[k]
-	# XXX
 	def group_by(self,varName,with_index=False):
 		if with_index:
 			self.data['_ii'] = np.arange(self.nObj)
