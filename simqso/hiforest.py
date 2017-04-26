@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 
 import os
+from collections import OrderedDict
 import numpy as np
 import scipy.stats as stats
 import scipy.constants as const
 from astropy.io import fits
-from astropy.table import Table
+from astropy.table import Table,vstack
 
 from .sqbase import datadir
 

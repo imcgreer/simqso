@@ -574,11 +574,14 @@ class GaussianLineEqWidthVar(EmissionFeatureVar):
 	    Fixed Gaussian parameters for the rest-frame wavelength and sigma
 	    in Angstroms. Only the equivalent width is sampled.
 	'''
-	def __init__(self,sampler,name,wave0,width0):
+	def __init__(self,sampler,name,wave0,width0,log=False):
 		super(GaussianLineEqWidthVar,self).__init__(sampler,name)
 		self.wave0 = wave0
 		self.width0 = width0
+		self.log = log
 	def render(self,wave,z,ew0):
+		if self.log:
+			ew0 = np.power(10,ew0)
 		return render_gaussians(wave,z,
 		                        np.array([[self.wave0,ew0,self.width0]]))
 
@@ -788,23 +791,6 @@ class QsoSimObjects(object):
 	def __iter__(self):
 		for obj in self.data:
 			yield obj
-	def iter_reorder(self,ii):
-		for obj in self.data[ii]:
-			yield obj
-	# XXX
-	def iter_sightlines(self):
-		data_los = self.data.group_by('igmlos')
-		for objgrp in data_los.groups:
-			yield objgrp
-	def update_sightlines(self,output,keys):
-		# XXX argh
-		data_los = self.data.group_by('igmlos')
-		for objgrp,out in zip(data_los.groups,output):
-			for k in keys:
-				objgrp[k][:] = out[k]
-		for k in keys:
-			self.data[k][:] = data_los[k]
-	# XXX
 	def group_by(self,varName,with_index=False):
 		if with_index:
 			self.data['_ii'] = np.arange(self.nObj)
@@ -937,6 +923,7 @@ class QsoSimGrid(QsoSimObjects):
 		self.gridShape = nBins + (nPerBin,)
 		axes = [ var(n+1) for n,var in zip(nBins,qsoVars) ]
 		self.gridEdges = np.meshgrid(*axes,indexing='ij')
+		self.gridCenters = [ a[:-1]+np.diff(a)/2 for a in axes ]
 		data = {}
 		for i,(v,g) in enumerate(zip(qsoVars,self.gridEdges)):
 			x = np.random.random(self.gridShape)
@@ -949,7 +936,9 @@ class QsoSimGrid(QsoSimObjects):
 		self.data = Table(data)
 		self.nObj = len(self.data)
 	def asGrid(self,name):
-		return np.asarray(self.data[name]).reshape(self.gridShape)
+		# in case the column has extra axes (i.e., for flux vectors)
+		outShape = self.gridShape + self.data[name].shape[1:]
+		return np.asarray(self.data[name]).reshape(outShape)
 	def __str__(self):
 		s = "grid dimensions: "+str(self.gridShape)+"\n"
 		s += str(self.gridEdges)+"\n"
