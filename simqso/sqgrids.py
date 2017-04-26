@@ -793,11 +793,9 @@ class QsoSimObjects(object):
 			self.data['_ii'] = np.arange(self.nObj)
 		data_grouped = self.data.group_by(varName)
 		if with_index:
-			ii = self.data['_ii'].copy()
+			# only keep this in the grouped table
 			del self.data['_ii']
-			return data_grouped.groups,ii
-		else:
-			return data_grouped.groups
+		return data_grouped.groups
 	def __getattr__(self,name):
 		try:
 			return self.data[name]
@@ -841,7 +839,10 @@ class QsoSimObjects(object):
 			# know how to delete derived quantities that will be recomputed
 			for k in ['obsFlux','obsMag','obsFluxErr','obsMagErr',
 			          'synMag','synFlux']:
-				del self.data[k]
+				try:
+					del self.data[k]
+				except KeyError:
+					pass
 		self.nObj = len(self.data)
 		hdr = fits.getheader(gridFile,1)
 		self.units = hdr['GRIDUNIT']
