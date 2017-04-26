@@ -218,8 +218,8 @@ def _getpar(feature,obj):
 	else:
 		return obj[feature.name]
 
-def buildQsoSpectrum(wave,cosmo,specFeatures,photoCache,
-                     saveSpectra,iterNum,obj):
+def buildQsoSpectrum(wave,cosmo,specFeatures,obj,
+                     photoCache=None,saveSpectra=False,iterNum=1):
 	spec = sqbase.Spectrum(wave,z=obj['z'])
 	# start with continuum
 	distmod = lambda z: cosmo.distmod(z).value
@@ -252,9 +252,12 @@ def buildQsoSpectrum(wave,cosmo,specFeatures,photoCache,
 	return rv
 
 def buildGrpSpectra(wave,cosmo,specFeatures,photoCache,saveSpectra,
-                    fluxBand,nIter,objGroup):
+                    fluxBand,nIter,verbose,objGroup):
 	n = len(objGroup)
-	print 'processing ',n,' obj in group ',objGroup['igmlos'][0]
+	if verbose and verbose > 0:
+		losGrp = objGroup['igmlos'][0]
+		if losGrp % verbose == 0:
+			print 'processing ',n,' obj in group ',losGrp
 	rv = dict()
 	if photoCache:
 		nb = len(photoCache)
@@ -266,8 +269,8 @@ def buildGrpSpectra(wave,cosmo,specFeatures,photoCache,saveSpectra,
 	zi = objGroup['z'].argsort()
 	for i in zi:
 		for iterNum in range(1,nIter+1):
-			_rv = buildQsoSpectrum(wave,cosmo,specFeatures,photoCache,
-			                       saveSpectra,iterNum,objGroup[i])
+			_rv = buildQsoSpectrum(wave,cosmo,specFeatures,objGroup[i],
+			                       photoCache,saveSpectra,iterNum)
 			if nIter > 1:
 				synMag = _rv[0]
 				dm = synMag[fluxBand] - objGroup['appMag'][i]
@@ -298,7 +301,7 @@ def _regroup(spOut):
 	return [ np.array(v) for v in rv ]
 
 def buildSpectraBySightLine(wave,qsoGrid,procMap,photoMap=None,
-                            maxIter=1,saveSpectra=False):
+                            maxIter=1,verbose=0,saveSpectra=False):
 	'''Assemble the spectral components of QSOs from the input parameters.
 
 	Parameters
@@ -313,8 +316,10 @@ def buildSpectraBySightLine(wave,qsoGrid,procMap,photoMap=None,
 	print 'simulating ',qsoGrid.nObj,' quasar spectra'
 	print 'units are ',qsoGrid.units
 	print 'max number iterations: ',maxIter
+	verby = qsoGrid.nObj//(5*verbose)
 	if qsoGrid.units == 'luminosity' or photoMap is None:
 		nIter = 1
+		fluxBand = None
 	else:
 		nIter = maxIter
 		# rather hacky access point
@@ -324,21 +329,22 @@ def buildSpectraBySightLine(wave,qsoGrid,procMap,photoMap=None,
 		fluxBand = next(j for j in range(len(bands))
 		                    if photoMap['filtName'][bands[j]]==obsBand)
 	#
-	if photoMap:
-		def newarr():
-			return np.zeros((qsoGrid.nObj,len(bands)),dtype=np.float32)
-		qsoGrid.addVar(grids.SynMagVar(grids.FixedSampler(newarr())))
-		qsoGrid.addVar(grids.SynFluxVar(grids.FixedSampler(newarr())))
 	# extract the feature lists, group by sightline, and run
 	specFeatures = qsoGrid.getVars(grids.SpectralFeatureVar)
 	build_grp_spec = partial(buildGrpSpectra,wave,qsoGrid.cosmo,
 	                         specFeatures,photoCache,saveSpectra,
-	                         fluxBand,nIter)
+	                         fluxBand,nIter,verby)
 	qsoGroups = qsoGrid.group_by('igmlos',with_index=True)
 	# pool.map() doesn't like the iterable produced by table.group_by(), so
 	# forcing resolution of the elements here with list() -- not that much
 	# memory anyway
 	specOut = procMap(build_grp_spec,list(qsoGroups))
+	if photoMap:
+		bands = photoMap['bandpasses'].keys()
+		def newarr():
+			return np.zeros((qsoGrid.nObj,len(bands)),dtype=np.float32)
+		qsoGrid.addVar(grids.SynMagVar(grids.FixedSampler(newarr())))
+		qsoGrid.addVar(grids.SynFluxVar(grids.FixedSampler(newarr())))
 	# the output needs to be remapped to the input locations
 	for objgrp,out in zip(qsoGroups,specOut):
 		for k in ['absMag','synMag','synFlux']:
@@ -351,7 +357,7 @@ def buildSpectraBySightLine(wave,qsoGrid,procMap,photoMap=None,
 	return qsoGrid,spectra
 
 def buildSpectraBulk(wave,qsoGrid,procMap,photoMap=None,
-                     maxIter=1,saveSpectra=False):
+                     maxIter=1,verbose=0,saveSpectra=False):
 	'''Assemble the spectral components of QSOs from the input parameters.
 
 	Parameters
@@ -367,6 +373,7 @@ def buildSpectraBulk(wave,qsoGrid,procMap,photoMap=None,
 	print 'units are ',qsoGrid.units
 	if qsoGrid.units == 'luminosity' or photoMap is None:
 		nIter = 1
+		fluxBand = None
 	else:
 		nIter = maxIter
 		obsBand = qsoGrid.getVars(grids.AppMagVar)[0].obsBand
@@ -384,7 +391,8 @@ def buildSpectraBulk(wave,qsoGrid,procMap,photoMap=None,
 			         isinstance(f.sampler,grids.IndexSampler) ):
 				f.sampler = None
 		build_one_spec = partial(buildQsoSpectrum,wave,qsoGrid.cosmo,
-		                         specFeatures,photoCache,saveSpectra,iterNum)
+		                         specFeatures,photoCache=photoCache,
+		                         saveSpectra=saveSpectra,iterNum=iterNum)
 		print 'buildSpectra iteration ',iterNum,' out of ',nIter
 		specOut = procMap(build_one_spec,qsoGrid)
 		specOut = _regroup(specOut)
@@ -465,6 +473,7 @@ def qsoSimulation(simParams,**kwargs):
 	noWriteOutput = kwargs.get('noWriteOutput',False)
 	outputDir = kwargs.get('outputDir','./')
 	nproc = kwargs.get('nproc',1)
+	verbose = kwargs.get('verbose',0)
 	#
 	# build or restore the grid of (M,z) for each QSO
 	#
@@ -542,7 +551,7 @@ def qsoSimulation(simParams,**kwargs):
 	photoMap = sqphoto.load_photo_map(simParams['PhotoMapParams'])
 	_,spectra = buildSpec(wave,qsoGrid,procMap,photoMap=photoMap,
 	                      maxIter=simParams.get('maxFeatureIter',5),
-	                      saveSpectra=saveSpectra)
+	                      verbose=verbose,saveSpectra=saveSpectra)
 	timerLog('Build Quasar Spectra')
 	#
 	# map the simulated photometry to observed values with uncertainties
