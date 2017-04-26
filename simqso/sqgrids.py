@@ -542,11 +542,14 @@ class GaussianLineEqWidthVar(EmissionFeatureVar):
 	    Fixed Gaussian parameters for the rest-frame wavelength and sigma
 	    in Angstroms. Only the equivalent width is sampled.
 	'''
-	def __init__(self,sampler,name,wave0,width0):
+	def __init__(self,sampler,name,wave0,width0,log=False):
 		super(GaussianLineEqWidthVar,self).__init__(sampler,name)
 		self.wave0 = wave0
 		self.width0 = width0
+		self.log = log
 	def render(self,wave,z,ew0):
+		if self.log:
+			ew0 = np.power(10,ew0)
 		return render_gaussians(wave,z,
 		                        np.array([[self.wave0,ew0,self.width0]]))
 
@@ -863,6 +866,7 @@ class QsoSimGrid(QsoSimObjects):
 		self.gridShape = nBins + (nPerBin,)
 		axes = [ var(n+1) for n,var in zip(nBins,qsoVars) ]
 		self.gridEdges = np.meshgrid(*axes,indexing='ij')
+		self.gridCenters = [ a[:-1]+np.diff(a)/2 for a in axes ]
 		data = {}
 		for i,(v,g) in enumerate(zip(qsoVars,self.gridEdges)):
 			x = np.random.random(self.gridShape)
