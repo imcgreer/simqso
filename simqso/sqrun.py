@@ -316,7 +316,7 @@ def buildSpectraBySightLine(wave,qsoGrid,procMap,photoMap=None,
 	print 'simulating ',qsoGrid.nObj,' quasar spectra'
 	print 'units are ',qsoGrid.units
 	print 'max number iterations: ',maxIter
-	verby = qsoGrid.nObj//(5*verbose)
+	verby = 0 if not verbose else qsoGrid.nObj//(5*verbose)
 	if qsoGrid.units == 'luminosity' or photoMap is None:
 		nIter = 1
 		fluxBand = None

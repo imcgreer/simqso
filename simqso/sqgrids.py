@@ -602,6 +602,7 @@ class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
 		self.lineNames = lineNames
 		self.meta['LINEMODL'] = 'BOSS DR9 Log-linear trends with luminosity'
 		self.meta['LINENAME'] = ','.join(lineNames)
+		self.dependentVars = 'absMag'
 	def __call__(self,n=None,ii=None):
 		lpar = super(BossDr9EmissionLineTemplateVar,self).__call__(n,ii=ii)
 		lpar[...,1:] = np.power(10,lpar[...,1:])
@@ -985,7 +986,6 @@ def generateBEffEmissionLines(M1450,**kwargs):
 	             for l in lineCatalog[useLines] ]
 	lines = BossDr9EmissionLineTemplateVar(lineList,
 	                                       lineCatalog['name'][useLines])
-	lines.dependentVars = 'absMag'
 	return lines
 
 def generateVdBCompositeEmLines(minEW=1.0,noFe=False):
