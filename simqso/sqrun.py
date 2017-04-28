@@ -218,8 +218,7 @@ def _getpar(feature,obj):
 	else:
 		return obj[feature.name]
 
-def buildQsoSpectrum(wave,cosmo,specFeatures,obj,
-                     photoCache=None,saveSpectra=False,iterNum=1):
+def buildQsoSpectrum(wave,cosmo,specFeatures,obj,iterNum=1):
 	spec = sqbase.Spectrum(wave,z=obj['z'])
 	# start with continuum
 	distmod = lambda z: cosmo.distmod(z).value
@@ -241,15 +240,7 @@ def buildQsoSpectrum(wave,cosmo,specFeatures,obj,
 			continue
 		spec = feature.add_to_spec(spec,_getpar(feature,obj),
 		                           advance=(iterNum==1))
-	if photoCache is not None:
-		# calculate synthetic magnitudes from the spectra through the
-		# specified bandpasses
-		rv = sqphoto.calcSynPhot(spec,photoCache=photoCache)
-	else:
-		rv = ()
-	if saveSpectra:
-		rv += (spec.f_lambda,)
-	return rv
+	return spec
 
 def buildGrpSpectra(wave,cosmo,specFeatures,photoCache,saveSpectra,
                     fluxBand,nIter,verbose,objGroup):
@@ -269,10 +260,10 @@ def buildGrpSpectra(wave,cosmo,specFeatures,photoCache,saveSpectra,
 	zi = objGroup['z'].argsort()
 	for i in zi:
 		for iterNum in range(1,nIter+1):
-			_rv = buildQsoSpectrum(wave,cosmo,specFeatures,objGroup[i],
-			                       photoCache,saveSpectra,iterNum)
+			sp = buildQsoSpectrum(wave,cosmo,specFeatures,objGroup[i],iterNum)
+			if photoCache is not None:
+				synMag,synFlux = sqphoto.calcSynPhot(sp,photoCache=photoCache)
 			if nIter > 1:
-				synMag = _rv[0]
 				dm = synMag[fluxBand] - objGroup['appMag'][i]
 				objGroup['absMag'][i] -= dm
 				# resample features with updated absolute mags
@@ -284,10 +275,10 @@ def buildGrpSpectra(wave,cosmo,specFeatures,photoCache,saveSpectra,
 				if np.abs(dm) < 0.005:
 					break
 		if photoCache is not None:
-			rv['synMag'][i] = _rv[0]
-			rv['synFlux'][i] = _rv[1]
+			rv['synMag'][i] = synMag
+			rv['synFlux'][i] = synFlux
 		if saveSpectra:
-			rv['spectra'][i] = _rv[2]
+			rv['spectra'][i] = sp.f_lambda
 	rv['absMag'] = objGroup['absMag'].copy()
 	return rv
 
@@ -391,8 +382,7 @@ def buildSpectraBulk(wave,qsoGrid,procMap,photoMap=None,
 			         isinstance(f.sampler,grids.IndexSampler) ):
 				f.sampler = None
 		build_one_spec = partial(buildQsoSpectrum,wave,qsoGrid.cosmo,
-		                         specFeatures,photoCache=photoCache,
-		                         saveSpectra=saveSpectra,iterNum=iterNum)
+		                         specFeatures,iterNum=iterNum)
 		print 'buildSpectra iteration ',iterNum,' out of ',nIter
 		specOut = procMap(build_one_spec,qsoGrid)
 		specOut = _regroup(specOut)
@@ -571,6 +561,9 @@ def qsoSimulation(simParams,**kwargs):
 		fits.writeto(os.path.join(outputDir,
 		                          simParams['FileName']+'_spectra.fits'),
 		             spectra,overwrite=True)
+		return qsoGrid,spectra
+	else:
+		return qsoGrid
 
 def load_spectra(simFileName,outputDir='.'):
 	simdat,par = readSimulationData(simFileName,outputDir,retParams=True)
