@@ -443,8 +443,8 @@ class IGMTransmissionGrid(object):
 		self.zmin = wave.min() / 1215.7 - 1.01
 		self.zmax = kwargs.get('zmax',10)
 #		# Generate the lines-of-sight first, to preserve random generator order
-#		self.sightLines = [ generate_los(self.forestModel,self.zmin,self.zmax) 
-#		                      for i in range(self.numSightLines) ]
+		self.sightLines = [ generate_los(self.forestModel,self.zmin,self.zmax) 
+		                      for i in range(self.numSightLines) ]
 		# default is 10 km/s
 		forestRmin = kwargs.get('Rmin',3e4)
 		logwave = log(wave)
@@ -468,12 +468,15 @@ class IGMTransmissionGrid(object):
 		dloglam = self.forestR**-1
 		self.forestWave = exp( log(wavemin) +  dloglam*np.arange(self.nPix) )
 		#
-		self.currentSightLineNum = -1
 		self.tau = np.zeros(self.nPix)
+		self.reset()
+	def reset(self):
+		self.currentSightLineNum = -1
 	def next_spec(self,sightLine,z,**kwargs):
 		if self.currentSightLineNum != sightLine:
-			self.currentSightLine = generate_los(self.forestModel,
-			                                     self.zmin,self.zmax) 
+#			self.currentSightLine = generate_los(self.forestModel,
+#			                                     self.zmin,self.zmax) 
+			self.currentSightLine = self.sightLines[sightLine]
 			self.currentSightLineNum = sightLine
 			self.tau[:] = 0.0
 			self.zi = 0
