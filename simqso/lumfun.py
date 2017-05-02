@@ -112,7 +112,9 @@ class LogPhiStarEvolFixedK(PolyEvolParam):
 
 
 class LuminosityFunction(object):
-	def __init__(self):
+	def __init__(self,cosmo=None,kcorr=None):
+		self.cosmo = cosmo
+		self.kcorr = kcorr
 		self.set_scale('log')
 		self.paramBounds = {}
 	def __str__(self):
@@ -157,14 +159,19 @@ class LuminosityFunction(object):
 		self.paramBounds[paramName] = paramBounds
 	def get_param_bounds(self,paramName):
 		return self.paramBounds.get(paramName)
+	def _m2M(self,kcorr=None):
+		if kcorr is None:
+			kcorr = self.kcorr
+		return lambda z: self.distmod(z) + kcorr(z)
 
 
 class DoublePowerLawLF(LuminosityFunction):
-	def __init__(self,logPhiStar=None,MStar=None,alpha=None,beta=None):
+	def __init__(self,logPhiStar=None,MStar=None,alpha=None,beta=None,
+	             **kwargs):
 		'''each param is either a QlfEvolParam, or values to initialize
 		   a PolyEvolParam, which is the default
 		'''
-		super(DoublePowerLawLF,self).__init__()
+		super(DoublePowerLawLF,self).__init__(**kwargs)
 		self.params = OrderedDict()
 		self.params['logPhiStar'] = self._resolvepar(logPhiStar)
 		self.params['MStar'] = self._resolvepar(MStar)
@@ -179,12 +186,12 @@ class DoublePowerLawLF(LuminosityFunction):
 		return logPhiStar - \
 		        np.log10(10**(0.4*(alpha+1)*(M-Mstar)) + \
 		                 10**(0.4*( beta+1)*(M-Mstar)))
-	def _sample(self,Mrange,zrange,p,cosmo,**kwargs):
-		# XXX make this more sensible
-		nz = 100
-		nM = 30
+	def _sample(self,Mrange,zrange,p,**kwargs):
+		eps_M,eps_z = 5e-2,2e-2
+		nM = np.diff(Mrange) / eps_M
+		nz = np.diff(zrange) / eps_z
 		skyfrac = kwargs.get('skyArea',skyDeg2) / skyDeg2
-		dVdzdO = interp_dVdzdO(zrange,cosmo)
+		dVdzdO = interp_dVdzdO(zrange,self.cosmo)
 		phi_z = lambda z: integrateDPL(Mrange(z),*self.eval_par_at_z(z,p)) * \
 		                        dVdzdO(z)
 		zbins = np.linspace(zrange[0],zrange[1],nz)
@@ -210,15 +217,15 @@ class DoublePowerLawLF(LuminosityFunction):
 			if Ntot > 1e4 and ((i+1)%(Ntot//10))==0:
 				print i+1,' out of ',Ntot
 		return M,z
-	def sample_from_fluxrange(self,mrange,zrange,m2M,cosmo,p=None,**kwargs):
+	def sample_from_fluxrange(self,mrange,zrange,p=None,**kwargs):
 		_mrange = mrange[::-1]
-		_Mrange = lambda z: np.array(_mrange) - m2M(z)
-		M,z = self._sample(_Mrange,zrange,p,cosmo,**kwargs)
-		m = M + m2M(z)
+		_Mrange = lambda z: np.array(_mrange) - self._m2M(z)
+		M,z = self._sample(_Mrange,zrange,p,**kwargs)
+		m = M + self._m2M(z)
 		return m,z
-	def sample_from_Lrange(self,Mrange,zrange,cosmo,p=None,**kwargs):
+	def sample_from_Lrange(self,Mrange,zrange,p=None,**kwargs):
 		_Mrange = lambda z: Mrange
-		return self._sample(_Mrange,zrange,p,cosmo,**kwargs)
+		return self._sample(_Mrange,zrange,p,**kwargs)
 	def _get_Lcdf_fun(self,Mrange,z,p):
 		nM = 30
 		Mbins = np.linspace(Mrange[0],Mrange[1],nM)
@@ -229,23 +236,22 @@ class DoublePowerLawLF(LuminosityFunction):
 		Lcdf /= Lcdf[-1]
 		Lcdf = np.concatenate([[0.,],Lcdf])
 		return interp1d(Lcdf,Mbins)
-	def sample_at_flux_intervals(self,mrange,zbins,m2M,Nintervals,nPerBin,
-	                             p=None):
+	def sample_at_flux_intervals(self,mrange,zbins,Nintervals,nPerBin,p=None):
 		_mrange = np.array(mrange[::-1])
 		medges = np.empty((Nintervals+1,len(zbins)))
 		mgrid = np.empty((Nintervals,len(zbins),nPerBin))
 		xedges = np.linspace(0.,1,Nintervals+1)
 		for j,z in enumerate(zbins):
-			Mrange = _mrange - m2M(z)
+			Mrange = _mrange - self._m2M(z)
 			Lcdf_fun = self._get_Lcdf_fun(Mrange,z,p)
-			medges[:,j] = Lcdf_fun(xedges)[::-1] + m2M(z)
+			medges[:,j] = Lcdf_fun(xedges)[::-1] + self._m2M(z)
 			for i in range(Nintervals):
 				x = xedges[i] + np.diff(xedges)[i]*np.random.random(nPerBin)
-				mgrid[i,j,:] = Lcdf_fun(x) + m2M(z)
+				mgrid[i,j,:] = Lcdf_fun(x) + self._m2M(z)
 		return medges,mgrid
-	def integrate(self,mrange,zrange,m2M,cosmo,p=None):
-		dVdzdO = interp_dVdzdO(zrange,cosmo)
-		Mrange = lambda z: np.array(mrange) - m2M(z)
+	def integrate(self,mrange,zrange,p=None):
+		dVdzdO = interp_dVdzdO(zrange,self.cosmo)
+		Mrange = lambda z: np.array(mrange) - self._m2M(z)
 		phi_z = lambda z: integrateDPL(Mrange(z),*self.eval_par_at_z(z,p)) * \
 		                        dVdzdO(z)
 		nqso,err = quad(phi_z,*zrange)
@@ -274,8 +280,8 @@ class DoublePowerLawLF(LuminosityFunction):
 
 
 class SinglePowerLawLF(LuminosityFunction):
-	def __init__(self,logPhiStar=None,alpha=None):
-		super(SinglePowerLawLF,self).__init__()
+	def __init__(self,logPhiStar=None,alpha=None,**kwargs):
+		super(SinglePowerLawLF,self).__init__(**kwargs)
 		self.params = OrderedDict()
 		self.params['logPhiStar'] = self._resolvepar(logPhiStar)
 		self.params['alpha'] = self._resolvepar(alpha)
@@ -292,8 +298,8 @@ class SinglePowerLawLF(LuminosityFunction):
 
 
 class SchechterLF(LuminosityFunction):
-	def __init__(self,logPhiStar=None,MStar=None,alpha=None):
-		super(SchechterLF,self).__init__()
+	def __init__(self,logPhiStar=None,MStar=None,alpha=None,**kwargs):
+		super(SchechterLF,self).__init__(**kwargs)
 		self.params = OrderedDict()
 		self.params['logPhiStar'] = self._resolvepar(logPhiStar)
 		self.params['MStar'] = self._resolvepar(MStar)
@@ -398,7 +404,7 @@ class QuasarSurvey(object):
 		    zedges: array defining bin edges in redshift
 		'''
 		confinterval = kwargs.get('confinterval','root-n')
-		# kind of hacky to access cosmo through m2M...
+		# kind of hacky to access cosmo through m2M... XXX
 		dVdzdO = interp_dVdzdO(zedges,self.m2M.cosmo)
 		#
 		Mbins = Medges[:-1] + np.diff(Medges)/2
