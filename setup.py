@@ -16,7 +16,7 @@ setup(name='simqso',
       url='http://github.com/imcgreer/simqso',
       packages=['simqso'],
       provides=['simqso'],
-      package_data={'simqso':['data/*.*','data/VW01_Fe/*.*']},
+      package_data={'simqso':['data/*.*']},
       requires=['numpy', 'matplotlib','scipy','astropy'],
       keywords=['Scientific/Engineering'],
      )

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from astropy.cosmology import FlatLambdaCDM
-from simqso import qsoSimulation,lumfun
+from simqso import qsoSimulation,lumfun,sqmodels
 
 # XXX need to tweak params to match cosmology defined in simParams
 
@@ -100,9 +100,9 @@ simParams = {
   'ForestParams':{
   	'RandomSeed':123,
     # filename to save the forest transmission spectra
-    'FileName':'boss_dr9qlf_forest',
-    # name of the model for the distribution of absorbers [only WP11 for now]
-    'ForestModel':'Worseck&Prochaska2011', 
+#    'FileName':'boss_dr9qlf_forest',
+    # name of the model for the distribution of absorbers 
+    'ForestModel':sqmodels.forestModels['Worseck&Prochaska2011'], 
     # redshift range over which to sample absorbers
     'zRange':(0.0,4.5),
     # the number of independent sightlines to generate

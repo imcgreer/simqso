@@ -35,118 +35,6 @@ transitionParams = _getlinelistdata()
 # default is to go up to 32->1
 default_lymanseries_range = (2,33)
 
-Fan99_model = {
-  'forest':{'zrange':(0.0,6.0),
-            'logNHrange':(13.0,17.3),
-            'N0':50.3,
-            'gamma':2.3,
-            'beta':1.41,
-            'b':30.0},
-     'LLS':{'zrange':(0.0,6.0),
-            'logNHrange':(17.3,20.5),
-            'N0':0.27,
-            'gamma':1.55,
-            'beta':1.25,
-            'b':70.0},
-     'DLA':{'zrange':(0.0,6.0),
-            'logNHrange':(20.5,22.0),
-            'N0':0.04,
-            'gamma':1.3,
-            'beta':1.48,
-            'b':70.0},
-}
-
-WP11_model = {
- 'forest0':{'zrange':(0.0,1.5),
-            'logNHrange':(12.0,19.0),
-            'gamma':0.2,
-            'beta':1.55,
-            'B':0.0170,
-            'N0':340.,
-            'brange':(10.,100.),
-            'bsig':24.0},
- 'forest1':{'zrange':(1.5,4.6),
-            'logNHrange':(12.0,14.5),
-            'gamma':2.04,
-            'beta':1.50,
-            'B':0.0062,
-            'N0':102.0,
-            'brange':(10.,100.),
-            'bsig':24.0},
- 'forest2':{'zrange':(1.5,4.6),
-            'logNHrange':(14.5,17.5),
-            'gamma':2.04,
-            'beta':1.80,
-            'B':0.0062,
-            'N0':4.05,
-            'brange':(10.,100.),
-            'bsig':24.0},
- 'forest3':{'zrange':(1.5,4.6),
-            'logNHrange':(17.5,19.0),
-            'gamma':2.04,
-            'beta':0.90,
-            'B':0.0062,
-            'N0':0.051,
-            'brange':(10.,100.),
-            'bsig':24.0},
-    'SLLS':{'zrange':(0.0,4.6),
-            'logNHrange':(19.0,20.3),
-            'N0':0.0660,
-            'gamma':1.70,
-            'beta':1.40,
-            'brange':(10.,100.),
-            'bsig':24.0},
-     'DLA':{'zrange':(0.0,4.6),
-            'logNHrange':(20.3,22.0),
-            'N0':0.0440,
-            'gamma':1.27,
-            'beta':2.00,
-            'brange':(10.,100.),
-            'bsig':24.0},
-}
-
-McG13hiz_model = {
- 'forest1':{'zrange':(1.5,10.1),
-            'logNHrange':(12.0,14.5),
-            'gamma':3.5,
-            'beta':1.50,
-            'N0':8.5 * 1.1,
-            'brange':(10.,100.),
-            'bsig':24.0},
- 'forest2':{'zrange':(1.5,10.1),
-            'logNHrange':(14.5,17.2),
-            'gamma':3.5,
-            'beta':1.70,
-            'N0':0.33 * 1.1,
-            'brange':(10.,100.),
-            'bsig':24.0},
-     'LLS':{'zrange':(1.5,10.1),
-            'logNHrange':(17.2,20.3),
-            'gamma':2.0,
-            'beta':1.3,
-            'N0':0.13 * 1.1,
-            'brange':(10.,100.),
-            'bsig':24.0},
-  'subDLA':{'zrange':(0.0,10.1),
-            'logNHrange':(20.3,21.0),
-            'N0':0.13 / 7.5 * 1.1,
-            'gamma':1.70,
-            'beta':1.28,
-            'brange':(10.,100.),
-            'bsig':24.0},
-     'DLA':{'zrange':(0.0,10.1),
-            'logNHrange':(21.0,22.0),
-            'N0':0.13 / 33 * 1.1,
-            'gamma':2.0,
-            'beta':1.40,
-            'brange':(10.,100.),
-            'bsig':24.0},
-}
-
-forestModels = {'Fan1999':Fan99_model,
-                'Worseck&Prochaska2011':WP11_model,
-                'McGreer+2013':McG13hiz_model}
-
 def generate_los(model,zmin,zmax):
 	'''
 	Given a model for the distribution of absorption systems, generate
@@ -433,11 +321,9 @@ class IGMTransmissionGrid(object):
 	wave : `~numpy.ndarray` 
 	    input wavelength grid
 	'''
-	def __init__(self,wave,numSightLines,**kwargs):
+	def __init__(self,wave,forestModel,numSightLines,**kwargs):
 		self.specWave = wave
-		self.forestModel = kwargs.get('ForestModel','Worseck&Prochaska2011')
-		if type(self.forestModel) is str:
-			self.forestModel = forestModels[self.forestModel]
+		self.forestModel = forestModel
 		self.numSightLines = numSightLines
 		# pad the lower redshift by just a bit
 		self.zmin = wave.min() / 1215.7 - 1.01

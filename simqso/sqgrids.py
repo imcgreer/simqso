@@ -860,18 +860,19 @@ class QsoSimObjects(object):
 				d['Ob0'] = cosmodef.Ob0
 			cosmodef = d
 		return str(cosmodef)
-	def write(self,simPars,outputDir='.',outFn=None):
+	def write(self,outFn=None,simPars=None,outputDir='.'):
 		'''
 		Write a simulation grid to a FITS file as a binary table, storing 
 		meta-data in the header.
 		'''
 		tab = self.data
-		simPars = copy(simPars)
-		simPars['Cosmology'] = self.cosmo_str(simPars['Cosmology'])
-		if 'QLFmodel' in simPars['GridParams']:
-			s = str(simPars['GridParams']['QLFmodel']).replace('\n',';')
-			simPars['GridParams']['QLFmodel'] = s
-		tab.meta['SQPARAMS'] = str(simPars)
+		if simPars is not None:
+			simPars = copy(simPars)
+			simPars['Cosmology'] = self.cosmo_str(simPars['Cosmology'])
+			if 'QLFmodel' in simPars['GridParams']:
+				s = str(simPars['GridParams']['QLFmodel']).replace('\n',';')
+				simPars['GridParams']['QLFmodel'] = s
+			tab.meta['SQPARAMS'] = str(simPars)
 		tab.meta['GRIDUNIT'] = self.units
 		tab.meta['GRIDDIM'] = str(self.gridShape)
 		for var in self.qsoVars:

@@ -124,8 +124,9 @@ def buildForest(wave,z,simParams,outputDir):
 		except IOError:
 			pass
 	if tgrid is None:
-		tgrid = hiforest.IGMTransmissionGrid(wave,nlos,zmax=z.max(),
-		                                     **forestParams)
+		forestModel = forestParams['ForestModel']
+		tgrid = hiforest.IGMTransmissionGrid(wave,forestModel,nlos,
+		                                     zmax=z.max(),**forestParams)
 	return tgrid
 
 

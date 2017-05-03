@@ -104,12 +104,6 @@ class PolyEvolParam(QlfEvolParam):
 		par = self._extract_par(par)
 		return np.polyval(par,z-self.z0)
 
-class LogPhiStarEvolFixedK(PolyEvolParam):
-	def __init__(self,logPhiStar_zref,k=-0.47,fixed=False,zref=6.0):
-		super(LogPhiStarEvolFixedK,self).__init__([k,logPhiStar_zref],
-		                                          fixed=[True,fixed],
-		                                          z0=zref)
-
 
 class LuminosityFunction(object):
 	def __init__(self):
@@ -307,9 +301,6 @@ class SchechterLF(LuminosityFunction):
 		# -0.0357 = log10( ln10/2.5 )
 		return ( logPhiStar - 0.4*(alpha+1)*(M-Mstar) 
 		             - 10**(-0.4*(M-Mstar))/np.log(10) - 0.0357 )
-
-QLF_McGreer_2013 = DoublePowerLawLF(LogPhiStarEvolFixedK(-8.94),
-                                    -27.21,-2.03,-4.0)
 
 
 # Fitting routines, originally from 
