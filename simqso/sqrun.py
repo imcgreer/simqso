@@ -292,7 +292,7 @@ def _regroup(spOut):
 			rv[j].append(sp[j])
 	return [ np.array(v) for v in rv ]
 
-def buildSpectraBySightLine(wave,qsoGrid,procMap=map,photoMap=None,
+def buildSpectraBySightLine(wave,qsoGrid,procMap=map,
                             maxIter=1,verbose=0,saveSpectra=False):
 	'''Assemble the spectral components of QSOs from the input parameters.
 
@@ -301,25 +301,17 @@ def buildSpectraBySightLine(wave,qsoGrid,procMap=map,photoMap=None,
 	wave : `~numpy.ndarray`
 	    Input wavelength grid.
 	'''
-	if photoMap is not None:
-		photoCache = sqphoto.getPhotoCache(wave,photoMap)
-	else:
-		photoCache = None
+	photoCache = qsoGrid.getPhotoCache(wave)
 	print 'simulating ',qsoGrid.nObj,' quasar spectra'
 	print 'units are ',qsoGrid.units
 	print 'max number iterations: ',maxIter
 	verby = 0 if not verbose else qsoGrid.nObj//(5*verbose)
-	if qsoGrid.units == 'luminosity' or photoMap is None:
+	if qsoGrid.units == 'luminosity' or photoCache is None:
 		nIter = 1
 		fluxBand = None
 	else:
 		nIter = maxIter
-		# rather hacky access point
-		obsBand = qsoGrid.getVars(grids.AppMagVar)[0].obsBand
-		#fluxBand = photoMap['bandpasses'].keys().index(obsBand)
-		bands = photoMap['bandpasses'].keys()
-		fluxBand = next(j for j in range(len(bands))
-		                    if photoMap['filtName'][bands[j]]==obsBand)
+		fluxBand = qsoGrid.getObsBandIndex()
 	#
 	# extract the feature lists, group by sightline, and run
 	specFeatures = qsoGrid.getVars(grids.SpectralFeatureVar)
@@ -331,8 +323,8 @@ def buildSpectraBySightLine(wave,qsoGrid,procMap=map,photoMap=None,
 	# forcing resolution of the elements here with list() -- not that much
 	# memory anyway
 	specOut = procMap(build_grp_spec,list(qsoGroups))
-	if photoMap:
-		bands = photoMap['bandpasses'].keys()
+	if qsoGrid.photoMap:
+		bands = qsoGrid.photoBands
 		def newarr():
 			return np.zeros((qsoGrid.nObj,len(bands)),dtype=np.float32)
 		qsoGrid.addVar(grids.SynMagVar(grids.FixedSampler(newarr())))
@@ -348,7 +340,7 @@ def buildSpectraBySightLine(wave,qsoGrid,procMap=map,photoMap=None,
 		spectra = None
 	return qsoGrid,spectra
 
-def buildSpectraBulk(wave,qsoGrid,procMap=map,photoMap=None,
+def buildSpectraBulk(wave,qsoGrid,procMap=map,
                      maxIter=1,verbose=0,saveSpectra=False):
 	'''Assemble the spectral components of QSOs from the input parameters.
 
@@ -357,22 +349,15 @@ def buildSpectraBulk(wave,qsoGrid,procMap=map,photoMap=None,
 	wave : `~numpy.ndarray`
 	    Input wavelength grid.
 	'''
-	if photoMap is not None:
-		photoCache = sqphoto.getPhotoCache(wave,photoMap)
-	else:
-		photoCache = None
+	photoCache = qsoGrid.getPhotoCache(wave)
 	print 'simulating ',qsoGrid.nObj,' quasar spectra'
 	print 'units are ',qsoGrid.units
-	if qsoGrid.units == 'luminosity' or photoMap is None:
+	if qsoGrid.units == 'luminosity' or photoCache is None:
 		nIter = 1
 		fluxBand = None
 	else:
 		nIter = maxIter
-		obsBand = qsoGrid.getVars(grids.AppMagVar)[0].obsBand
-		#fluxBand = photoMap['bandpasses'].keys().index(obsBand)
-		bands = photoMap['bandpasses'].keys()
-		fluxBand = next(j for j in range(len(bands))
-		                    if photoMap['filtName'][bands[j]]==obsBand)
+		fluxBand = qsoGrid.getObsBandIndex()
 	#
 	for iterNum in range(1,nIter+1):
 		specFeatures = qsoGrid.getVars(grids.SpectralFeatureVar)
@@ -405,7 +390,7 @@ def buildSpectraBulk(wave,qsoGrid,procMap=map,photoMap=None,
 		spectra = specOut[2]
 	else:
 		spectra = None
-	if photoMap is not None:
+	if qsoGrid.photoMap is not None:
 		qsoGrid.addVar(grids.SynMagVar(grids.FixedSampler(synMag)))
 		qsoGrid.addVar(grids.SynFluxVar(grids.FixedSampler(synFlux)))
 	return qsoGrid,spectra
@@ -413,7 +398,7 @@ def buildSpectraBulk(wave,qsoGrid,procMap=map,photoMap=None,
 
 def readSimulationData(fileName,outputDir,retParams=False):
 	qsoGrid = grids.QsoSimObjects()
-	qsoGrid.read(os.path.join(outputDir,fileName+'.fits'))
+	qsoGrid.read(os.path.join(outputDir,fileName+'.fits'),clean=True)
 	simPars = qsoGrid.simPars
 	gridPars = simPars['GridParams']
 	if True:
@@ -539,9 +524,8 @@ def qsoSimulation(simParams,**kwargs):
 	# Use continuum and emission line distributions to build the components
 	# of the intrinsic QSO spectrum, then calculate photometry
 	#
-	photSys = simParams['PhotoMapParams']['PhotoSystems']
-	photoMap = sqphoto.load_photo_map(photSys)
-	_,spectra = buildSpec(wave,qsoGrid,procMap,photoMap=photoMap,
+	qsoGrid.loadPhotoMap(simParams['PhotoMapParams']['PhotoSystems'])
+	_,spectra = buildSpec(wave,qsoGrid,procMap,
 	                      maxIter=simParams.get('maxFeatureIter',5),
 	                      verbose=verbose,saveSpectra=saveSpectra)
 	timerLog('Build Quasar Spectra')
@@ -551,7 +535,7 @@ def qsoSimulation(simParams,**kwargs):
 	if not noPhotoMap:
 		print 'mapping photometry'
 		reseed(simParams['PhotoMapParams'])
-		photoData = sqphoto.calcObsPhot(qsoGrid.synFlux,photoMap)
+		photoData = sqphoto.calcObsPhot(qsoGrid.synFlux,qsoGrid.photoMap)
 		qsoGrid.addData(photoData)
 		timerLog('PhotoMap')
 	timerLog.dump()

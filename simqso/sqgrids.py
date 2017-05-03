@@ -15,6 +15,7 @@ from astropy import cosmology
 
 from .sqbase import datadir,Spectrum
 from . import dustextinction
+from . import sqphoto
 
 
 ##############################################################################
@@ -71,6 +72,8 @@ class FixedSampler(Sampler):
 		if n is not None and n != len(self.vals):
 			raise ValueError
 		return self.vals
+	def __str__(self):
+		return 'FixedSampler'
 
 class NullSampler(Sampler):
 	'''
@@ -80,6 +83,8 @@ class NullSampler(Sampler):
 		pass
 	def sample(self,n,**kwargs):
 		return None
+	def __str__(self):
+		return 'NullSampler'
 
 class IndexSampler(Sampler):
 	'''
@@ -89,6 +94,8 @@ class IndexSampler(Sampler):
 		pass
 	def sample(self,n,**kwargs):
 		return None
+	def __str__(self):
+		return 'IndexSampler'
 
 class RandomSubSampler(Sampler):
 	def __init__(self,n):
@@ -123,6 +130,8 @@ class UniformSampler(Sampler):
 	'''
 	def sample(self,n,**kwargs):
 		return np.linspace(self.low,self.high,n)
+	def __str__(self):
+		return 'UniformSampler(%s,%s)' % (self.low,self.high)
 
 class CdfSampler(Sampler):
 	'''
@@ -206,6 +215,9 @@ class GaussianSampler(CdfSampler):
 		if ii is None: ii = np.s_[:]
 		self.mean[ii] = mean
 		self.sigma[ii] = sigma
+	def __str__(self):
+		return 'GaussianSampler(%s,%s,%s,%s)' % \
+		    (self.mean,self.sigma,self.low,self.high)
 
 #class LogNormalSampler(CdfSampler):
 #	'''
@@ -344,14 +356,17 @@ class QsoSimVar(object):
 		Update the samplers of any dependent variables and then resample.
 		'''
 		self.sampler.resample(*args,**kwargs)
-	def __str__(self):
+	def _sampler_to_string(self):
 		return str(self.sampler)
-	def updateMeta(self,meta):
+	def updateMeta(self,meta,axPfx):
 		'''
 		Update the meta-data dictionary associated with the variable.
 		'''
 		for k,v in self.meta.items():
 			meta[k] = v
+		meta[axPfx+'TYPE'] = self.__class__.__name__
+		meta[axPfx+'NAME'] = str(self.name)
+		meta[axPfx+'SMPL'] = self._sampler_to_string()
 
 class MultiDimVar(QsoSimVar):
 	'''
@@ -376,6 +391,8 @@ class MultiDimVar(QsoSimVar):
 		return np.rollaxis(np.array(arr),-1)
 	def resample(self,*args,**kwargs):
 		self._recurse_resample(self.sampler,*args,**kwargs)
+	def _sampler_to_string(self):
+		return 'MultiDimVar(%d)' % len(self.sampler)
 
 class SpectralFeatureVar(object):
 	'''
@@ -402,9 +419,12 @@ class AppMagVar(QsoSimVar):
 	An apparent magnitude variable, defined in an observed bandpass ``band``.
 	'''
 	name = 'appMag'
-	def __init__(self,sampler,band):
+	def __init__(self,sampler,obsBand):
 		super(AppMagVar,self).__init__(sampler)
-		self.obsBand = band
+		self.obsBand = obsBand
+	def updateMeta(self,meta,axPfx):
+		super(AppMagVar,self).updateMeta(meta,axPfx)
+		meta[axPfx+'VARG'] = '"%s"' % self.obsBand
 
 class AbsMagVar(QsoSimVar):
 	'''
@@ -416,6 +436,9 @@ class AbsMagVar(QsoSimVar):
 		'''if restWave is none then bolometric'''
 		super(AbsMagVar,self).__init__(sampler)
 		self.restWave = restWave
+	def updateMeta(self,meta,axPfx):
+		super(AbsMagVar,self).updateMeta(meta,axPfx)
+		meta[axPfx+'VARG'] = 'restWave=%s' % self.restWave
 
 class RedshiftVar(QsoSimVar):
 	'''
@@ -616,6 +639,7 @@ class FeTemplateVar(EmissionFeatureVar):
 	Since the template is fixed it uses a :class:`simqso.sqgrids.NullSampler`
 	instance internally.
 	'''
+	name = 'fetempl'
 	def __init__(self,feGrid):
 		super(FeTemplateVar,self).__init__(NullSampler())
 		self.feGrid = feGrid
@@ -772,9 +796,14 @@ class QsoSimObjects(object):
 		One of "flux" or "luminosity", XXX should be handled internally...
 	'''
 	def __init__(self,qsoVars=[],cosmo=None,units=None):
-		self.qsoVars = qsoVars
 		self.cosmo = cosmo
 		self.units = units
+		self.qsoVars = qsoVars
+		if len(qsoVars) > 0:
+			self.varNames = [ v.name for v in qsoVars ]
+		else:
+			self.varNames = []
+		self.photoMap = None
 	def setCosmology(self,cosmodef):
 		if type(cosmodef) is dict:
 			self.cosmo = cosmology.FlatLambdaCDM(**cosmodef)
@@ -802,14 +831,16 @@ class QsoSimObjects(object):
 			return self.data[name]
 		except KeyError:
 			raise AttributeError("no attribute "+name)
-	def addVar(self,var):
+	def addVar(self,var,noVals=False):
 		'''
 		Add a variable to the simulation.
 		'''
 		self.qsoVars.append(var)
-		vals = var(self.nObj)
-		if vals is not None:
-			self.data[var.name] = vals
+		self.varNames.append(var.name)
+		if not noVals:
+			vals = var(self.nObj)
+			if vals is not None:
+				self.data[var.name] = vals
 	def addVars(self,newVars):
 		'''
 		Add a list of variables to the simulation.
@@ -821,8 +852,14 @@ class QsoSimObjects(object):
 	def getVars(self,varType=QsoSimVar):
 		'''
 		Return all variables that are instances of varType.
+		If varType is a string, return the variable with name varType.
 		'''
-		return filter(lambda v: isinstance(v,varType),self.qsoVars)
+		if isinstance(varType,basestring):
+			return self.qsoVars[self.varNames.index(varType)]
+		else:
+			return filter(lambda v: isinstance(v,varType),self.qsoVars)
+	def varIndex(self,varName):
+		return self.varNames.index(varName)
 	def resample(self):
 		for var in self.qsoVars:
 			if var.dependentVars is not None:
@@ -830,7 +867,20 @@ class QsoSimObjects(object):
 				self.data[var.name] = var(self.nObj)
 	def distMod(self,z):
 		return self.cosmo.distmod(z).value
-	def read(self,gridFile,clean=True):
+	def loadPhotoMap(self,photoSys):
+		self.photoMap = sqphoto.load_photo_map(photoSys)
+		self.photoBands = self.photoMap['bandpasses'].keys()
+	def getPhotoCache(self,wave):
+		if self.photoMap:
+			return sqphoto.getPhotoCache(wave,self.photoMap)
+		else:
+			return None
+	def getBandIndex(self,band):
+		return next(j for j in range(len(self.photoBands))
+		              if self.photoMap['filtName'][self.photoBands[j]]==band)
+	def getObsBandIndex(self):
+		return self.getBandIndex(self.getVars(AppMagVar)[0].obsBand)
+	def read(self,gridFile,clean=False):
 		'''
 		Read a simulation grid from a file.
 		'''
@@ -849,8 +899,30 @@ class QsoSimObjects(object):
 		self.units = hdr['GRIDUNIT']
 		self.gridShape = eval(hdr['GRIDDIM'])
 		hdr = fits.getheader(gridFile,1)
-		self.simPars = ast.literal_eval(hdr['SQPARAMS'])
-		self.setCosmology(self.simPars['Cosmology'])
+		try:
+			self.simPars = ast.literal_eval(hdr['SQPARAMS'])
+			self.setCosmology(self.simPars['Cosmology'])
+		except:
+			print 'WARNING: no params in header'
+		for i,v in enumerate(range(hdr['NSIMVAR'])):
+			cls = hdr['AX%dTYPE'%i]
+			name = hdr['AX%dNAME'%i]
+			smplr = hdr['AX%dSMPL'%i] 
+			kwargs = hdr.get('AX%dVARG'%i,'')
+			try:
+				if smplr == 'FixedSampler':
+					smplr = 'FixedSampler(self.data[name])'
+				c = eval(cls+'('+smplr+',%s)'%kwargs)
+				if c.name != name:
+					c.name = name
+				self.addVar(c,noVals=True)
+			except:
+				print 'WARNING: failed to restore %s' % cls
+				self.qsoVars.append(None)
+				self.varNames.append('<null>')
+		self._restore(hdr)
+	def _restore(self,hdr):
+		pass
 	@staticmethod
 	def cosmo_str(cosmodef):
 		if isinstance(cosmodef,cosmology.FLRW):
@@ -873,10 +945,12 @@ class QsoSimObjects(object):
 				s = str(simPars['GridParams']['QLFmodel']).replace('\n',';')
 				simPars['GridParams']['QLFmodel'] = s
 			tab.meta['SQPARAMS'] = str(simPars)
+		tab.meta['COSMO'] = self.cosmo_str(self.cosmo)
 		tab.meta['GRIDUNIT'] = self.units
 		tab.meta['GRIDDIM'] = str(self.gridShape)
-		for var in self.qsoVars:
-			var.updateMeta(tab.meta)
+		for i,var in enumerate(self.qsoVars):
+			var.updateMeta(tab.meta,'AX%d'%i)
+		tab.meta['NSIMVAR'] = len(self.qsoVars)
 		if outFn is None:
 			outFn = simPars['FileName']+'.fits'
 		tab.write(os.path.join(outputDir,outFn),overwrite=True)
@@ -917,16 +991,24 @@ class QsoSimGrid(QsoSimObjects):
 	nPerBin : int
 		Number of objects within each grid cell.
 	'''
-	def __init__(self,qsoVars,nBins,nPerBin,**kwargs):
-		super(QsoSimGrid,self).__init__(qsoVars,**kwargs)
-		self.gridShape = nBins + (nPerBin,)
-		axes = [ var(n+1) for n,var in zip(nBins,qsoVars) ]
+	def __init__(self,*args,**kwargs):
+		super(QsoSimGrid,self).__init__(**kwargs)
+		if len(args) > 0:
+			gridVars,nBins,nPerBin = args
+			self.gridShape = nBins + (nPerBin,)
+			self._init_grid(gridVars)
+			self._init_grid_data(gridVars)
+			self.addVars(gridVars)
+	def _init_grid(self,gridVars):
+		axes = [ var(n+1) for n,var in zip(self.gridShape[:-1],gridVars) ]
 		self.gridEdges = np.meshgrid(*axes,indexing='ij')
 		self.gridCenters = [ a[:-1]+np.diff(a)/2 for a in axes ]
+		self.nGridDim = len(self.gridShape)-1
+	def _init_grid_data(self,gridVars):
 		data = {}
-		for i,(v,g) in enumerate(zip(qsoVars,self.gridEdges)):
+		for i,(v,g) in enumerate(zip(gridVars,self.gridEdges)):
 			x = np.random.random(self.gridShape)
-			s = [ slice(0,-1,1) for j in range(len(qsoVars)) ]
+			s = [ slice(0,-1,1) for j in range(self.nGridDim) ]
 			pts0 = g[s][...,np.newaxis] 
 			binsz = np.diff(g,axis=i)
 			s[i] = slice(None)
@@ -938,6 +1020,8 @@ class QsoSimGrid(QsoSimObjects):
 		# in case the column has extra axes (i.e., for flux vectors)
 		outShape = self.gridShape + self.data[name].shape[1:]
 		return np.asarray(self.data[name]).reshape(outShape)
+	def _restore(self,hdr):
+		self._init_grid(self.qsoVars[:len(self.gridShape)-1])
 	def __str__(self):
 		s = "grid dimensions: "+str(self.gridShape)+"\n"
 		s += str(self.gridEdges)+"\n"
