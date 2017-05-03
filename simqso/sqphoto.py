@@ -289,13 +289,13 @@ supported_photo_systems = {
 }
 
 # should find a better container / organization for this
-def load_photo_map(params):
+def load_photo_map(photSystems):
 	bandpasses = OrderedDict()
 	filterdata = fits.open(datadir+'filtercurves.fits')
 	mapObserved = {}
 	magSys = {}
 	filtName = {} # ugh
-	for photDesc in params['PhotoSystems']:
+	for photDesc in photSystems:
 		try:
 			photSysName,survey,bands = photDesc
 		except ValueError:

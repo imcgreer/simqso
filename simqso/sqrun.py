@@ -292,7 +292,7 @@ def _regroup(spOut):
 			rv[j].append(sp[j])
 	return [ np.array(v) for v in rv ]
 
-def buildSpectraBySightLine(wave,qsoGrid,procMap,photoMap=None,
+def buildSpectraBySightLine(wave,qsoGrid,procMap=map,photoMap=None,
                             maxIter=1,verbose=0,saveSpectra=False):
 	'''Assemble the spectral components of QSOs from the input parameters.
 
@@ -348,7 +348,7 @@ def buildSpectraBySightLine(wave,qsoGrid,procMap,photoMap=None,
 		spectra = None
 	return qsoGrid,spectra
 
-def buildSpectraBulk(wave,qsoGrid,procMap,photoMap=None,
+def buildSpectraBulk(wave,qsoGrid,procMap=map,photoMap=None,
                      maxIter=1,verbose=0,saveSpectra=False):
 	'''Assemble the spectral components of QSOs from the input parameters.
 
@@ -539,7 +539,8 @@ def qsoSimulation(simParams,**kwargs):
 	# Use continuum and emission line distributions to build the components
 	# of the intrinsic QSO spectrum, then calculate photometry
 	#
-	photoMap = sqphoto.load_photo_map(simParams['PhotoMapParams'])
+	photSys = simParams['PhotoMapParams']['PhotoSystems']
+	photoMap = sqphoto.load_photo_map(photSys)
 	_,spectra = buildSpec(wave,qsoGrid,procMap,photoMap=photoMap,
 	                      maxIter=simParams.get('maxFeatureIter',5),
 	                      verbose=verbose,saveSpectra=saveSpectra)
