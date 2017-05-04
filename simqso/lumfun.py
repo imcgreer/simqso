@@ -377,6 +377,9 @@ class QuasarSurvey(object):
 		# the luminosity bins to fluxes
 		Mbounds,zbounds = np.meshgrid(Medges,zedges,indexing='ij')
 		mbounds = Mbounds + self.m2M(Mbounds,zbounds,inverse=True)
+		# if M is outside the definition of the k-correction, m2M returns
+		# nan. This prevents a warning from the comparison to nan.
+		mbounds[np.isnan(mbounds)] = np.inf
 		inbounds = mbounds < self.m_lim
 		# this sums the bin edges 2x2: 
 		#   4=full covg, 0=no covg, otherwise partial

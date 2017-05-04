@@ -2,14 +2,15 @@
 
 import os
 import numpy as np
-from scipy.interpolate import RectBivariateSpline,SmoothBivariateSpline
+from scipy.interpolate import RectBivariateSpline,SmoothBivariateSpline, \
+                              griddata
 from scipy.stats import binned_statistic_2d
 
 from . import sqgrids as grids
 from .sqrun import readSimulationData
 
 class ClippedFunction(object):
-	def __init__(self,fun,minval=0.0,maxval=1.0):
+	def __init__(self,fun,minval,maxval):
 		self.fun = fun
 		self.minval = minval
 		self.maxval = maxval
@@ -20,10 +21,24 @@ class ClippedFunction(object):
 	def ev(self,*args,**kwargs):
 		return self.clip(self.fun.ev(*args,**kwargs))
 
+class Interpolator(object):
+	def __init__(self,x,y,z):
+		self.points = np.array([x,y]).T
+		self.values = z
+	def ev(self,x,y):
+		xi = np.array([x.ravel(),y.ravel()]).T
+		rv = griddata(self.points,self.values,xi,method='linear')
+		return rv.reshape(x.shape)
+	def __call__(self,x,y):
+		xx,yy = np.meshgrid(x,y,indexing='ij')
+		return self.ev(xx.ravel(),yy.ravel()).reshape(len(x),len(y))
+
 class SimGridOutput(object):
-	def __init__(self,qsoGrid,minNobj=10):
+	def __init__(self,qsoGrid,minNobj=10,clip=None):
 		self.qsoGrid = qsoGrid
 		self.minNobj = minNobj
+		self.clip = clip
+		self.splineKwargs = dict(kx=3,ky=3,s=0)
 		#if not isinstance(qsoGrid,grids.QsoSimGrid):
 		#	raise NotImplementedError
 		if len(qsoGrid.gridShape) > 3:
@@ -43,13 +58,15 @@ class SimGridOutput(object):
 		self.absMag = self.qsoGrid.asGrid('absMag')
 	def _from_grid(self):
 		g = self._collapse_grid()
-		f = RectBivariateSpline(self.mBins,self.zBins,g,kx=3,ky=3,s=1)
+		f = RectBivariateSpline(self.mBins,self.zBins,g,**self.splineKwargs)
+		if self.clip:
+			f = ClippedFunction(f,*self.clip)
 		return dict(mBins=self.mBins,zBins=self.zBins,grid=g,interp=f)
 	def _resample_grid(self,mag,vals):
 		mag = mag.ravel()
 		vals = vals.ravel()
 		#
-		mStep = np.median(np.diff(self.mBins))
+		mStep = np.median(np.diff(self.mBins)) / 2
 		mLow = mag.min() - mStep
 		mHigh = mag.max() + mStep
 		mEdges = np.arange(mLow,mHigh,mStep)
@@ -62,7 +79,10 @@ class SimGridOutput(object):
 		zBins = zEdges[:-1] + np.diff(zEdges)/2
 		mm,zz = np.meshgrid(mBins,zBins,indexing='ij')
 		ii = np.where(np.isfinite(g))
-		f = SmoothBivariateSpline(mm[ii],zz[ii],g[ii],kx=3,ky=3,s=1)
+		#f = SmoothBivariateSpline(mm[ii],zz[ii],g[ii],**self.splineKwargs)
+		f = Interpolator(mm[ii],zz[ii],g[ii])
+		if self.clip:
+			f = ClippedFunction(f,*self.clip)
 		return dict(mBins=mBins,zBins=zBins,grid=g,interp=f)
 	def calc_grid(self,*args,**kwargs):
 		self._calc_vals(*args,**kwargs)
@@ -80,6 +100,7 @@ class SimGridOutput(object):
 			return self.f_m['interp'].ev(m,z)
 
 class SimKCorr(SimGridOutput):
+	fillValue = np.nan
 	def __init__(self,qsoGrid,**kwargs):
 		super(SimKCorr,self).__init__(qsoGrid,**kwargs)
 		self.DM = self.qsoGrid.distMod(self.qsoGrid.asGrid('z'))
@@ -98,9 +119,10 @@ class SimKCorr(SimGridOutput):
 		g[n<self.minNobj] = np.nan
 		return g
 
-# XXX add clippedfun back in
 class SelectionFunction(SimGridOutput):
+	fillValue = 0.0
 	def __init__(self,qsoGrid,m2M,**kwargs):
+		kwargs.setdefault('clip',(0,1))
 		super(SelectionFunction,self).__init__(qsoGrid,**kwargs)
 		self.m2M = m2M
 		self.nPerBin = self.qsoGrid.gridShape[-1]
@@ -114,8 +136,9 @@ class SelectionFunction(SimGridOutput):
 	def _grid_binstats(self,mag,z,vals,bins):
 		g = binned_statistic_2d(mag,z,vals,'sum',bins)[0]
 		n = binned_statistic_2d(mag,z,vals,'count',bins)[0]
-		g[n<self.minNobj] = np.nan
-		return g/n
+		g[n<self.minNobj] = 0.0
+		g[n>=self.minNobj] /= n[n>=self.minNobj]
+		return g
 	def _photo_complete_call(self,m,z,absMag=False):
 		if type(self.photo_complete) is float:
 			return self.photo_complete
