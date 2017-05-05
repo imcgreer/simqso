@@ -841,12 +841,12 @@ class QsoSimObjects(object):
 			vals = var(self.nObj)
 			if vals is not None:
 				self.data[var.name] = vals
-	def addVars(self,newVars):
+	def addVars(self,newVars,noVals=False):
 		'''
 		Add a list of variables to the simulation.
 		'''
 		for var in newVars:
-			self.addVar(var)
+			self.addVar(var,noVals=noVals)
 	def addData(self,data):
 		self.data = hstack([self.data,data])
 	def getVars(self,varType=QsoSimVar):
@@ -998,7 +998,7 @@ class QsoSimGrid(QsoSimObjects):
 			self.gridShape = nBins + (nPerBin,)
 			self._init_grid(gridVars)
 			self._init_grid_data(gridVars)
-			self.addVars(gridVars)
+			self.addVars(gridVars,noVals=True)
 	def _init_grid(self,gridVars):
 		axes = [ var(n+1) for n,var in zip(self.gridShape[:-1],gridVars) ]
 		self.gridEdges = np.meshgrid(*axes,indexing='ij')
