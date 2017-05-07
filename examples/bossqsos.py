@@ -163,6 +163,20 @@ bossdr9_expdust_model = {
   },
 }
 
+def make_grid():
+	from copy import deepcopy
+	simpar = deepcopy(simParams)
+	simpar['FileName'] = 'boss_grid_sim'
+	simpar['GridParams']['GridType'] = 'FluxRedshiftGrid'
+	del simpar['GridParams']['QLFmodel']
+	del simpar['GridParams']['QLFargs']
+	simpar['GridParams']['mRange'] += (30,)
+	simpar['GridParams']['zRange'] += (20,)
+	simpar['GridParams']['nPerBin'] = 100
+	simpar['ForestParams']['NumLinesOfSight'] = 1000
+	simpar['ForestParams']['FileName'] = 'boss_grid_forest'
+	qsoSimulation(simpar,verbose=5)
+
 if __name__=='__main__':
 	qsoSimulation(simParams)
 
