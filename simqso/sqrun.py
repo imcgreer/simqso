@@ -69,8 +69,7 @@ def buildQsoGrid(simParams):
 			m = grids.AbsMagVar(mSampler,restWave=gridPars['LumUnits'])
 			units = 'luminosity'
 		elif gridType.startswith('Flux'):
-			m = grids.AppMagVar(mSampler,band=gridPars['ObsBand'],
-			                    )#restBand=gridPars['RestBand'])
+			m = grids.AppMagVar(mSampler,gridPars['ObsBand'])
 			units = 'flux'
 		z = grids.RedshiftVar(zSampler)
 	elif gridType == 'FixedGrid':
