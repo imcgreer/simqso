@@ -183,6 +183,12 @@ class cfhtlsWidePhotoUnc(empiricalPhotoUnc):
 		# calibration uncertainty floor
 		self.err_floor = 0.015
 
+class cfhtlsDeepPhotoUnc(cfhtlsWidePhotoUnc):
+	def __call__(self,f_nmgy):
+		wideErr = super(cfhtlsDeepPhotoUnc,self).__call__(f_nmgy)
+		minErr = f_nmgy * self.err_floor / 1.0857
+		return np.clip(wideErr,minErr,np.inf)
+
 
 # WISE photometric model
 # need to find original reference, values updated to AllWISE by Feige
@@ -272,6 +278,7 @@ supported_photo_systems = {
   },
   'CFHT':{
     'CFHTLS_Wide':{'bands':'ugriz','magSys':'AB','uncMap':cfhtlsWidePhotoUnc},
+    'CFHTLS_Deep':{'bands':'ugriz','magSys':'AB','uncMap':cfhtlsDeepPhotoUnc},
   },
   'UKIRT':{
     'UKIDSS_LAS':{'bands':'YJHK','magSys':'AB','uncMap':ukidsslasPhotoUnc},
