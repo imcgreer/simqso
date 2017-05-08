@@ -992,6 +992,7 @@ class QsoSimGrid(QsoSimObjects):
 		Number of objects within each grid cell.
 	'''
 	def __init__(self,*args,**kwargs):
+		self.fixedPoints = kwargs.pop('fixed_points',False)
 		super(QsoSimGrid,self).__init__(**kwargs)
 		if len(args) > 0:
 			gridVars,nBins,nPerBin = args
@@ -1007,12 +1008,15 @@ class QsoSimGrid(QsoSimObjects):
 	def _init_grid_data(self,gridVars):
 		data = {}
 		for i,(v,g) in enumerate(zip(gridVars,self.gridEdges)):
-			x = np.random.random(self.gridShape)
 			s = [ slice(0,-1,1) for j in range(self.nGridDim) ]
 			pts0 = g[s][...,np.newaxis] 
-			binsz = np.diff(g,axis=i)
-			s[i] = slice(None)
-			pts = pts0 + x*binsz[s][...,np.newaxis]
+			if not self.fixedPoints:
+				x = np.random.random(self.gridShape)
+				binsz = np.diff(g,axis=i)
+				s[i] = slice(None)
+				pts = pts0 + x*binsz[s][...,np.newaxis]
+			else:
+				pts = np.tile(pts0,self.gridShape[-1])
 			data[v.name] = pts.flatten()
 		self.data = Table(data)
 		self.nObj = len(self.data)
