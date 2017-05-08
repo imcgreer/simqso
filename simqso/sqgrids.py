@@ -1001,14 +1001,32 @@ class QsoSimGrid(QsoSimObjects):
 			self._init_grid_data(gridVars)
 			self.addVars(gridVars,noVals=True)
 	def _init_grid(self,gridVars):
-		axes = [ var(n+1) for n,var in zip(self.gridShape[:-1],gridVars) ]
+		axes = []
+		self.gridCenters = []
+		for n,var in zip(self.gridShape[:-1],gridVars):
+			if isinstance(var.sampler,UniformSampler):
+				if var.name in self.fixedVars:
+					nax = n
+				else:
+					nax = n+1
+			elif isinstance(var.sampler,FixedSampler):
+				if not var.name in self.fixedVars:
+					raise ValueError
+				nax = n
+			else:
+				raise ValueError
+			axis = var(nax)
+			axes.append(axis)
+			if var.name in self.fixedVars:
+				self.gridCenters.append(axis[:n])
+			else:
+				self.gridCenters.append(axis[:n]+np.diff(axis)/2)
 		self.gridEdges = np.meshgrid(*axes,indexing='ij')
-		self.gridCenters = [ a[:-1]+np.diff(a)/2 for a in axes ]
 		self.nGridDim = len(self.gridShape)-1
 	def _init_grid_data(self,gridVars):
 		data = {}
 		for i,(v,g) in enumerate(zip(gridVars,self.gridEdges)):
-			s = [ slice(0,-1,1) for j in range(self.nGridDim) ]
+			s = [ slice(0,n,1) for n in self.gridShape[:self.nGridDim] ]
 			pts0 = g[s][...,np.newaxis] 
 			if v.name in self.fixedVars:
 				pts = np.tile(pts0,self.gridShape[-1])
