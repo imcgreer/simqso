@@ -16,11 +16,27 @@ import astropy.units as u
 skyDeg2 = 41253.
 
 def interp_dVdzdO(zrange,cosmo):
+	r'''
+	Interpolate the differential comoving solid volume element 
+	:math:`(dV/dz){d\Omega}`
+	over zrange = :math:`(z_1,z_2)`. Much faster than full calculation 
+	without significant loss in accuracy.
+
+	Parameters
+	----------
+	zrange : tuple
+	    Redshift range for interpolation.
+	cosmo : astropy.cosmology.Cosmology
+	'''
 	zz = np.arange(zrange[0]-0.01,zrange[1]+0.0251,0.025)
 	diff_co_vol = [cosmo.differential_comoving_volume(z).value for z in zz]
 	return interp1d(zz,diff_co_vol)
 
 def doublePL_Lintegral(x,a,b):
+	'''
+	Indefinite integral of a double power law function 
+	:math:`f(x,a,b) = (x^a + x^b)^{-1}`.
+	'''
 	return (b*x**(1-a) / ((a-1)*(a-b)) - 
 	         x**(1-a)*((a-b)* 
 	          hyp2f1(1.,(a-1)/(a-b),(a-1)/(a-b)+1,-x**(b-a)) + b) / 
@@ -29,6 +45,15 @@ def doublePL_Lintegral(x,a,b):
 # handy conversions are given in Hopkins, Richards, & Hernquist 2007
 # eqns. 6-8
 def integrateDPL(Mrange,logPhiStar,MStar,alpha,beta):
+	r'''
+	Integrate a double power law luminosity function of the form
+
+	.. math::
+	    \Phi(M,z){dM}{dz} = \frac{\Phi^*{dM}{dz}}{10^{0.4(\alpha+1)(M-M^*)} 
+	                              + 10^{0.4(\beta+1)(M-M^*)}}
+
+	over the range Mrange = :math:`(M_\mathrm{min}, M_\mathrm{max})`.
+	'''
 	PhiStar_M = 10**logPhiStar
 	MM = np.asarray(Mrange)
 	L_min,L_max = 10**(-0.4*(MM-MStar))
@@ -44,11 +69,19 @@ def integrateDPL(Mrange,logPhiStar,MStar,alpha,beta):
 	return 1.0857 * PhiStar_M * Lsum
 
 class QlfEvolParam(object):
+	'''
+	A redshift-evolving parameter in a luminosity function.
+
+	Parameters
+	----------
+	par : sequence
+	    initial values
+	fixed : bool or sequence
+	    False means none, True means all, otherwise same shape as x
+	z0 : float
+	    evaluate at z-z0; i.e., z0=-1 means (1+z), z0=6 means (z-6.0)
+	'''
 	def __init__(self,par,fixed=False,z0=0.):
-		'''par: initial values
-		   fixed: False means none, True means all, otherwise same shape as x
-		   z0: evaluate at z-z0; i.e., z0=-1 means (1+z), z0=6 means (z-6.0)
-		'''
 		# this assures even float values are converted to length-1 arrays
 		par = np.asarray(par).astype(np.float64) * np.ones(1)
 		self.par = np.ma.array(par,mask=fixed)
@@ -100,6 +133,10 @@ class QlfEvolParam(object):
 		raise NotImplementedError
 
 class PolyEvolParam(QlfEvolParam):
+	'''
+	A luminosity function parameter that evolves with redshift according 
+	to a polynomial function.
+	'''
 	def eval_at_z(self,z,par=None):
 		par = self._extract_par(par)
 		return np.polyval(par,z-self.z0)
@@ -310,22 +347,25 @@ def arr_between(a,b):
 	return np.logical_and(a>=b[0],a<b[1])
 
 class QuasarSurvey(object):
+	r'''
+	A collection of quasars formed with uniform selection criteria.
+
+	Parameters
+	----------
+	m : apparent magnitudes of objects
+	z : redshifts
+	m_lim : limiting apparent magnitude of survey
+	skyArea : area of survey in deg^2
+	m2M : f(m,z,inverse=False)
+	    function taking apparent mag and redshift as arguments, along with a 
+	    keyword "inverse", and returning the conversion from apparent mag to 
+	    absolute mag, or the reverse if inverse=True. Must include both 
+	    cosmological and k-corrections, i.e., 
+	    :math:`M = m - \mathrm{m2M}(m,z) = m - DM(z) - K(m,z)`
+	    and  :math:`m = M + \mathrm{m2M}(M,z,\mathrm{inverse=True})`
+	    Allows for luminosity-dependent k-corrections.
+	'''
 	def __init__(self,m,z,m_lim,skyArea,m2M):
-		'''__init__(self,m,z,m_lim,skyArea,m2M):
-		    Inputs are survey description.
-		    m:       apparent magnitudes of objects
-		    z:       redshifts
-		    m_lim:   limiting apparent magnitude of survey
-		    skyArea: area of survey in deg^2
-		    m2M:     function taking apparent mag and redshift as arguments,
-	                 along with a keyword ``inverse'', and returning the
-		             conversion from apparent mag to absolute mag, or
-		             the reverse if inverse=True.
-		             Must include both cosmological and k-corrections.
-		             i.e., M = m - m2M(m,z) = m - DM(z) - K(m,z)
-		              and  m = M + m2M(M,z,inverse=True)
-		            Allows for luminosity-dependent k-corrections.
-		'''
 		self.m = m
 		self.z = z
 		self.m_lim = m_lim
@@ -386,10 +426,13 @@ class QuasarSurvey(object):
 		inbounds = convolve(inbounds.astype(int),np.ones((2,2)))[:-1,:-1]
 		return inbounds
 	def calcBinnedLF(self,Medges,zedges,**kwargs):
-		'''calcBinnedLF(self,Medges,zedges,**kwargs)
-		    calculate binned luminosity function from the stored survey data.
-		    Medges: array defining bin edges in absolute mag
-		    zedges: array defining bin edges in redshift
+		'''
+		Calculate binned luminosity function from the stored survey data.
+
+		Parameters
+		----------
+		Medges : array defining bin edges in absolute mag
+		zedges : array defining bin edges in redshift
 		'''
 		confinterval = kwargs.get('confinterval','root-n')
 		# kind of hacky to access cosmo through m2M...
