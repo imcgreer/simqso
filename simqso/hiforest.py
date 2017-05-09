@@ -11,7 +11,7 @@ from astropy.table import Table,vstack
 from .sqbase import datadir
 
 # shorthands
-exp,sqrt = np.exp,np.sqrt
+exp,sqrt,log = np.exp,np.sqrt,np.log
 c_kms = const.c/1e3
 sqrt_pi = sqrt(np.pi)
 sigma_c = 6.33e-18 # cm^-2
@@ -34,118 +34,6 @@ transitionParams = _getlinelistdata()
 
 # default is to go up to 32->1
 default_lymanseries_range = (2,33)
-
-Fan99_model = {
-  'forest':{'zrange':(0.0,6.0),
-            'logNHrange':(13.0,17.3),
-            'N0':50.3,
-            'gamma':2.3,
-            'beta':1.41,
-            'b':30.0},
-     'LLS':{'zrange':(0.0,6.0),
-            'logNHrange':(17.3,20.5),
-            'N0':0.27,
-            'gamma':1.55,
-            'beta':1.25,
-            'b':70.0},
-     'DLA':{'zrange':(0.0,6.0),
-            'logNHrange':(20.5,22.0),
-            'N0':0.04,
-            'gamma':1.3,
-            'beta':1.48,
-            'b':70.0},
-}
-
-WP11_model = {
- 'forest0':{'zrange':(0.0,1.5),
-            'logNHrange':(12.0,19.0),
-            'gamma':0.2,
-            'beta':1.55,
-            'B':0.0170,
-            'N0':340.,
-            'brange':(10.,100.),
-            'bsig':24.0},
- 'forest1':{'zrange':(1.5,4.6),
-            'logNHrange':(12.0,14.5),
-            'gamma':2.04,
-            'beta':1.50,
-            'B':0.0062,
-            'N0':102.0,
-            'brange':(10.,100.),
-            'bsig':24.0},
- 'forest2':{'zrange':(1.5,4.6),
-            'logNHrange':(14.5,17.5),
-            'gamma':2.04,
-            'beta':1.80,
-            'B':0.0062,
-            'N0':4.05,
-            'brange':(10.,100.),
-            'bsig':24.0},
- 'forest3':{'zrange':(1.5,4.6),
-            'logNHrange':(17.5,19.0),
-            'gamma':2.04,
-            'beta':0.90,
-            'B':0.0062,
-            'N0':0.051,
-            'brange':(10.,100.),
-            'bsig':24.0},
-    'SLLS':{'zrange':(0.0,4.6),
-            'logNHrange':(19.0,20.3),
-            'N0':0.0660,
-            'gamma':1.70,
-            'beta':1.40,
-            'brange':(10.,100.),
-            'bsig':24.0},
-     'DLA':{'zrange':(0.0,4.6),
-            'logNHrange':(20.3,22.0),
-            'N0':0.0440,
-            'gamma':1.27,
-            'beta':2.00,
-            'brange':(10.,100.),
-            'bsig':24.0},
-}
-
-McG13hiz_model = {
- 'forest1':{'zrange':(1.5,10.1),
-            'logNHrange':(12.0,14.5),
-            'gamma':3.5,
-            'beta':1.50,
-            'N0':8.5 * 1.1,
-            'brange':(10.,100.),
-            'bsig':24.0},
- 'forest2':{'zrange':(1.5,10.1),
-            'logNHrange':(14.5,17.2),
-            'gamma':3.5,
-            'beta':1.70,
-            'N0':0.33 * 1.1,
-            'brange':(10.,100.),
-            'bsig':24.0},
-     'LLS':{'zrange':(1.5,10.1),
-            'logNHrange':(17.2,20.3),
-            'gamma':2.0,
-            'beta':1.3,
-            'N0':0.13 * 1.1,
-            'brange':(10.,100.),
-            'bsig':24.0},
-  'subDLA':{'zrange':(0.0,10.1),
-            'logNHrange':(20.3,21.0),
-            'N0':0.13 / 7.5 * 1.1,
-            'gamma':1.70,
-            'beta':1.28,
-            'brange':(10.,100.),
-            'bsig':24.0},
-     'DLA':{'zrange':(0.0,10.1),
-            'logNHrange':(21.0,22.0),
-            'N0':0.13 / 33 * 1.1,
-            'gamma':2.0,
-            'beta':1.40,
-            'brange':(10.,100.),
-            'bsig':24.0},
-}
-
-forestModels = {'Fan1999':Fan99_model,
-                'Worseck&Prochaska2011':WP11_model,
-                'McGreer+2013':McG13hiz_model}
 
 def generate_los(model,zmin,zmax):
 	'''
@@ -402,45 +290,7 @@ def calc_tau_lambda(wave,los,**kwargs):
 			                        tauMin,tauMax)
 	return tau_lam
 
-def generate_spectra(wave,z_em,los,**kwargs):
-	'''
-	Generate a transmission spectrum along a line-of-sight (los)
-	given by a series of discrete absorbers. The returned spectra
-	have the same dispersion as the input (wave), but are generated
-	on a higher resolution grid (given by 'Rmin').
-	The spectra are calculated at discrete redshift intervals given
-	by z_em; i.e., the return value is a stack of transmission spectra
-	for a single line-of-sight, with each row corresponding to a
-	redshift in z_em.
-	Returns: array with shape (Nz,Nwave)
-	'''
-	# default is 10 km/s
-	forestRmin = kwargs.get('Rmin',3e4)
-	specR = (0.5*(wave[0]+wave[1]))/(wave[1]-wave[0])
-	nrebin = np.int(np.ceil(forestRmin/specR))
-	forestR = specR * nrebin
-	# go a half pixel below the minimum wavelength
-	wavemin = exp(np.log(wave[0])-0.5/specR)
-	# go well beyond LyA to get maximum wavelength
-	wavemax = min(wave[-1],1250*(1+z_em.max()))
-	npix = np.searchsorted(wave,wavemax,side='right')
-	fwave = exp(np.log(wavemin)+forestR**-1*np.arange(npix*nrebin))
-	# only need absorbers up to the maximum redshift
-	los = los[los['z']<z_em.max()]
-	zi = np.concatenate([[0,],np.searchsorted(los['z'],z_em)])
-	#
-	tspec = np.ones(z_em.shape+wave.shape)
-	#
-	tau = np.zeros_like(fwave)
-	for i in range(1,len(zi)):
-		zi1,zi2 = zi[i-1],zi[i]
-		tau = calc_tau_lambda(fwave,los[zi1:zi2],tauIn=tau,**kwargs)
-		T = exp(-tau).reshape(-1,nrebin)
-		tspec[i-1,:npix] = np.average(T,weights=fwave.reshape(-1,nrebin),
-		                              axis=1)
-	return tspec
-
-def generate_N_spectra(wave,z_em,nlos,**kwargs):
+class IGMTransmissionGrid(object):
 	'''
 	Generate a library of forest transmission spectra, by mapping an array 
 	of emission redshifts to a set of sightlines.
@@ -471,206 +321,108 @@ def generate_N_spectra(wave,z_em,nlos,**kwargs):
 	wave : `~numpy.ndarray` 
 	    input wavelength grid
 	'''
-	forestModel = kwargs.get('ForestModel','Worseck&Prochaska2011')
-	if type(forestModel) is str:
-		forestModel = forestModels[forestModel]
-	zrange = kwargs.get('zRange')
-	if zrange is None:
-		zmin,zmax = 0.0,z_em.max()
-	else:
-		zmin,zmax = zrange
-	losMap = kwargs.get('losMap')
-	if nlos == -1:
-		# each emission redshift gets its own line-of-sight
-		nlos = len(z_em)
-		losMap = np.arange(nlos)
-	# Generate the lines-of-sight first, to preserve random generator order
-	linesofsight = [generate_los(forestModel,zmin,zmax) for i in range(nlos)]
-	if losMap is None:
-		# map each emission redshift to a randomly chosen line-of-sight
-		losMap = np.random.randint(0,nlos,z_em.shape[0])
-	# generate spectra for each line-of-sight
-	specAll = np.zeros(z_em.shape+wave.shape)
-	for losNum,los in enumerate(linesofsight):
-		ii = np.where(losMap == losNum)[0]
-		if len(ii)==0:
-			continue
-		zi = z_em[ii].argsort()
-		spec = generate_spectra(wave,z_em[ii[zi]],los,**kwargs)
-		specAll[ii,:] = spec[zi.argsort()]
-		if ( len(linesofsight)>100 and 
-		      ((losNum+1) % (len(linesofsight)//10) == 0) ):
-			print 'finished LOS #%d' % (losNum+1)
-	return dict(T=specAll,losMap=losMap,los=linesofsight,
-	            z=z_em.copy(),wave=wave.copy())
+	def __init__(self,wave,forestModel,numSightLines,**kwargs):
+		self.specWave = wave
+		self.forestModel = forestModel
+		self.numSightLines = numSightLines
+		# pad the lower redshift by just a bit
+		self.zmin = wave.min() / 1215.7 - 1.01
+		self.zmax = kwargs.get('zmax',10)
+#		# Generate the lines-of-sight first, to preserve random generator order
+		self.sightLines = [ generate_los(self.forestModel,self.zmin,self.zmax) 
+		                      for i in range(self.numSightLines) ]
+		# default is 10 km/s
+		forestRmin = kwargs.get('Rmin',3e4)
+		logwave = log(wave)
+		dloglam = np.diff(logwave)
+		if not np.allclose(dloglam,dloglam[0]):
+			raise ValueError("Must have constant dloglam")
+		specR = dloglam[0]**-1
+		self.nRebin = np.int(np.ceil(forestRmin/specR))
+		self.forestR = specR * self.nRebin
+		# go a half pixel below the minimum wavelength
+		wavemin = exp(logwave[0]-0.5/specR)
+		# go well beyond LyA to get maximum wavelength
+		wavemax = 1250*(1+self.zmax)
+		wavemax = min(wave[-1],1250*(1+self.zmax))
+		self.nSpecPix = np.searchsorted(wave,wavemax,side='right')
+		# now make sure it is an integer multiple 
+		wavemax = wave[self.nSpecPix-1]
+		self.nPix = self.nSpecPix * self.nRebin
+		self.forestWave = exp( log(wavemin) + 
+		                         self.forestR**-1*np.arange(self.nPix) )
+		dloglam = self.forestR**-1
+		self.forestWave = exp( log(wavemin) +  dloglam*np.arange(self.nPix) )
+		#
+		self.tau = np.zeros(self.nPix)
+		self.reset()
+	def reset(self):
+		self.currentSightLineNum = -1
+	def next_spec(self,sightLine,z,**kwargs):
+		if self.currentSightLineNum != sightLine:
+#			self.currentSightLine = generate_los(self.forestModel,
+#			                                     self.zmin,self.zmax) 
+			self.currentSightLine = self.sightLines[sightLine]
+			self.currentSightLineNum = sightLine
+			self.tau[:] = 0.0
+			self.zi = 0
+		zi1 = self.zi
+		los = self.currentSightLine
+		zi2 = np.searchsorted(los['z'],min(z,self.zmax))
+		if zi2 < zi1:
+			raise ValueError("must generate sightline in increasing redshift")
+		self.zi = zi2
+		tau = calc_tau_lambda(self.forestWave,los[zi1:zi2],tauIn=self.tau,
+		                      **kwargs)
+		self.T = exp(-tau).reshape(-1,self.nRebin).mean(axis=1)
+		return self.T
+	def current_spec(self,sightLine,z,**kwargs):
+		return self.T
+	def all_spec(self,losMap,z_em,**kwargs):
+		if len(losMap) != len(z_em):
+			raise ValueError
+		zi = z_em.argsort()
+		T = np.vstack( [ self.next_spec(losMap[i],z_em[i],**kwargs) 
+		                   for i in zi ] )
+		return Table(dict(T=T[zi.argsort()],z=z_em,sightLine=losMap))
+	def write(self,fileName,outputDir,tspec=None,
+	          losMap=None,z_em=None,**kwargs):
+		'''Save transmissionspectra to a FITS file.'''
+		if tspec is None:
+			if losMap is None or z_em is None:
+				raise ValueError("Must pass losMap and z")
+			tspec = self.all_spec(losMap,z_em,**kwargs)
+		logwave = np.log(self.specWave[:2])
+		dloglam = np.diff(logwave)
+		tspec.meta['CD1_1'] = float(dloglam)
+		tspec.meta['CRPIX1'] = 1
+		tspec.meta['CRVAL1'] = logwave[0]
+		tspec.meta['CRTYPE1'] = 'LOGWAVE'
+		tspec.meta['IGMNLOS'] = self.numSightLines
+		tspec.meta['IGMMODL'] = str(self.forestModel)
+		tspec.meta['IGMRES'] = self.forestR
+		tspec.write(os.path.join(outputDir,fileName+'.fits'),
+		            overwrite=True)
 
-def generate_grid_spectra(wave,zbins,nlos,**kwargs):
-	'''
-	Generate spectra on a grid at discrete redshift points.
-
-	Parameters
-	----------
-	wave : `~numpy.ndarray`
-	    Input wavelength grid (must be at fixed resolution!).
-	zbins : sequence
-	    Redshift points to use as emission redshifts.
-	nlos : int
-	    Number of lines-of-sight to generate; i.e., generate nlos spectra
-	    at each redshift in zbins.
-
-	Returns
-	-------
-	spectra: dict
-	T : `~numpy.ndarray` 
-	    Transmission spectra with shape (N(z),N(wave))
-	z : `~numpy.ndarray` 
-	    Emission redshift for each spectrum
-	wave : `~numpy.ndarray` 
-	    Input wavelength grid
-	nLOS : int
-	    Number of sightlines generated
-	zbins : int
-	    Redshift bins
-	'''
-	zem = np.tile(zbins,nlos)
-	losMap = np.repeat(np.arange(nlos),len(zbins))
-	sp = generate_N_spectra(wave,zem,nlos,losMap=losMap,**kwargs)
-	sp['nLOS'] = nlos
-	sp['zbins'] = zbins
-	return sp
-
-def generate_spectra_from_grid(wave,z_em,tgrid,**kwargs):
-	'''
-	Given an input grid of transmission spectra, calculate output spectra
-	at redshift intervals given by z_em. This is used to 'extend' a grid
-	spectrum to align with new redshift samplings.
-
-	E.g., if tgrid has samples at z=[2.0,2.5.,3.0] and z_em=[2.2,2.7],
-	then the returned spectra are sampled at z=2.2 and z=2.7, where the
-	first spectrum is generated by taking the input grid spectrum at z=2.0
-	and extending it to z=2.2 by adding additional absorbers.
-	Similarly, the z=2.7 spectrum is generated from the z=2.5 grid spectrum.
-	This is useful for quickly generating forest spectra at arbitrary
-	redshifts without having to do the full calculation.
-
-	Parameters
-	----------
-	wave : `~numpy.ndarray`
-	    Input wavelength grid (must be at fixed resolution!).
-	z_em : `~numpy.ndarray`
-	    Array containing emission redshifts.
-	tgrid : dict
-	    Transmission spectra grid returned from `generate_grid_spectra`
-
-	Returns
-	-------
-	spectra: dict
-	T : `~numpy.ndarray` 
-	    transmission spectra with shape (N(z),N(wave))
-	z : `~numpy.ndarray` 
-	    emission redshift for each spectrum
-	losMap : `~numpy.ndarray` 
-	    map of z_em <-> line-of-sight
-	wave : `~numpy.ndarray` 
-	    input wavelength grid
-	'''
-	nhiMin = kwargs.get('gridForestStep_minlogNHI',0)
-	# XXX these should all come out of the tgrid meta-data
-	forestModel = kwargs.get('ForestModel','Worseck&Prochaska2011')
-	if type(forestModel) is str:
-		forestModel = forestModels[forestModel]
-	zrange = kwargs.get('zRange')
-	if zrange is None:
-		zmin,zmax = 0.0,tgrid['zbins'].max()
-	else:
-		zmin,zmax = zrange
-	specAll = np.zeros(z_em.shape+wave.shape)
-	# map each emission redshift to a line-of-sight, or a predefined
-	#  mapping if provided
-	nlos = tgrid['nLOS']
-	losMap = kwargs.get('losMap',np.random.randint(0,nlos,z_em.shape[0]))
-	T = tgrid['T'].reshape(nlos,len(tgrid['zbins']),-1)
-	# generate spectra for each line-of-sight
-	for losNum in range(nlos):
-		ii = np.where(losMap == losNum)[0]
-		if len(ii)==0:
-			# need to do it here, because all los'es must be generated for
-			# the random number generation to proceed in the correct order
-			continue
-		los = tgrid['los'].groups[losNum]
-		jj = np.digitize(z_em[ii],tgrid['zbins'])
-		for j in range(len(tgrid['zbins'])):
-			zi = np.where(jj-1==j)[0]
-			if len(zi)==0:
-				continue
-			# generate spectra needs emission redshifts to be increasing
-			zs = z_em[ii[zi]].argsort()
-			# only use the absorbers starting at the redshift bin edge
-			los_ii = np.where((los['z'] > tgrid['zbins'][j]) &
-			                  (los['z'] < z_em[ii[zi[zs[-1]]]]) &
-			                   (los['logNHI'] > nhiMin))[0]
-			if len(los_ii) == 0:
-				# no absorption systems to add
-				specAll[ii[zi],:] = T[losNum,j][np.newaxis,:] 
-				continue
-			# add up the absorber spectra and then multiply them into the
-			# spectrum for the redshift bin j
-			spec = generate_spectra(wave,z_em[ii[zi[zs]]],los[los_ii],**kwargs)
-			specAll[ii[zi],:] = T[losNum,j][np.newaxis,:] * spec[zs.argsort()]
-	return dict(T=specAll,losMap=losMap,z=z_em.copy(),wave=wave.copy())
-
-def save_spectra(spec,forestName,outputDir,saveAbs=False):
-	'''Save a spectrum to a FITS file.'''
-	wave = spec.pop('wave')
-	try:
-		linesofsight = spec.pop('los')
-	except:
-		pass
-	logwave = np.log(wave[:2])
-	hdr = OrderedDict()
-	hdr['CD1_1'] = np.diff(logwave)[0]
-	hdr['CRPIX1'] = 1
-	hdr['CRVAL1'] = logwave[0]
-	hdr['CRTYPE1'] = 'LOGWAVE'
-	if 'zbins' in spec:
-		hdr['NLOS'] = spec.pop('nLOS')
-		hdr['ZBINS'] = ','.join('%.3f'%z for z in spec.pop('zbins'))
-	ftab = Table(spec)#,meta=hdr)
-	for k,v in hdr.items():
-		ftab.meta[k] = v
-	hdus = [ fits.PrimaryHDU(), fits.table_to_hdu(ftab) ]
-	if saveAbs:
-		absList = []
-		for losNum,los in enumerate(linesofsight):
-			t = Table(los)
-			t['losNum'] = np.int32(losNum)
-			absList.append(t)
-		absList = vstack(absList)
-		hdus.append(fits.table_to_hdu(absList))
-	outfn = os.path.join(outputDir,forestName+'.fits')
-	fits.HDUList(hdus).writeto(outfn,overwrite=True)
-	# restore inputs
-	spec['wave'] = wave
-	#spec['los'] = linesofsight
-
-def load_spectra(forestName,outputDir='.'):
-	'''Load a spectrum from a FITS file.'''
-	fn = forestName
-	if not fn.endswith('.fits'):
-		fn += '.fits'
-	fn = os.path.join(outputDir,fn)
-	spec,hdr = fits.getdata(fn,1,header=True)
-	nwave = spec['T'].shape[1]
-	wave = np.arange(nwave)
-	logwave = hdr['CRVAL1'] + hdr['CD1_1']*(wave-(hdr['CRPIX1']-1))
-	wave = exp(logwave)
-	rv = dict(T=spec['T'],losMap=spec['losMap'],z=spec['z'],wave=wave)
-	if 'ZBINS' in hdr:
-		rv['nLOS'] = hdr['NLOS']
-		rv['zbins'] = np.array(hdr['ZBINS'].split(',')).astype(np.float)
-	try:
-		rv['los'] = Table(fits.getdata(fn,2)).group_by('losNum')
-	except:
-		pass
-	return rv
+# for now just duck-typing this
+class CachedIGMTransmissionGrid(object):
+	def __init__(self,wave,forestName,outputDir='.'):
+		fn = os.path.join(outputDir,forestName+'.fits')
+		self.tspec = tspec = Table.read(fn)
+		hdr = fits.getheader(fn,1)
+		nwave = tspec['T'].shape[1]
+		wi = np.arange(nwave)
+		logwave = hdr['CRVAL1'] + hdr['CD1_1']*(wi-(hdr['CRPIX1']-1))
+		self.specWave = exp(logwave)
+		if not np.allclose(wave[:len(self.specWave)],self.specWave):
+			raise ValueError("Input wavegrid doesn't match stored wavegrid")
+		self.numSightLines = hdr['IGMNLOS']
+		self.losIndex = { tuple(losNum_z):i for i,losNum_z 
+		                               in enumerate(tspec['sightLine','z']) }
+		self.losMap = self.tspec['sightLine']
+	def next_spec(self,sightLine,z,**kwargs):
+		return self.current_spec(sightLine,z,**kwargs)
+	def current_spec(self,sightLine,z,**kwargs):
+		i = self.losIndex[(sightLine,z)]
+		return self.tspec['T'][i]
 

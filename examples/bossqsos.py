@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from astropy.cosmology import FlatLambdaCDM
-from simqso import qsoSimulation,lumfun
+from simqso import qsoSimulation,lumfun,sqmodels
 
 # XXX need to tweak params to match cosmology defined in simParams
 
@@ -41,6 +41,7 @@ simParams = {
   # In this case the grid is a distribution of points sampled from the	
   # Ross et al. 2013 QLF determined from BOSS DR9.
   'GridParams':{
+  	'RandomSeed':123,
     # Define the grid as coming from a luminosity function
     'GridType':'LuminosityFunction', 
     # Specify the functional form of the LF, using a double power-law
@@ -62,6 +63,7 @@ simParams = {
   'QuasarModelParams':{
     # underlying continuum, only option is power law
     'ContinuumParams':{
+  	  'RandomSeed':123,
       # power law slopes have a gaussian distribution
       'ContinuumModel':'GaussianPLawDistribution',
       # the continuum consists of a series of broken power laws with
@@ -72,6 +74,7 @@ simParams = {
     },
     # the emission line model
     'EmissionLineParams':{
+  	  'RandomSeed':123,
       # the emission line profile distribution comes from the BOSS DR9 model
       # allowing for the Baldwin Effect
       'EmissionLineModel':'VariedEmissionLineGrid',
@@ -85,6 +88,7 @@ simParams = {
     },
     # the Fe emission template from Vestergaard & Wilkes 2001
     'IronEmissionParams':{
+  	  'RandomSeed':123,
       # rescalings of sections of the template, empirically determined fitting
       # of composite BOSS quasar spectra
       'FeScalings':[(0,1540,0.5),(1540,1680,2.0),(1680,1868,1.6),
@@ -94,15 +98,13 @@ simParams = {
   # define the model for transmission spectra through the HI forest, based on
   # Monte Carlo realizations of absorption systems
   'ForestParams':{
+  	'RandomSeed':123,
     # filename to save the forest transmission spectra
-    'FileName':'boss_dr9qlf_forest',
-    # name of the model for the distribution of absorbers [only WP11 for now]
-    'ForestModel':'Worseck&Prochaska2011', 
+#    'FileName':'boss_dr9qlf_forest',
+    # name of the model for the distribution of absorbers 
+    'ForestModel':sqmodels.forestModels['Worseck&Prochaska2011'], 
     # redshift range over which to sample absorbers
     'zRange':(0.0,4.5),
-    # type of forest grid to use; 'Sightlines' means generate N independent
-    # sightlines, and then randomly associate each quasar with a sightline
-    'ForestType':'Sightlines',
     # the number of independent sightlines to generate
     # WP11 suggest a minimum of 2000 to properly sample the scatter
     #'NumLinesOfSight':2000,
@@ -115,6 +117,7 @@ simParams = {
   # for calculating synthetic photometry from the spectra, and an error model
   # for producing realistic fluxes and errors
   'PhotoMapParams':{
+  	'RandomSeed':123,
     # list the systems individually, the output 'synMag' and 'obsMag' fields
     # will have a final dimension equal to the total number of bandpasses,
     # in the order listed here. I.e., for this simulation the shape is
@@ -159,6 +162,20 @@ bossdr9_expdust_model = {
     #'DustLOSfraction':1.0,
   },
 }
+
+def make_grid():
+	from copy import deepcopy
+	simpar = deepcopy(simParams)
+	simpar['FileName'] = 'boss_grid_sim'
+	simpar['GridParams']['GridType'] = 'FluxRedshiftGrid'
+	del simpar['GridParams']['QLFmodel']
+	del simpar['GridParams']['QLFargs']
+	simpar['GridParams']['mRange'] += (30,)
+	simpar['GridParams']['zRange'] += (20,)
+	simpar['GridParams']['nPerBin'] = 100
+	simpar['ForestParams']['NumLinesOfSight'] = 1000
+	simpar['ForestParams']['FileName'] = 'boss_grid_forest'
+	qsoSimulation(simpar,verbose=5)
 
 if __name__=='__main__':
 	qsoSimulation(simParams)

@@ -15,6 +15,7 @@ from astropy import cosmology
 
 from .sqbase import datadir,Spectrum
 from . import dustextinction
+from . import sqphoto
 
 
 ##############################################################################
@@ -35,18 +36,24 @@ class Sampler(object):
 	def __init__(self,low,high):
 		self.low = low
 		self.high = high
-	def sample(self,n):
+	def sample(self,n,**kwargs):
 		'''
 		Return a set of n values obtained from the sampler.
 		'''
 		raise NotImplementedError
 	def resample(self,*args,**kwargs):
 		pass
-	def __call__(self,n):
-		return self.sample(n)
+	def __call__(self,n,**kwargs):
+		return self.sample(n,**kwargs)
 	def __str__(self):
 		s = str((self.low,self.high))
 		return s
+	@staticmethod
+	def _get_arrays(arr_list,ii):
+		if ii is None:
+			return arr_list
+		else:
+			return [ a[ii] for a in arr_list ]
 
 class FixedSampler(Sampler):
 	'''
@@ -61,10 +68,12 @@ class FixedSampler(Sampler):
 		self.low = None
 		self.high = None
 		self.vals = vals
-	def sample(self,n):
+	def sample(self,n,**kwargs):
 		if n is not None and n != len(self.vals):
 			raise ValueError
 		return self.vals
+	def __str__(self):
+		return 'FixedSampler'
 
 class NullSampler(Sampler):
 	'''
@@ -72,8 +81,10 @@ class NullSampler(Sampler):
 	'''
 	def __init__(self):
 		pass
-	def sample(self,n):
+	def sample(self,n,**kwargs):
 		return None
+	def __str__(self):
+		return 'NullSampler'
 
 class IndexSampler(Sampler):
 	'''
@@ -81,8 +92,16 @@ class IndexSampler(Sampler):
 	'''
 	def __init__(self):
 		pass
-	def sample(self,n):
+	def sample(self,n,**kwargs):
 		return None
+	def __str__(self):
+		return 'IndexSampler'
+
+class RandomSubSampler(Sampler):
+	def __init__(self,n):
+		super(RandomSubSampler,self).__init__(0,n)
+	def sample(self,n,**kwargs):
+		return np.random.randint(self.low,self.high,n)
 
 class ConstSampler(Sampler):
 	'''
@@ -97,7 +116,7 @@ class ConstSampler(Sampler):
 		self.low = None
 		self.high = None
 		self.val = val
-	def sample(self,n):
+	def sample(self,n,**kwargs):
 		return np.repeat(self.val,n)
 
 class UniformSampler(Sampler):
@@ -109,8 +128,10 @@ class UniformSampler(Sampler):
 	>>> s(3)
 	array([ 0. ,  0.5,  1. ])
 	'''
-	def sample(self,n):
+	def sample(self,n,**kwargs):
 		return np.linspace(self.low,self.high,n)
+	def __str__(self):
+		return 'UniformSampler(%s,%s)' % (self.low,self.high)
 
 class CdfSampler(Sampler):
 	'''
@@ -125,13 +146,14 @@ class CdfSampler(Sampler):
 	        Lower and upper bounds for the sampler.
 	'''
 	def _init_cdf(self):
-		self.cdf_low = self.rv.cdf(self.low)
-		self.cdf_high = self.rv.cdf(self.high)
-	def _getpoints(self,x):
-		return self.cdf_low + (self.cdf_high-self.cdf_low)*x
-	def _sample(self,x):
-		return self.rv.ppf(x)
-	def sample(self,n):
+		self.cdf_low = self.cdf(self.low)
+		self.cdf_high = self.cdf(self.high)
+	def _getpoints(self,x,ii=None):
+		cdf_low,cdf_high = self._get_arrays((self.cdf_low,self.cdf_high),ii)
+		return cdf_low + (cdf_high-cdf_low)*x
+	def _sample(self,x,ii=None):
+		return self.ppf(x,ii)
+	def sample(self,n,**kwargs):
 		x = np.random.random(n)
 		return self._sample(self._getpoints(x))
 
@@ -153,7 +175,6 @@ class PowerLawSampler(CdfSampler):
 		if a<0 and low<=0:
 			raise ValueError
 		# defining cdf and ppf function within this class
-		self.rv = self
 		super(PowerLawSampler,self).__init__(low,high)
 		self.a = a
 		self._init_cdf()
@@ -183,10 +204,20 @@ class GaussianSampler(CdfSampler):
 		super(GaussianSampler,self).__init__(low,high)
 		self.mean = mean
 		self.sigma = sigma
-		self._reset()
 		self._init_cdf()
-	def _reset(self):
-		self.rv = norm(loc=self.mean,scale=self.sigma)
+	def ppf(self,x,ii=None):
+		mean,sigma = self._get_arrays((self.mean,self.sigma),ii)
+		return norm.ppf(x,loc=mean,scale=sigma)
+	def cdf(self,x,ii=None):
+		mean,sigma = self._get_arrays((self.mean,self.sigma),ii)
+		return norm.cdf(x,loc=mean,scale=sigma)
+	def update(self,mean,sigma,ii=None):
+		if ii is None: ii = np.s_[:]
+		self.mean[ii] = mean
+		self.sigma[ii] = sigma
+	def __str__(self):
+		return 'GaussianSampler(%s,%s,%s,%s)' % \
+		    (self.mean,self.sigma,self.low,self.high)
 
 #class LogNormalSampler(CdfSampler):
 #	'''
@@ -219,10 +250,13 @@ class ExponentialSampler(CdfSampler):
 	def __init__(self,scale,low=0,high=np.inf):
 		super(ExponentialSampler,self).__init__(low,high)
 		self.scale = scale
-		self._reset()
 		self._init_cdf()
-	def _reset(self):
-		self.rv = expon(scale=self.scale)
+	def ppf(self,x,ii=None):
+		scale = self._get_arrays((self.scale,),ii)[0]
+		return expon.ppf(x,scale=scale)
+	def cdf(self,x,ii=None):
+		scale = self._get_arrays((self.scale,),ii)[0]
+		return expon.cdf(x,scale=scale)
 
 #class DoublePowerLawSampler(Sampler):
 #	def __init__(self,a,b,x0,low=-np.inf,high=np.inf):
@@ -245,20 +279,26 @@ class LinearTrendWithAsymScatterSampler(Sampler):
 		super(LinearTrendWithAsymScatterSampler,self).__init__(low,high)
 		self.coeffs = coeffs
 		self.npts = len(pts)
+		self.loSampler = None
+		self.hiSampler = None
 		self._reset(pts)
-	def _reset(self,pts):
+	def _reset(self,pts,ii=None):
 		xmn,xlo,xhi = [ np.polyval(c,pts) for c in self.coeffs ]
 		siglo = np.clip(xmn-xlo,1e-10,np.inf)
 		sighi = np.clip(xhi-xmn,1e-10,np.inf)
-		self.loSampler = GaussianSampler(xmn,siglo,
-		                                 low=self.low,high=self.high)
-		self.hiSampler = GaussianSampler(xmn,sighi,
-		                                 low=self.low,high=self.high)
-	def _sample(self,x):
-		if len(x) != self.npts:
-			raise ValueError
-		xlo = self.loSampler._sample(self.loSampler._getpoints(x))
-		xhi = self.hiSampler._sample(self.hiSampler._getpoints(x))
+		if self.loSampler is None:
+			self.loSampler = GaussianSampler(xmn,siglo,
+			                                 low=self.low,high=self.high)
+		else:
+			self.loSampler.update(xmn,siglo,ii)
+		if self.hiSampler is None:
+			self.hiSampler = GaussianSampler(xmn,sighi,
+			                                 low=self.low,high=self.high)
+		else:
+			self.hiSampler.update(xmn,sighi,ii)
+	def _sample(self,x,ii=None):
+		xlo = self.loSampler._sample(self.loSampler._getpoints(x,ii),ii)
+		xhi = self.hiSampler._sample(self.hiSampler._getpoints(x,ii),ii)
 		return np.clip(np.choose(x>0.5,[xlo,xhi]),0,np.inf)
 
 class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
@@ -271,7 +311,7 @@ class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
 		super(BaldwinEffectSampler,self).__init__(coeffs,absMag,
 		                                          low=low,high=high)
 		self.x = x
-	def sample(self,n=None):
+	def sample(self,n=None,ii=None):
 		if n is None:
 			n = len(self.x)
 		elif n != self.npts:
@@ -280,9 +320,10 @@ class BaldwinEffectSampler(LinearTrendWithAsymScatterSampler):
 		if self.x is None:
 			# save the x values for reuse
 			self.x = np.random.random(n)
-		return self._sample(self.x)
-	def resample(self,qsoGrid,**kwargs):
-		self._reset(qsoGrid.absMag)
+		x = self.x if ii is None else self.x[ii]
+		return self._sample(x,ii)
+	def resample(self,absMag,ii=None,**kwargs):
+		self._reset(absMag,ii=ii)
 
 
 
@@ -306,23 +347,26 @@ class QsoSimVar(object):
 		self.sampler = sampler
 		if name is not None:
 			self.name = name
-		self.update = False
 		self.meta = {}
-	def __call__(self,n):
-		return self.sampler(n)
+		self.dependentVars = None
+	def __call__(self,n,**kwargs):
+		return self.sampler(n,**kwargs)
 	def resample(self,*args,**kwargs):
 		'''
 		Update the samplers of any dependent variables and then resample.
 		'''
 		self.sampler.resample(*args,**kwargs)
-	def __str__(self):
+	def _sampler_to_string(self):
 		return str(self.sampler)
-	def updateMeta(self,meta):
+	def updateMeta(self,meta,axPfx):
 		'''
 		Update the meta-data dictionary associated with the variable.
 		'''
 		for k,v in self.meta.items():
 			meta[k] = v
+		meta[axPfx+'TYPE'] = self.__class__.__name__
+		meta[axPfx+'NAME'] = str(self.name)
+		meta[axPfx+'SMPL'] = self._sampler_to_string()
 
 class MultiDimVar(QsoSimVar):
 	'''
@@ -330,23 +374,25 @@ class MultiDimVar(QsoSimVar):
 	The last dimension must be a sequence of Sampler instances, which can
 	be nested in as many outer dimensions as necessary.
 	'''
-	# obviously these should be combined...
-	def _recurse_call(self,samplers,n):
+	def _recurse_call(self,samplers,n,**kwargs):
 		if isinstance(samplers,Sampler):
-			return samplers(n)
+			return samplers(n,**kwargs)
 		else:
-			return [ self._recurse_call(sampler,n) for sampler in samplers ]
+			return [ self._recurse_call(sampler,n,**kwargs) 
+			           for sampler in samplers ]
 	def _recurse_resample(self,samplers,*args,**kwargs):
 		if isinstance(samplers,Sampler):
 			samplers.resample(*args,**kwargs)
 		else:
 			for sampler in samplers:
 				self._recurse_resample(sampler,*args,**kwargs)
-	def __call__(self,n):
-		arr = self._recurse_call(self.sampler,n)
+	def __call__(self,n,**kwargs):
+		arr = self._recurse_call(self.sampler,n,**kwargs)
 		return np.rollaxis(np.array(arr),-1)
 	def resample(self,*args,**kwargs):
 		self._recurse_resample(self.sampler,*args,**kwargs)
+	def _sampler_to_string(self):
+		return 'MultiDimVar(%d)' % len(self.sampler)
 
 class SpectralFeatureVar(object):
 	'''
@@ -373,9 +419,12 @@ class AppMagVar(QsoSimVar):
 	An apparent magnitude variable, defined in an observed bandpass ``band``.
 	'''
 	name = 'appMag'
-	def __init__(self,sampler,band):
+	def __init__(self,sampler,obsBand):
 		super(AppMagVar,self).__init__(sampler)
-		self.obsBand = band
+		self.obsBand = obsBand
+	def updateMeta(self,meta,axPfx):
+		super(AppMagVar,self).updateMeta(meta,axPfx)
+		meta[axPfx+'VARG'] = '"%s"' % self.obsBand
 
 class AbsMagVar(QsoSimVar):
 	'''
@@ -387,6 +436,9 @@ class AbsMagVar(QsoSimVar):
 		'''if restWave is none then bolometric'''
 		super(AbsMagVar,self).__init__(sampler)
 		self.restWave = restWave
+	def updateMeta(self,meta,axPfx):
+		super(AbsMagVar,self).updateMeta(meta,axPfx)
+		meta[axPfx+'VARG'] = 'restWave=%s' % self.restWave
 
 class RedshiftVar(QsoSimVar):
 	'''
@@ -573,8 +625,9 @@ class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
 		self.lineNames = lineNames
 		self.meta['LINEMODL'] = 'BOSS DR9 Log-linear trends with luminosity'
 		self.meta['LINENAME'] = ','.join(lineNames)
-	def __call__(self,n=None):
-		lpar = super(BossDr9EmissionLineTemplateVar,self).__call__(n)
+		self.dependentVars = 'absMag'
+	def __call__(self,n=None,ii=None):
+		lpar = super(BossDr9EmissionLineTemplateVar,self).__call__(n,ii=ii)
 		lpar[...,1:] = np.power(10,lpar[...,1:])
 		return lpar
 
@@ -586,6 +639,7 @@ class FeTemplateVar(EmissionFeatureVar):
 	Since the template is fixed it uses a :class:`simqso.sqgrids.NullSampler`
 	instance internally.
 	'''
+	name = 'fetempl'
 	def __init__(self,feGrid):
 		super(FeTemplateVar,self).__init__(NullSampler())
 		self.feGrid = feGrid
@@ -600,12 +654,23 @@ class HIAbsorptionVar(QsoSimVar,SpectralFeatureVar):
 	instance is used internally to map the forest sightlines to individual 
 	spectra.
 	'''
-	def __init__(self,forest):
-		super(HIAbsorptionVar,self).__init__(IndexSampler())
+	name = 'igmlos'
+	def __init__(self,forest,losMap=None):
+		N = forest.numSightLines
+		if losMap is None:
+			s = RandomSubSampler(N)
+		else:
+			s = FixedSampler(losMap)
+		super(HIAbsorptionVar,self).__init__(s)
 		self.forest = forest
-		self.nforest = len(forest['wave'])
-	def add_to_spec(self,spec,i,**kwargs):
-		spec.f_lambda[:self.nforest] *= self.forest['T'][i]
+	def add_to_spec(self,spec,sightLine,advance=True,**kwargs):
+		if advance:
+			T = self.forest.next_spec(sightLine,spec.z)
+		else:
+			# this is needed when iterating the spectrum -- don't want to
+			# advance to the next redshift, just keep reusing current forest
+			T = self.forest.current_spec(sightLine,spec.z)
+		spec.f_lambda[:len(T)] *= T
 		return spec
 
 class DustExtinctionVar(QsoSimVar,SpectralFeatureVar):
@@ -731,9 +796,14 @@ class QsoSimObjects(object):
 		One of "flux" or "luminosity", XXX should be handled internally...
 	'''
 	def __init__(self,qsoVars=[],cosmo=None,units=None):
-		self.qsoVars = qsoVars
 		self.cosmo = cosmo
 		self.units = units
+		self.qsoVars = qsoVars
+		if len(qsoVars) > 0:
+			self.varNames = [ v.name for v in qsoVars ]
+		else:
+			self.varNames = []
+		self.photoMap = None
 	def setCosmology(self,cosmodef):
 		if type(cosmodef) is dict:
 			self.cosmo = cosmology.FlatLambdaCDM(**cosmodef)
@@ -748,54 +818,111 @@ class QsoSimObjects(object):
 	def __iter__(self):
 		for obj in self.data:
 			yield obj
+	def group_by(self,varName,with_index=False):
+		if with_index:
+			self.data['_ii'] = np.arange(self.nObj)
+		data_grouped = self.data.group_by(varName)
+		if with_index:
+			# only keep this in the grouped table
+			del self.data['_ii']
+		return data_grouped.groups
 	def __getattr__(self,name):
 		try:
 			return self.data[name]
 		except KeyError:
 			raise AttributeError("no attribute "+name)
-	def addVar(self,var):
+	def addVar(self,var,noVals=False):
 		'''
 		Add a variable to the simulation.
 		'''
 		self.qsoVars.append(var)
-		vals = var(self.nObj)
-		if vals is not None:
-			self.data[var.name] = vals
-	def addVars(self,newVars):
+		self.varNames.append(var.name)
+		if not noVals:
+			vals = var(self.nObj)
+			if vals is not None:
+				self.data[var.name] = vals
+	def addVars(self,newVars,noVals=False):
 		'''
 		Add a list of variables to the simulation.
 		'''
 		for var in newVars:
-			self.addVar(var)
+			self.addVar(var,noVals=noVals)
 	def addData(self,data):
 		self.data = hstack([self.data,data])
 	def getVars(self,varType=QsoSimVar):
 		'''
 		Return all variables that are instances of varType.
+		If varType is a string, return the variable with name varType.
 		'''
-		return filter(lambda v: isinstance(v,varType),self.qsoVars)
+		if isinstance(varType,basestring):
+			return self.qsoVars[self.varNames.index(varType)]
+		else:
+			return filter(lambda v: isinstance(v,varType),self.qsoVars)
+	def varIndex(self,varName):
+		return self.varNames.index(varName)
 	def resample(self):
 		for var in self.qsoVars:
-			# how to more reasonably know what variables are needed to
-			# be passed down? the nominal use case is updating variables
-			# which depend on absMag. for now just passing the whole object...
-			if var.update:
-				var.resample(self)
+			if var.dependentVars is not None:
+				var.resample(self.data[var.dependentVars])
 				self.data[var.name] = var(self.nObj)
 	def distMod(self,z):
 		return self.cosmo.distmod(z).value
-	def read(self,gridFile):
+	def loadPhotoMap(self,photoSys):
+		self.photoMap = sqphoto.load_photo_map(photoSys)
+		self.photoBands = self.photoMap['bandpasses'].keys()
+	def getPhotoCache(self,wave):
+		if self.photoMap:
+			return sqphoto.getPhotoCache(wave,self.photoMap)
+		else:
+			return None
+	def getBandIndex(self,band):
+		return next(j for j in range(len(self.photoBands))
+		              if self.photoMap['filtName'][self.photoBands[j]]==band)
+	def getObsBandIndex(self):
+		return self.getBandIndex(self.getVars(AppMagVar)[0].obsBand)
+	def read(self,gridFile,clean=False):
 		'''
 		Read a simulation grid from a file.
 		'''
 		self.data = Table.read(gridFile)
+		if clean:
+			# XXX it's hacky to be aware of these colnames here, but need to
+			# know how to delete derived quantities that will be recomputed
+			for k in ['obsFlux','obsMag','obsFluxErr','obsMagErr',
+			          'synMag','synFlux']:
+				try:
+					del self.data[k]
+				except KeyError:
+					pass
 		self.nObj = len(self.data)
 		hdr = fits.getheader(gridFile,1)
 		self.units = hdr['GRIDUNIT']
 		self.gridShape = eval(hdr['GRIDDIM'])
 		hdr = fits.getheader(gridFile,1)
-		self.simPars = ast.literal_eval(hdr['SQPARAMS'])
-		self.setCosmology(self.simPars['Cosmology'])
+		try:
+			self.simPars = ast.literal_eval(hdr['SQPARAMS'])
+			self.setCosmology(self.simPars['Cosmology'])
+		except:
+			print 'WARNING: no params in header'
+		for i,v in enumerate(range(hdr['NSIMVAR'])):
+			cls = hdr['AX%dTYPE'%i]
+			name = hdr['AX%dNAME'%i]
+			smplr = hdr['AX%dSMPL'%i] 
+			kwargs = hdr.get('AX%dVARG'%i,'')
+			try:
+				if smplr == 'FixedSampler':
+					smplr = 'FixedSampler(self.data[name])'
+				c = eval(cls+'('+smplr+',%s)'%kwargs)
+				if c.name != name:
+					c.name = name
+				self.addVar(c,noVals=True)
+			except:
+				print 'WARNING: failed to restore %s' % cls
+				self.qsoVars.append(None)
+				self.varNames.append('<null>')
+		self._restore(hdr)
+	def _restore(self,hdr):
+		pass
 	@staticmethod
 	def cosmo_str(cosmodef):
 		if isinstance(cosmodef,cosmology.FLRW):
@@ -805,22 +932,25 @@ class QsoSimObjects(object):
 				d['Ob0'] = cosmodef.Ob0
 			cosmodef = d
 		return str(cosmodef)
-	def write(self,simPars,outputDir='.',outFn=None):
+	def write(self,outFn=None,simPars=None,outputDir='.'):
 		'''
 		Write a simulation grid to a FITS file as a binary table, storing 
 		meta-data in the header.
 		'''
 		tab = self.data
-		simPars = copy(simPars)
-		simPars['Cosmology'] = self.cosmo_str(simPars['Cosmology'])
-		if 'QLFmodel' in simPars['GridParams']:
-			s = str(simPars['GridParams']['QLFmodel']).replace('\n',';')
-			simPars['GridParams']['QLFmodel'] = s
-		tab.meta['SQPARAMS'] = str(simPars)
+		if simPars is not None:
+			simPars = copy(simPars)
+			simPars['Cosmology'] = self.cosmo_str(simPars['Cosmology'])
+			if 'QLFmodel' in simPars['GridParams']:
+				s = str(simPars['GridParams']['QLFmodel']).replace('\n',';')
+				simPars['GridParams']['QLFmodel'] = s
+			tab.meta['SQPARAMS'] = str(simPars)
+		tab.meta['COSMO'] = self.cosmo_str(self.cosmo)
 		tab.meta['GRIDUNIT'] = self.units
 		tab.meta['GRIDDIM'] = str(self.gridShape)
-		for var in self.qsoVars:
-			var.updateMeta(tab.meta)
+		for i,var in enumerate(self.qsoVars):
+			var.updateMeta(tab.meta,'AX%d'%i)
+		tab.meta['NSIMVAR'] = len(self.qsoVars)
 		if outFn is None:
 			outFn = simPars['FileName']+'.fits'
 		tab.write(os.path.join(outputDir,outFn),overwrite=True)
@@ -861,20 +991,50 @@ class QsoSimGrid(QsoSimObjects):
 	nPerBin : int
 		Number of objects within each grid cell.
 	'''
-	def __init__(self,qsoVars,nBins,nPerBin,**kwargs):
-		super(QsoSimGrid,self).__init__(qsoVars,**kwargs)
-		self.gridShape = nBins + (nPerBin,)
-		axes = [ var(n+1) for n,var in zip(nBins,qsoVars) ]
+	def __init__(self,*args,**kwargs):
+		self.fixedVars = kwargs.pop('fixed_vars',[])
+		super(QsoSimGrid,self).__init__(**kwargs)
+		if len(args) > 0:
+			gridVars,nBins,nPerBin = args
+			self.gridShape = nBins + (nPerBin,)
+			self._init_grid(gridVars)
+			self._init_grid_data(gridVars)
+			self.addVars(gridVars,noVals=True)
+	def _init_grid(self,gridVars):
+		axes = []
+		self.gridCenters = []
+		for n,var in zip(self.gridShape[:-1],gridVars):
+			if isinstance(var.sampler,UniformSampler):
+				if var.name in self.fixedVars:
+					nax = n
+				else:
+					nax = n+1
+			elif isinstance(var.sampler,FixedSampler):
+				if not var.name in self.fixedVars:
+					raise ValueError
+				nax = n
+			else:
+				raise ValueError
+			axis = var(nax)
+			axes.append(axis)
+			if var.name in self.fixedVars:
+				self.gridCenters.append(axis[:n])
+			else:
+				self.gridCenters.append(axis[:n]+np.diff(axis)/2)
 		self.gridEdges = np.meshgrid(*axes,indexing='ij')
-		self.gridCenters = [ a[:-1]+np.diff(a)/2 for a in axes ]
+		self.nGridDim = len(self.gridShape)-1
+	def _init_grid_data(self,gridVars):
 		data = {}
-		for i,(v,g) in enumerate(zip(qsoVars,self.gridEdges)):
-			x = np.random.random(self.gridShape)
-			s = [ slice(0,-1,1) for j in range(len(qsoVars)) ]
+		for i,(v,g) in enumerate(zip(gridVars,self.gridEdges)):
+			s = [ slice(0,n,1) for n in self.gridShape[:self.nGridDim] ]
 			pts0 = g[s][...,np.newaxis] 
-			binsz = np.diff(g,axis=i)
-			s[i] = slice(None)
-			pts = pts0 + x*binsz[s][...,np.newaxis]
+			if v.name in self.fixedVars:
+				pts = np.tile(pts0,self.gridShape[-1])
+			else:
+				x = np.random.random(self.gridShape)
+				binsz = np.diff(g,axis=i)
+				s[i] = slice(None)
+				pts = pts0 + x*binsz[s][...,np.newaxis]
 			data[v.name] = pts.flatten()
 		self.data = Table(data)
 		self.nObj = len(self.data)
@@ -882,6 +1042,8 @@ class QsoSimGrid(QsoSimObjects):
 		# in case the column has extra axes (i.e., for flux vectors)
 		outShape = self.gridShape + self.data[name].shape[1:]
 		return np.asarray(self.data[name]).reshape(outShape)
+	def _restore(self,hdr):
+		self._init_grid(self.qsoVars[:len(self.gridShape)-1])
 	def __str__(self):
 		s = "grid dimensions: "+str(self.gridShape)+"\n"
 		s += str(self.gridEdges)+"\n"
@@ -931,7 +1093,6 @@ def generateBEffEmissionLines(M1450,**kwargs):
 	             for l in lineCatalog[useLines] ]
 	lines = BossDr9EmissionLineTemplateVar(lineList,
 	                                       lineCatalog['name'][useLines])
-	lines.update = True # XXX a better way?
 	return lines
 
 def generateVdBCompositeEmLines(minEW=1.0,noFe=False):
