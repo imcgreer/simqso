@@ -181,5 +181,5 @@ class LogPhiStarEvolFixedK(PolyEvolParam):
 
 QLF_McGreer_2013 = DoublePowerLawLF(LogPhiStarEvolFixedK(-8.94),
                                     -27.21,-2.03,-4.0,
-                                    )#cosmo=FlatLambdaCDM(H0=70, Om0=0.272))
+                                    cosmo=FlatLambdaCDM(H0=70, Om0=0.272))
 
