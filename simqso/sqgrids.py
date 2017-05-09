@@ -763,6 +763,19 @@ class AbsMagFromBHMassEddRatioVar(AbsMagVar):
 		sampler = FixedSampler(M1450)
 		super(AbsMagFromBHMassEddRatioVar,self).__init__(sampler,restWave)
 
+class TimeVar(QsoSimVar):
+	'''
+	Variable to associate instantaneous quasar spectrum with a epoch.
+	'''
+	name = 't'
+
+class DrwTimeSeriesVar(MultiDimVar):
+	r'''
+	Variable that associates damped random walk (DRW) parameters
+	:math:`\tau` and :math:`\sigma` with a quasar.
+	'''
+	name = 'drwTauSigma'
+
 class SynMagVar(QsoSimVar):
 	'''
 	Container for synthetic magnitudes.
