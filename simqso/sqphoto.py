@@ -184,10 +184,12 @@ class cfhtlsWidePhotoUnc(empiricalPhotoUnc):
 		self.err_floor = 0.015
 
 class cfhtlsDeepPhotoUnc(cfhtlsWidePhotoUnc):
-	def __call__(self,f_nmgy):
-		wideErr = super(cfhtlsDeepPhotoUnc,self).__call__(f_nmgy)
-		minErr = f_nmgy * self.err_floor / 1.0857
-		return np.clip(wideErr,minErr,np.inf)
+	def __init__(self,b):
+		super(cfhtlsDeepPhotoUnc,self).__init__(b)
+		# some hacky translation of the terms to Deep depth
+		self.b += 0.7/2.5
+		self.scatter_b /= 1.5
+		self.err_floor = 0.01
 
 
 # WISE photometric model
