@@ -12,6 +12,7 @@ from . import sqgrids as grids
 from . import hiforest
 from . import dustextinction
 from . import sqphoto
+from . import sqmodels
 
 import multiprocessing
 
@@ -118,8 +119,9 @@ def buildForest(wave,z,simParams,outputDir):
 	tgrid = None
 	if forestFn:
 		try:
-			tgrid = hiforest.CachedIGMTransmissionGrid(wave,forestFn,
-			                                           outputDir)
+			tgrid = hiforest.CachedIGMTransmissionGrid(forestFn,outputDir)
+			if not np.allclose(wave[:len(tgrid.specWave)],tgrid.specWave):
+				raise ValueError("Input wavegrid doesn't match stored wave")
 		except IOError:
 			pass
 	if tgrid is None:
@@ -508,8 +510,9 @@ def qsoSimulation(simParams,**kwargs):
 			forest.write(forestFn,outputDir,losMap=losMap,
 			             z_em=qsoGrid.z,**fpar)
 			# now use the cached forest
-			forest = hiforest.CachedIGMTransmissionGrid(wave,forestFn,
-			                                            outputDir)
+			forest = hiforest.CachedIGMTransmissionGrid(forestFn,outputDir)
+			if not np.allclose(wave[:len(tgrid.specWave)],tgrid.specWave):
+				raise ValueError("Input wavegrid doesn't match stored wave")
 			timerLog('Generate Forest')
 	else:
 		# else no forest or cached forest
@@ -557,23 +560,12 @@ def load_spectra(simFileName,outputDir='.'):
 	qsos = hstack([simdat.data,Table(dict(spec=sp))])
 	return wave,qsos
 
-def generateForestGrid(simParams,**kwargs):
-	forestParams = simParams['ForestParams']
-	outputDir = kwargs.get('outputDir','./')
-	try:
-		tgrid = hiforest.load_spectra(forestParams['FileName'],outputDir)
-		print 'grid already exists, exiting'
-		return
-	except IOError:
-		pass
-	wave = buildWaveGrid(simParams)
-	zbins = np.arange(*forestParams['GridzBins'])
-	nlos = forestParams['NumLinesOfSight']
-	reseed(forestParams)
-	timerLog = sqbase.TimerLog()
-	tgrid = hiforest.generate_grid_spectra(wave,zbins,nlos,**forestParams)
-	timerLog('BuildForest')
-	hiforest.save_spectra(tgrid,forestParams['FileName'],outputDir,
-	                      saveAbs=True)
-	timerLog.dump()
+def generate_default_binned_forest(fileName,outputDir='.',**kwargs):
+	nlos = kwargs.get('numSightlines',1000)
+	zbins = kwargs.get('zBins',np.arange(0.1,4.6,0.025))
+	waverange = kwargs.get('waverange',(1300.,7000))
+	R = kwargs.get('R',300)
+	hiforest.generate_binned_forest(fileName,sqmodels.WP11_model,
+	                                nlos,zbins,waverange,R,
+	                                outputDir=outputDir)
 

@@ -8,7 +8,7 @@ import scipy.constants as const
 from astropy.io import fits
 from astropy.table import Table,vstack
 
-from .sqbase import datadir
+from .sqbase import datadir,fixed_R_dispersion
 
 # shorthands
 exp,sqrt,log = np.exp,np.sqrt,np.log
@@ -401,21 +401,24 @@ class IGMTransmissionGrid(object):
 		tspec.meta['IGMNLOS'] = self.numSightLines
 		tspec.meta['IGMMODL'] = str(self.forestModel)
 		tspec.meta['IGMRES'] = self.forestR
-		tspec.write(os.path.join(outputDir,fileName+'.fits'),
-		            overwrite=True)
+		for k,v in kwargs.get('meta',{}).items():
+			tspec.meta[k] = v
+		if not fileName.endswith('.fits') or fileName.endswith('.fits.gz'):
+			fileName += '.fits'
+		tspec.write(os.path.join(outputDir,fileName),overwrite=True)
 
 # for now just duck-typing this
 class CachedIGMTransmissionGrid(object):
-	def __init__(self,wave,forestName,outputDir='.'):
-		fn = os.path.join(outputDir,forestName+'.fits')
+	def __init__(self,fileName,outputDir='.'):
+		if not fileName.endswith('.fits') or fileName.endswith('.fits.gz'):
+			fileName += '.fits'
+		fn = os.path.join(outputDir,fileName)
 		self.tspec = tspec = Table.read(fn)
 		hdr = fits.getheader(fn,1)
 		nwave = tspec['T'].shape[1]
 		wi = np.arange(nwave)
 		logwave = hdr['CRVAL1'] + hdr['CD1_1']*(wi-(hdr['CRPIX1']-1))
 		self.specWave = exp(logwave)
-		if not np.allclose(wave[:len(self.specWave)],self.specWave):
-			raise ValueError("Input wavegrid doesn't match stored wavegrid")
 		self.numSightLines = hdr['IGMNLOS']
 		self.losIndex = { tuple(losNum_z):i for i,losNum_z 
 		                               in enumerate(tspec['sightLine','z']) }
@@ -425,4 +428,14 @@ class CachedIGMTransmissionGrid(object):
 	def current_spec(self,sightLine,z,**kwargs):
 		i = self.losIndex[(sightLine,z)]
 		return self.tspec['T'][i]
+
+def generate_binned_forest(fileName,forestModel,nlos,zbins,waverange,R,
+                           outputDir='.'):
+	wave = fixed_R_dispersion(waverange[0],waverange[1],R)
+	z = np.tile(zbins[:,np.newaxis],nlos).transpose()
+	ii = np.arange(nlos)
+	losMap = np.tile(ii[:,np.newaxis],len(zbins))
+	fGrid = IGMTransmissionGrid(wave,forestModel,nlos)
+	fGrid.write(fileName,outputDir,losMap=losMap.ravel(),z_em=z.ravel(),
+	            meta={'ZBINS':','.join(['%.3f'%_z for _z in zbins])})
 
