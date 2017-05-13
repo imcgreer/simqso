@@ -561,11 +561,11 @@ def load_spectra(simFileName,outputDir='.'):
 	return wave,qsos
 
 def generate_default_binned_forest(fileName,outputDir='.',**kwargs):
-	nlos = kwargs.get('numSightlines',1000)
-	zbins = kwargs.get('zBins',np.arange(0.1,4.6,0.025))
-	waverange = kwargs.get('waverange',(1300.,7000))
-	R = kwargs.get('R',300)
+	nlos = kwargs.pop('numSightlines',1000)
+	zbins = kwargs.pop('zBins',np.arange(0.1,4.6,0.025))
+	waverange = kwargs.pop('waverange',(1300.,7000))
+	R = kwargs.pop('R',300)
 	hiforest.generate_binned_forest(fileName,sqmodels.WP11_model,
 	                                nlos,zbins,waverange,R,
-	                                outputDir=outputDir)
+	                                outputDir=outputDir,**kwargs)
 

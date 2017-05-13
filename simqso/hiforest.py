@@ -325,6 +325,8 @@ class IGMTransmissionGrid(object):
 		self.specWave = wave
 		self.forestModel = forestModel
 		self.numSightLines = numSightLines
+		self.verbose = kwargs.get('verbose',0)
+		self.nosortz = kwargs.get('nosortz',False)
 		# pad the lower redshift by just a bit
 		self.zmin = wave.min() / 1215.7 - 1.01
 		self.zmax = kwargs.get('zmax',10)
@@ -360,6 +362,8 @@ class IGMTransmissionGrid(object):
 		self.currentSightLineNum = -1
 	def next_spec(self,sightLine,z,**kwargs):
 		if self.currentSightLineNum != sightLine:
+			if self.verbose > 0:
+				print 'finished sightline ',self.currentSightLineNum
 #			self.currentSightLine = generate_los(self.forestModel,
 #			                                     self.zmin,self.zmax) 
 			self.currentSightLine = self.sightLines[sightLine]
@@ -375,16 +379,21 @@ class IGMTransmissionGrid(object):
 		tau = calc_tau_lambda(self.forestWave,los[zi1:zi2],tauIn=self.tau,
 		                      **kwargs)
 		self.T = exp(-tau).reshape(-1,self.nRebin).mean(axis=1)
-		return self.T
+		return self.T.astype(np.float32)
 	def current_spec(self,sightLine,z,**kwargs):
 		return self.T
 	def all_spec(self,losMap,z_em,**kwargs):
 		if len(losMap) != len(z_em):
 			raise ValueError
-		zi = z_em.argsort()
+		if self.nosortz:
+			zi = np.arange(len(z_em))
+		else:
+			zi = z_em.argsort()
 		T = np.vstack( [ self.next_spec(losMap[i],z_em[i],**kwargs) 
 		                   for i in zi ] )
-		return Table(dict(T=T[zi.argsort()],z=z_em,sightLine=losMap))
+		return Table(dict(T=T[zi.argsort()].astype(np.float32),
+		                  z=z_em.astype(np.float32),
+		                  sightLine=losMap.astype(np.int32)))
 	def write(self,fileName,outputDir,tspec=None,
 	          losMap=None,z_em=None,**kwargs):
 		'''Save transmissionspectra to a FITS file.'''
@@ -430,12 +439,12 @@ class CachedIGMTransmissionGrid(object):
 		return self.tspec['T'][i]
 
 def generate_binned_forest(fileName,forestModel,nlos,zbins,waverange,R,
-                           outputDir='.'):
+                           outputDir='.',**kwargs):
 	wave = fixed_R_dispersion(waverange[0],waverange[1],R)
 	z = np.tile(zbins[:,np.newaxis],nlos).transpose()
 	ii = np.arange(nlos)
 	losMap = np.tile(ii[:,np.newaxis],len(zbins))
-	fGrid = IGMTransmissionGrid(wave,forestModel,nlos)
+	fGrid = IGMTransmissionGrid(wave,forestModel,nlos,**kwargs)
 	fGrid.write(fileName,outputDir,losMap=losMap.ravel(),z_em=z.ravel(),
 	            meta={'ZBINS':','.join(['%.3f'%_z for _z in zbins])})
 
