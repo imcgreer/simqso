@@ -1009,7 +1009,12 @@ class QsoSimGrid(QsoSimObjects):
 		super(QsoSimGrid,self).__init__(**kwargs)
 		if len(args) > 0:
 			gridVars,nBins,nPerBin = args
-			self.gridShape = nBins + (nPerBin,)
+			s = []
+			for n,v in zip(nBins,gridVars):
+				if n is None:
+					n = len(v(None))
+				s.append(n)
+			self.gridShape = tuple(s) + (nPerBin,)
 			self._init_grid(gridVars)
 			self._init_grid_data(gridVars)
 			self.addVars(gridVars,noVals=True)
