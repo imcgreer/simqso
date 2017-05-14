@@ -341,6 +341,16 @@ def buildSpectraBySightLine(wave,qsoGrid,procMap=map,
 		spectra = None
 	return qsoGrid,spectra
 
+def buildSpecWithPhot(wave,cosmo,specFeatures,photoCache,
+                      objData,iterNum=None,saveSpectra=False):
+	sp = buildQsoSpectrum(wave,cosmo,specFeatures,objData,
+	                      iterNum=iterNum)
+	if photoCache is not None:
+		rv = sqphoto.calcSynPhot(sp,photoCache=photoCache)
+	if saveSpectra:
+		rv = rv + (sp,)
+	return rv
+
 def buildSpectraBulk(wave,qsoGrid,procMap=map,
                      maxIter=1,verbose=0,saveSpectra=False):
 	'''Assemble the spectral components of QSOs from the input parameters.
@@ -368,8 +378,9 @@ def buildSpectraBulk(wave,qsoGrid,procMap=map,
 			if not ( isinstance(f.sampler,grids.NullSampler) or 
 			         isinstance(f.sampler,grids.IndexSampler) ):
 				f.sampler = None
-		build_one_spec = partial(buildQsoSpectrum,wave,qsoGrid.cosmo,
-		                         specFeatures,iterNum=iterNum)
+		build_one_spec = partial(buildSpecWithPhot,wave,qsoGrid.cosmo,
+		                         specFeatures,photoCache,iterNum=iterNum,
+		                         saveSpectra=saveSpectra)
 		print 'buildSpectra iteration ',iterNum,' out of ',nIter
 		specOut = procMap(build_one_spec,qsoGrid)
 		specOut = _regroup(specOut)
@@ -384,7 +395,10 @@ def buildSpectraBulk(wave,qsoGrid,procMap=map,
 			qsoGrid.absMag[:] -= dm
 			dmagMax = np.abs(dm).max()
 			# resample features with updated absolute mags
-			qsoGrid.resample()
+			for var in specFeatures:
+				if var.dependentVars is not None:
+					var.resample(qsoGrid.data[var.dependentVars])
+					qsoGrid.data[var.name][:] = var(None)
 			if dmagMax < 0.01:
 				break
 	if saveSpectra:
