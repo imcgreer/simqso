@@ -8,7 +8,7 @@ import scipy.constants as const
 from astropy.io import fits
 from astropy.table import Table,vstack
 
-from .sqbase import datadir,fixed_R_dispersion
+from .sqbase import datadir,fixed_R_dispersion,resample
 
 # shorthands
 exp,sqrt,log = np.exp,np.sqrt,np.log
@@ -447,4 +447,32 @@ def generate_binned_forest(fileName,forestModel,nlos,zbins,waverange,R,
 	fGrid = IGMTransmissionGrid(wave,forestModel,nlos,**kwargs)
 	fGrid.write(fileName,outputDir,losMap=losMap.ravel(),z_em=z.ravel(),
 	            meta={'ZBINS':','.join(['%.3f'%_z for _z in zbins])})
+
+# for now just duck-typing this
+class MeanIGMTransmissionGrid(object):
+	def __init__(self,fileName,wave,outputDir='.'):
+		if not fileName.endswith('.fits') or fileName.endswith('.fits.gz'):
+			fileName += '.fits'
+		self.outWave = wave
+		fn = os.path.join(outputDir,fileName)
+		tspec = Table.read(fn)
+		hdr = fits.getheader(fn,1)
+		nwave = tspec['T'].shape[1]
+		wi = np.arange(nwave)
+		logwave = hdr['CRVAL1'] + hdr['CD1_1']*(wi-(hdr['CRPIX1']-1))
+		self.specWave = exp(logwave)
+		self.wi = np.searchsorted(self.specWave,self.outWave[-1])
+		nlos = hdr['IGMNLOS']
+		self.numSightLines = 1
+		self.zBins = np.array(map(float,hdr['ZBINS'].split(',')))
+		self.meanT = tspec['T'].reshape(nlos,-1,nwave).mean(axis=0)
+	def next_spec(self,sightLine,z,**kwargs):
+		return self.spec(z)
+	def current_spec(self,sightLine,z,**kwargs):
+		return self.spec(z)
+	def spec(self,z):
+		zi = np.searchsorted(self.zBins,z)
+		T = self.meanT[zi].clip(0,1) # XXX clip is there for bad vals
+		T = resample(self.specWave,T,self.outWave[:self.wi])
+		return T
 
