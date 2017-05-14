@@ -136,11 +136,11 @@ BossDr9_expDust_cont = grids.BrokenPowerLawContinuumVar([
 BossDr9_FeScalings = [ (0,1540,0.5),(1540,1680,2.0),(1680,1868,1.6),
                        (1868,2140,1.0),(2140,3500,1.0) ]
 
-def BossDr9_EmLineTemplate(*args):
-	kwargs = {'scaleEWs':{'LyAb':1.1,'LyAn':1.1,
-	                      'CIVb':0.75,'CIVn':0.75,
-	                      'CIII]b':0.8,'CIII]n':0.8,
-	                      'MgIIb':0.8,'MgIIn':0.8}}
+def BossDr9_EmLineTemplate(*args,**kwargs):
+	kwargs.setdefault('scaleEWs',{'LyAb':1.1,'LyAn':1.1,
+	                              'CIVb':0.75,'CIVn':0.75,
+	                              'CIII]b':0.8,'CIII]n':0.8,
+	                              'MgIIb':0.8,'MgIIn':0.8})
 	return grids.generateBEffEmissionLines(*args,**kwargs)
 
 def get_BossDr9_model_vars(qsoGrid,wave,nSightLines):
