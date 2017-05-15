@@ -67,6 +67,46 @@ def resample(x1,y1,x2):
 	resampfun = interp1d(x1,y1)
 	return resampfun(x2)
 
+def continuum_kcorr(obsBand,restBand,z,alpha_nu=-0.5):
+	'''
+	A simple power-law k-correction.
+
+	Parameters
+	----------
+	obsBand : str or float
+	    Observed band. Can be one of "SDSS-[ugriz]", "CFHT-[gri]", or a
+	    wavelength in Angstroms.
+	restBand : str or float
+	    Rest-frame band. Can be one of "SDSS-[ugriz]", "CFHT-[gri]", or a
+	    wavelength in Angstroms.
+	z : float or ndarray
+	    Emission redshift(s).
+	alpha_nu : float
+	    Spectral index used to get k-correction, as f_nu ~ nu^alpha_nu.
+
+	Returns
+	-------
+	k : ndarray
+	    K(z) is spectral k-correction for a simple power-law continuum.
+	'''
+	z = np.asarray(z)
+	# CFHT: http://www.cfht.hawaii.edu/Science/mswg/filters.html
+	effWave = {'SDSS-g':4670.,'SDSS-r':6165.,'SDSS-i':7471.,'SDSS-z':8918,
+	           'CFHT-g':4770.,'CFHT-r':6230.,'CFHT-i':7630.}
+	try:
+		obsWave = float(obsBand)
+	except:
+		obsWave = effWave[obsBand]
+	try:
+		restWave = float(restBand)
+	except:
+		restWave = effWave[restBand]
+	# Following continuum K-corrections given in 
+	#  Richards et al. 2006, AJ 131, 2766
+	kcorr = -2.5*(1+alpha_nu)*np.log10(1+z) - \
+	           2.5*alpha_nu*np.log10(restWave/obsWave)
+	return kcorr
+
 def mag2lum(obsBand,restBand,z,cosmo,alpha_nu=-0.5):
 	'''
 	Convert observed mags to absolute mags using a simple power-law 
@@ -96,21 +136,7 @@ def mag2lum(obsBand,restBand,z,cosmo,alpha_nu=-0.5):
 	z = np.asarray(z)
 	DM = [cosmo.distmod(_z).value for _z in z.flat]
 	DM = np.array(DM).reshape(z.shape)
-	# CFHT: http://www.cfht.hawaii.edu/Science/mswg/filters.html
-	effWave = {'SDSS-g':4670.,'SDSS-r':6165.,'SDSS-i':7471.,'SDSS-z':8918,
-	           'CFHT-g':4770.,'CFHT-r':6230.,'CFHT-i':7630.}
-	try:
-		obsWave = float(obsBand)
-	except:
-		obsWave = effWave[obsBand]
-	try:
-		restWave = float(restBand)
-	except:
-		restWave = effWave[restBand]
-	# Following continuum K-corrections given in 
-	#  Richards et al. 2006, AJ 131, 2766
-	kcorr = -2.5*(1+alpha_nu)*np.log10(1+z) - \
-	           2.5*alpha_nu*np.log10(restWave/obsWave)
+	kcorr = continuum_kcorr(obsBand,restBand,z,alpha_nu=alpha_nu)
 	return kcorr + DM
 
 class Spectrum(object):

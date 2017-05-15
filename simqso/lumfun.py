@@ -190,10 +190,10 @@ class LuminosityFunction(object):
 		self.paramBounds[paramName] = paramBounds
 	def get_param_bounds(self,paramName):
 		return self.paramBounds.get(paramName)
-	def _m2M(self,kcorr=None):
+	def _m2M(self,z,kcorr=None):
 		if kcorr is None:
 			kcorr = self.kcorr
-		return lambda z: self.distmod(z) + kcorr(z)
+		return self.cosmo.distmod(z).value + kcorr(z)
 
 
 class DoublePowerLawLF(LuminosityFunction):
@@ -219,8 +219,8 @@ class DoublePowerLawLF(LuminosityFunction):
 		                 10**(0.4*( beta+1)*(M-Mstar)))
 	def _sample(self,Mrange,zrange,p,**kwargs):
 		eps_M,eps_z = 5e-2,2e-2
-		nM = np.diff(Mrange) / eps_M
-		nz = np.diff(zrange) / eps_z
+		nM = int(-np.diff(Mrange(zrange)) / eps_M)
+		nz = int(np.diff(zrange) / eps_z)
 		skyfrac = kwargs.get('skyArea',skyDeg2) / skyDeg2
 		dVdzdO = interp_dVdzdO(zrange,self.cosmo)
 		phi_z = lambda z: integrateDPL(Mrange(z),*self.eval_par_at_z(z,p)) * \

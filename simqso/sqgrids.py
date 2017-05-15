@@ -950,6 +950,8 @@ class QsoSimObjects(object):
 				s = str(simPars['GridParams']['QLFmodel']).replace('\n',';')
 				simPars['GridParams']['QLFmodel'] = s
 			tab.meta['SQPARAMS'] = str(simPars)
+			if outFn is None:
+				outFn = simPars['FileName']
 		tab.meta['COSMO'] = self.cosmo_str(self.cosmo)
 		tab.meta['GRIDUNIT'] = self.units
 		tab.meta['GRIDDIM'] = str(self.gridShape)
@@ -957,7 +959,9 @@ class QsoSimObjects(object):
 			var.updateMeta(tab.meta,'AX%d'%i)
 		tab.meta['NSIMVAR'] = len(self.qsoVars)
 		if outFn is None:
-			outFn = simPars['FileName']+'.fits'
+			outFn = 'qsosim.fits'
+		if not outFn.endswith('.fits'):
+			outFn += '.fits'
 		tab.write(os.path.join(outputDir,outFn),overwrite=True)
 
 class QsoSimPoints(QsoSimObjects):
@@ -1062,15 +1066,15 @@ class QsoSimGrid(QsoSimObjects):
 
 
 
-def generateQlfPoints(qlf,mRange,zRange,m2M,cosmo,band,**kwargs):
+def generateQlfPoints(qlf,mRange,zRange,band,**kwargs):
 	'''
 	Generate a `QsoSimPoints` grid fed by `AppMagVar` and `RedshiftVar`
 	instances which are sampled from an input luminosity function.
 	'''
-	m,z = qlf.sample_from_fluxrange(mRange,zRange,m2M,cosmo,**kwargs)
-	m = AppMagVar(FixedSampler(m),band=band)
+	m,z = qlf.sample_from_fluxrange(mRange,zRange,**kwargs)
+	m = AppMagVar(FixedSampler(m),band)
 	z = RedshiftVar(FixedSampler(z))
-	return QsoSimPoints([m,z],units='flux',cosmo=cosmo)
+	return m,z
 
 def generateBEffEmissionLines(M1450,**kwargs):
 	trendFn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v6')

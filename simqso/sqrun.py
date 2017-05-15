@@ -83,15 +83,17 @@ def buildQsoGrid(simParams):
 			qlf = gridPars['QLFmodel']
 		except KeyError:
 			raise ValueError('Must specify a parameterization of the LF')
-		qsoGrid = grids.generateQlfPoints(qlf,
-		                                  gridPars['mRange'],
-		                                  gridPars['zRange'],
-		                                  m2M,cosmodef,
-		                                  gridPars['ObsBand'],
-		                                  **gridPars['QLFargs'])
+		m,z = grids.generateQlfPoints(qlf,
+		                              gridPars['mRange'],
+		                              gridPars['zRange'],
+		                              gridPars['ObsBand'],
+		                              **gridPars['QLFargs'])
+		units = 'flux'
 	else:
 		raise ValueError('GridType %s unknown' % gridType)
-	if gridType != 'LuminosityFunction':
+	if gridType == 'LuminosityFunction':
+		qsoGrid = grids.QsoSimPoints([m,z],units=units,cosmo=cosmodef)
+	else:
 		qsoGrid = grids.QsoSimGrid([m,z],nBins,gridPars['nPerBin'],
 		                           units=units,cosmo=cosmodef)
 	try:
@@ -420,10 +422,10 @@ def readSimulationData(fileName,outputDir,retParams=False):
 	gridPars = simPars['GridParams']
 	if True:
 		mSampler = grids.FixedSampler(qsoGrid.appMag)
-		m = grids.AppMagVar(mSampler,band=gridPars['ObsBand'])
+		m = grids.AppMagVar(mSampler,gridPars['ObsBand'])
 	try:
 		mSampler = grids.FixedSampler(qsoGrid.appMag)
-		m = grids.AppMagVar(mSampler,band=gridPars['ObsBand'])
+		m = grids.AppMagVar(mSampler,gridPars['ObsBand'])
 	except:
 		mSampler = grids.FixedSampler(qsoGrid.absMag)
 		m = grids.AbsMagVar(mSampler,restWave=gridPars['LumUnits'])
@@ -560,7 +562,7 @@ def qsoSimulation(simParams,**kwargs):
 	if nproc > 1:
 		pool.close()
 	if not noWriteOutput:
-		qsoGrid.write(simParams,outputDir=outputDir)
+		qsoGrid.write(simPars=simParams,outputDir=outputDir)
 	if saveSpectra:
 		fits.writeto(os.path.join(outputDir,
 		                          simParams['FileName']+'_spectra.fits'),
