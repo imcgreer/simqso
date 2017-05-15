@@ -126,6 +126,8 @@ def buildForest(wave,z,simParams,outputDir):
 			pass
 	if tgrid is None:
 		forestModel = forestParams['ForestModel']
+		if isinstance(forestModel,basestring):
+			forestModel = sqmodels.forestModels[forestModel]
 		tgrid = hiforest.IGMTransmissionGrid(wave,forestModel,nlos,
 		                                     zmax=z.max(),**forestParams)
 	return tgrid
