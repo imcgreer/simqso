@@ -520,23 +520,15 @@ class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
 			normwave = fluxNorm['wavelength']
 			wave0 = wave/z1
 			fnorm = _Mtoflam(normwave,fluxNorm['M_AB'],z,fluxNorm['DM'])
-			if wave0[0] > normwave:
-				raise NotImplementedError("outside of wave range: ",
-				                          wave0[0],normwave)
-				# XXX come back to this; for normalizing the flux when the norm
-				#     wavelength is outside of the spectral range
-				for alam,bkpt in zip(alpha_lams,breakpts):
-					if bkpt > normwave:
-						fnorm *= (normwave/bkpt)**alam
-					if bkpt > wave0[0]:
-						break
-			elif wave0[-1] < normwave:
-				raise NotImplementedError("%.1f (%.1f) outside lower "
-				 "wavelength bound %.1f" % (wave0[-1],wave[-1],normwave))
-			else:
-				# ... to be strictly correct, would need to account for power law
-				#     slope within the pixel
-				fscale = fnorm/spec[np.searchsorted(wave0,normwave)]
+			jj = np.where((self.breakPts > min(wave0[0],normwave)) &
+			              (self.breakPts < max(wave0[0],normwave)))[0]
+			if normwave > wave0[0]:
+				jj = jj[::-1]
+			for j in jj:
+				fnorm *= (self.breakPts[j]/normwave)**alpha_lams[j+1]
+				normwave = self.breakPts[j]
+			j = np.searchsorted(self.breakPts,wave0[0])
+			fscale = fnorm*(wave0[0]/normwave)**alpha_lams[j]
 			spec[:] *= fscale
 		return spec
 
