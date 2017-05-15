@@ -2,8 +2,12 @@
 
 from astropy.cosmology import FlatLambdaCDM
 from simqso import qsoSimulation,lumfun,sqmodels
+from simqso.sqbase import continuum_kcorr
 
-# XXX need to tweak params to match cosmology defined in simParams
+dr9cosmo = FlatLambdaCDM(70,1-0.7,name='BOSSDR9')
+
+def def_kcorr(z):
+	return continuum_kcorr('SDSS-i',1450,z)
 
 def BOSS_DR9_PLE(which=1):
 	if which==1:
@@ -11,7 +15,8 @@ def BOSS_DR9_PLE(which=1):
 	alpha,beta,MStar_i_z0,k1,k2,logPhiStar = row
 	MStar1450_z0 = MStar_i_z0 + 0.890
 	MStar = lumfun.PolyEvolParam([-2.5*k2,-2.5*k1,MStar1450_z0])
-	return lumfun.DoublePowerLawLF(logPhiStar,MStar,alpha,beta)
+	return lumfun.DoublePowerLawLF(logPhiStar,MStar,alpha,beta,
+	                               cosmo=dr9cosmo,kcorr=def_kcorr)
 
 def BOSS_DR9_LEDE():
 	c1,c2 = -0.689, -0.809
@@ -22,7 +27,8 @@ def BOSS_DR9_LEDE():
 	logPhiStar = lumfun.PolyEvolParam([c1,logPhiStar_z2_2],z0=2.2)
 	alpha = -1.31
 	beta = -3.45
-	return lumfun.DoublePowerLawLF(logPhiStar,MStar,alpha,beta)
+	return lumfun.DoublePowerLawLF(logPhiStar,MStar,alpha,beta,
+	                               cosmo=dr9cosmo,kcorr=def_kcorr)
 
 simParams = {
   # filename for simulation output (".fits" is appended)
@@ -34,7 +40,7 @@ simParams = {
   # dispersion scale is logarithmic [only option for now]
   'DispersionScale':'logarithmic',
   # set the cosmology, any appropriate instance from astropy.cosmology allowed
-  'Cosmology':FlatLambdaCDM(70,1-0.7,name='BOSSDR9'),
+  'Cosmology':dr9cosmo,
   # setting a global random seed allows the simulation to be repeatable
   'RandomSeed':1,
   # Define the "grid" of points in (M,z) space for the simulation
