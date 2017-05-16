@@ -1110,8 +1110,8 @@ def generateBEffEmissionLines(M1450,**kwargs):
 	return lines
 
 def generateVdBCompositeEmLines(minEW=1.0,noFe=False):
-	all_lines = Table.read(datadir+'VandenBerk2001_AJ122_549_table2.txt',
-	                       format='ascii')
+	tmplfits = os.path.join(datadir,'simqso_templates.fits')
+	all_lines = Table(fits.getdata(tmplfits,'VdB01CompEmLines'))
 	# blended lines are repeated in the table
 	l,li = np.unique(all_lines['OWave'],return_index=True)
 	lines = all_lines[li]

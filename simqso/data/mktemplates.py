@@ -28,8 +28,26 @@ def VestergaardWilkes01_Fe(fepath=None):
 		rv.append(hdu)
 	return rv
 
-if __name__=='__main__':
+def VandenBerkSDSSCompositeTemplate():
+	all_lines = Table.read('VandenBerk2001_AJ122_549_table2.txt',
+	                       format='ascii')
+	hdu = fits.table_to_hdu(all_lines)
+	hdu.name = 'VdB01CompEmLines'
+	return hdu
+
+def append_one(hdu):
+	hdu_list = fits.open('simqso_templates.fits',mode='update')
+	hdu_list.append(hdu)
+	hdu_list.close()
+#	hdu_list.writeto('simqso_templates.fits',overwrite=True)
+
+def from_scratch():
 	hdu_list = fits.HDUList([fits.PrimaryHDU()])
 	hdu_list.extend( VestergaardWilkes01_Fe() )
+	hdu_list.extend( VandenBerkSDSSCompositeTemplate() )
+	return hdu_list
+
+if __name__=='__main__':
+	hdu_list = from_scratch()
 	hdu_list.writeto('simqso_templates.fits',overwrite=True)
 
