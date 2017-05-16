@@ -349,10 +349,14 @@ def buildSpecWithPhot(wave,cosmo,specFeatures,photoCache,
                       objData,iterNum=None,saveSpectra=False):
 	sp = buildQsoSpectrum(wave,cosmo,specFeatures,objData,
 	                      iterNum=iterNum)
-	if photoCache is not None:
+	if photoCache is None:
+		rv = (None,None)
+	else:
 		rv = sqphoto.calcSynPhot(sp,photoCache=photoCache)
 	if saveSpectra:
-		rv = rv + (sp,)
+		rv = rv + (sp.f_lambda,)
+	else:
+		rv = rv + (None,)
 	return rv
 
 def buildSpectraBulk(wave,qsoGrid,procMap=map,
@@ -388,7 +392,7 @@ def buildSpectraBulk(wave,qsoGrid,procMap=map,
 		print 'buildSpectra iteration ',iterNum,' out of ',nIter
 		specOut = procMap(build_one_spec,qsoGrid)
 		specOut = _regroup(specOut)
-		synMag,synFlux = specOut[:2]
+		synMag,synFlux,spectra = specOut
 		for f,s in zip(specFeatures,samplers):
 			f.sampler = s
 		if nIter > 1:
@@ -405,19 +409,15 @@ def buildSpectraBulk(wave,qsoGrid,procMap=map,
 					qsoGrid.data[var.name][:] = var(None)
 			if dmagMax < 0.01:
 				break
-	if saveSpectra:
-		spectra = specOut[2]
-	else:
-		spectra = None
 	if qsoGrid.photoMap is not None:
 		qsoGrid.addVar(grids.SynMagVar(grids.FixedSampler(synMag)))
 		qsoGrid.addVar(grids.SynFluxVar(grids.FixedSampler(synFlux)))
 	return qsoGrid,spectra
 
 
-def readSimulationData(fileName,outputDir,retParams=False):
+def readSimulationData(fileName,outputDir,retParams=False,clean=False):
 	qsoGrid = grids.QsoSimObjects()
-	qsoGrid.read(os.path.join(outputDir,fileName+'.fits'),clean=True)
+	qsoGrid.read(os.path.join(outputDir,fileName+'.fits'),clean=clean)
 	simPars = qsoGrid.simPars
 	gridPars = simPars['GridParams']
 	if True:
@@ -482,7 +482,8 @@ def qsoSimulation(simParams,**kwargs):
 	timerLog = sqbase.TimerLog()
 	try:
 		qsoGrid,simParams = readSimulationData(simParams['FileName'],
-		                                       outputDir,retParams=True)
+		                                       outputDir,retParams=True,
+		                                       clean=True)
 	except IOError:
 		print simParams['FileName']+' output not found'
 		if 'GridFileName' in simParams:

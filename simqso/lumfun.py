@@ -249,10 +249,11 @@ class DoublePowerLawLF(LuminosityFunction):
 				print i+1,' out of ',Ntot
 		return M,z
 	def sample_from_fluxrange(self,mrange,zrange,p=None,**kwargs):
+		kcorr = kwargs.get('kcorr')
 		_mrange = mrange[::-1]
-		_Mrange = lambda z: np.array(_mrange) - self._m2M(z)
+		_Mrange = lambda z: np.array(_mrange) - self._m2M(z,kcorr=kcorr)
 		M,z = self._sample(_Mrange,zrange,p,**kwargs)
-		m = M + self._m2M(z)
+		m = M + self._m2M(z,kcorr=kcorr)
 		return m,z
 	def sample_from_Lrange(self,Mrange,zrange,p=None,**kwargs):
 		_Mrange = lambda z: Mrange
