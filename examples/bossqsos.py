@@ -42,12 +42,11 @@ simParams = {
   # set the cosmology, any appropriate instance from astropy.cosmology allowed
   'Cosmology':dr9cosmo,
   # setting a global random seed allows the simulation to be repeatable
-  'RandomSeed':1,
+  'RandomSeed':12345,
   # Define the "grid" of points in (M,z) space for the simulation
   # In this case the grid is a distribution of points sampled from the	
   # Ross et al. 2013 QLF determined from BOSS DR9.
   'GridParams':{
-  	'RandomSeed':123,
     # Define the grid as coming from a luminosity function
     'GridType':'LuminosityFunction', 
     # Specify the functional form of the LF, using a double power-law
@@ -69,7 +68,6 @@ simParams = {
   'QuasarModelParams':{
     # underlying continuum, only option is power law
     'ContinuumParams':{
-  	  'RandomSeed':123,
       # power law slopes have a gaussian distribution
       'ContinuumModel':'GaussianPLawDistribution',
       # the continuum consists of a series of broken power laws with
@@ -80,7 +78,6 @@ simParams = {
     },
     # the emission line model
     'EmissionLineParams':{
-  	  'RandomSeed':123,
       # the emission line profile distribution comes from the BOSS DR9 model
       # allowing for the Baldwin Effect
       'EmissionLineModel':'VariedEmissionLineGrid',
@@ -94,7 +91,6 @@ simParams = {
     },
     # the Fe emission template from Vestergaard & Wilkes 2001
     'IronEmissionParams':{
-  	  'RandomSeed':123,
       # rescalings of sections of the template, empirically determined fitting
       # of composite BOSS quasar spectra
       'FeScalings':[(0,1540,0.5),(1540,1680,2.0),(1680,1868,1.6),
@@ -104,7 +100,6 @@ simParams = {
   # define the model for transmission spectra through the HI forest, based on
   # Monte Carlo realizations of absorption systems
   'ForestParams':{
-  	'RandomSeed':123,
     # filename to save the forest transmission spectra
 #    'FileName':'boss_dr9qlf_forest',
     # name of the model for the distribution of absorbers 
@@ -123,7 +118,6 @@ simParams = {
   # for calculating synthetic photometry from the spectra, and an error model
   # for producing realistic fluxes and errors
   'PhotoMapParams':{
-  	'RandomSeed':123,
     # list the systems individually, the output 'synMag' and 'obsMag' fields
     # will have a final dimension equal to the total number of bandpasses,
     # in the order listed here. I.e., for this simulation the shape is
