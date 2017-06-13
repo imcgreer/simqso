@@ -372,14 +372,15 @@ def calcObsPhot(synFlux,photoMap):
 	obsMagErr = np.empty_like(synFlux)
 	gridShape = synFlux.shape[:-1]
 	for j,b in enumerate(photoMap['bandpasses']):
+		_b = b.split("-")[-1] # the short filter name
 		obsFluxErr[...,j] = photoMap['mapObserved'][b](synFlux[...,j])
 		obsFlux[...,j] = synFlux[...,j] + \
 		                   obsFluxErr[...,j]*np.random.randn(*gridShape)
 		if photoMap['magSys'][b]=='AB':
-			obsMag[...,j],obsMagErr[...,j] = nmgy2abmag(b,obsFlux[...,j],
+			obsMag[...,j],obsMagErr[...,j] = nmgy2abmag(_b,obsFlux[...,j],
 			                                            obsFluxErr[...,j])
 		elif photoMap['magSys'][b]=='asinh':
-			obsMag[...,j],obsMagErr[...,j] = nmgy2asinhmag(b,obsFlux[...,j],
+			obsMag[...,j],obsMagErr[...,j] = nmgy2asinhmag(_b,obsFlux[...,j],
 			                                               obsFluxErr[...,j])
 		else:
 			raise ValueError
