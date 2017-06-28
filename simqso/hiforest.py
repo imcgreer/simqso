@@ -461,7 +461,7 @@ class MeanIGMTransmissionGrid(object):
 		wi = np.arange(nwave)
 		logwave = hdr['CRVAL1'] + hdr['CD1_1']*(wi-(hdr['CRPIX1']-1))
 		self.specWave = exp(logwave)
-		self.wi = np.searchsorted(self.specWave,self.outWave[-1])
+		self.wi = np.searchsorted(self.outWave,self.specWave[-1])
 		nlos = hdr['IGMNLOS']
 		self.numSightLines = 1
 		self.zBins = np.array(map(float,hdr['ZBINS'].split(',')))
