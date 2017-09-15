@@ -691,3 +691,21 @@ class JointQLFFitter(object):
 			allpar[i] = par
 		return Table(dict(par=allpar,dS=(S-S0)))
 
+
+def deltaPhi(z,cosmo2,cosmo1):
+	'''n/V' = (n/V)*(V/V')'''
+	dV1 = cosmo1.differential_comoving_volume(z)
+	dV2 = cosmo2.differential_comoving_volume(z)
+	return dV2/dV1
+
+def deltaLogPhi(z,cosmo2,cosmo1):
+	'''log(n/V') = log[(n/V)*(V/V')] = log(n/V) + log(V/V')'''
+	return np.log10(deltaPhi(z,cosmo2,cosmo1))
+
+def deltaM(z,cosmo2,cosmo1):
+	'''m = M + DM = M' + DM'
+	   --> M' = M + (DM - DM')'''
+	DM1 = cosmo1.distmod(z).value
+	DM2 = cosmo2.distmod(z).value
+	return DM2 - DM1
+
