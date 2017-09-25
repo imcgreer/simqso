@@ -955,6 +955,8 @@ class QsoSimObjects(object):
 		tab.meta['COSMO'] = self.cosmo_str(self.cosmo)
 		tab.meta['GRIDUNIT'] = self.units
 		tab.meta['GRIDDIM'] = str(self.gridShape)
+		if self.photoMap is not None:
+			tab.meta['OBSBANDS'] = ','.join(self.photoMap['bandpasses'])
 		for i,var in enumerate(self.qsoVars):
 			var.updateMeta(tab.meta,'AX%d'%i)
 		tab.meta['NSIMVAR'] = len(self.qsoVars)
