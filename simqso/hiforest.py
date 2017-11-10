@@ -445,7 +445,11 @@ def generate_binned_forest(fileName,forestModel,nlos,zbins,waverange,R,
 	ii = np.arange(nlos)
 	losMap = np.tile(ii[:,np.newaxis],len(zbins))
 	fGrid = IGMTransmissionGrid(wave,forestModel,nlos,**kwargs)
-	fGrid.write(fileName,outputDir,losMap=losMap.ravel(),z_em=z.ravel(),
+	tspec = fGrid.all_spec(losMap.ravel(),z.ravel())
+	if fileName is None:
+		return tspec
+	else:
+		fGrid.write(fileName,outputDir,tspec=tspec,
 	            meta={'ZBINS':','.join(['%.3f'%_z for _z in zbins])})
 
 # for now just duck-typing this
