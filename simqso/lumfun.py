@@ -248,11 +248,43 @@ class DoublePowerLawLF(LuminosityFunction):
 			if Ntot > 1e4 and ((i+1)%(Ntot//10))==0:
 				print i+1,' out of ',Ntot
 		return M,z
+	def _fast_sample(self,Mrange,zrange,p,**kwargs):
+		print 'using fast sample'
+		skyfrac = kwargs.get('skyArea',skyDeg2) / skyDeg2
+		eps_M,eps_z = 0.05,0.10
+		full_Mrange = Mrange(zrange)
+		nM = int(-np.diff(full_Mrange) / eps_M)
+		nz = int(np.diff(zrange) / eps_z)
+		Medges = np.linspace(full_Mrange[0],full_Mrange[1],nM)
+		zedges = np.linspace(zrange[0],zrange[1],nz)
+		dM = -np.diff(Medges)[0]
+		dz = np.diff(zedges)[0]
+		Mbins = Medges[:-1] + np.diff(Medges)/2
+		zbins = zedges[:-1] + np.diff(zedges)/2
+		Mlim_z = np.array([ Mrange(z)[0] for z in zbins ])
+		dVdzdO = self.cosmo.differential_comoving_volume(zbins).value
+		V_ij = dVdzdO * dz * dM * skyfrac * 4*np.pi
+		Mi,zj = np.meshgrid(Mbins,zbins,indexing='ij')
+		Phi_ij = self.Phi(Mi,zj)
+		N_ij = np.round(Phi_ij * V_ij).astype(np.int32)
+		N_ij[Mi>Mlim_z] = 0
+		ij = np.where(N_ij > 0)
+		Mz = [ ( np.repeat(M,n), np.repeat(z,n) )
+		          for M,z,n in zip(Mi[ij],zj[ij],N_ij[ij]) ]
+		M,z = np.hstack(Mz)
+		M += dM * (np.random.rand(len(M)) - 0.5)
+		z += dz * (np.random.rand(len(M)) - 0.5)
+		print 'to generate {} quasars'.format(len(M))
+		return M,z
 	def sample_from_fluxrange(self,mrange,zrange,p=None,**kwargs):
 		kcorr = kwargs.get('kcorr')
+		fast = kwargs.get('fast_sample',False)
 		_mrange = mrange[::-1]
 		_Mrange = lambda z: np.array(_mrange) - self._m2M(z,kcorr=kcorr)
-		M,z = self._sample(_Mrange,zrange,p,**kwargs)
+		if fast:
+			M,z = self._fast_sample(_Mrange,zrange,p,**kwargs)
+		else:
+			M,z = self._sample(_Mrange,zrange,p,**kwargs)
 		m = M + self._m2M(z,kcorr=kcorr)
 		return m,z
 	def sample_from_Lrange(self,Mrange,zrange,p=None,**kwargs):
