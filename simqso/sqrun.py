@@ -116,7 +116,6 @@ def buildForest(wave,z,simParams,outputDir):
 	'''
 	forestParams = simParams['ForestParams']
 	reseed(forestParams)
-	nlos = forestParams['NumLinesOfSight']
 	forestFn = forestParams.get('FileName')
 	tgrid = None
 	if forestFn:
@@ -127,6 +126,7 @@ def buildForest(wave,z,simParams,outputDir):
 		except IOError:
 			pass
 	if tgrid is None:
+		nlos = forestParams['NumLinesOfSight']
 		forestModel = forestParams['ForestModel']
 		if isinstance(forestModel,basestring):
 			forestModel = sqmodels.forestModels[forestModel]
@@ -213,7 +213,10 @@ def buildFeatures(qsoGrid,wave,simParams,forest=None):
 			losMap = forest.losMap
 		else:
 			losMap = None
-		forestVar = grids.HIAbsorptionVar(forest,losMap=losMap)
+		if isinstance(forest,hiforest.GridForest):
+			forestVar = grids.SightlineVar(forest,losMap=losMap)
+		else:
+			forestVar = grids.HIAbsorptionVar(forest,losMap=losMap)
 		qsoGrid.addVar(forestVar)
 
 def _getpar(feature,obj):
@@ -393,6 +396,12 @@ def buildSpectraBulk(wave,qsoGrid,procMap=map,
 		specOut = procMap(build_one_spec,qsoGrid)
 		specOut = _regroup(specOut)
 		synMag,synFlux,spectra = specOut
+		v = qsoGrid.getVars(grids.SightlineVar)
+		if len(v) > 0 and isinstance(v[0].forest,hiforest.GridForest):
+			jj,dm,df = v[0].forest.get(qsoGrid.data['igmlos'],
+			                           qsoGrid.data['z'])
+			synMag[:,jj] += dm
+			synFlux[:,jj] *= df
 		for f,s in zip(specFeatures,samplers):
 			f.sampler = s
 		if nIter > 1:
@@ -537,6 +546,11 @@ def qsoSimulation(simParams,**kwargs):
 		# else no forest or cached forest
 		buildSpec = buildSpectraBulk
 	#
+	qsoGrid.loadPhotoMap(simParams['PhotoMapParams']['PhotoSystems'])
+	if 'GridForestFile' in simParams:
+		forest = hiforest.GridForest(simParams['GridForestFile'],
+		                             qsoGrid.photoBands)
+	#
 	# add the quasar model variables to the grid (does the random sampling)
 	#
 	buildFeatures(qsoGrid,wave,simParams,forest)
@@ -545,7 +559,6 @@ def qsoSimulation(simParams,**kwargs):
 	# Use continuum and emission line distributions to build the components
 	# of the intrinsic QSO spectrum, then calculate photometry
 	#
-	qsoGrid.loadPhotoMap(simParams['PhotoMapParams']['PhotoSystems'])
 	_,spectra = buildSpec(wave,qsoGrid,procMap,
 	                      maxIter=simParams.get('maxFeatureIter',5),
 	                      verbose=verbose,saveSpectra=saveSpectra)

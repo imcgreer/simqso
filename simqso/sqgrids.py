@@ -638,12 +638,12 @@ class FeTemplateVar(EmissionFeatureVar):
 	def render(self,wave,z,par):
 		return self.feGrid.get(z)
 
-class HIAbsorptionVar(QsoSimVar,SpectralFeatureVar):
+class SightlineVar(QsoSimVar):
 	'''
-	Variable used to store IGM HI absorption spectra.
+	Variable used to associate quasars with lines-of-sight.
 
 	Since the spectra are precomputed a :class:`simqso.sqgrids.IndexSampler`
-	instance is used internally to map the forest sightlines to individual 
+	instance is used internally to map the sightlines to individual 
 	spectra.
 	'''
 	name = 'igmlos'
@@ -653,8 +653,17 @@ class HIAbsorptionVar(QsoSimVar,SpectralFeatureVar):
 			s = RandomSubSampler(N)
 		else:
 			s = FixedSampler(losMap)
-		super(HIAbsorptionVar,self).__init__(s)
+		super(SightlineVar,self).__init__(s)
 		self.forest = forest
+
+class HIAbsorptionVar(SightlineVar,SpectralFeatureVar):
+	'''
+	Variable used to store IGM HI absorption spectra.
+
+	Since the spectra are precomputed a :class:`simqso.sqgrids.IndexSampler`
+	instance is used internally to map the forest sightlines to individual 
+	spectra.
+	'''
 	def add_to_spec(self,spec,sightLine,advance=True,**kwargs):
 		if advance:
 			T = self.forest.next_spec(sightLine,spec.z)

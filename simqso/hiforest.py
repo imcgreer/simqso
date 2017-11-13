@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import os
-from collections import OrderedDict
+from collections import OrderedDict,namedtuple
 import numpy as np
 import scipy.stats as stats
 import scipy.constants as const
@@ -440,7 +440,7 @@ class CachedIGMTransmissionGrid(object):
 
 def generate_binned_forest(fileName,forestModel,nlos,zbins,waverange,R,
                            outputDir='.',**kwargs):
-	wave = fixed_R_dispersion(waverange[0],waverange[1],R)
+	wave = fixed_R_dispersion(*tuple(waverange+(R,)))
 	z = np.tile(zbins[:,np.newaxis],nlos).transpose()
 	ii = np.arange(nlos)
 	losMap = np.tile(ii[:,np.newaxis],len(zbins))
@@ -451,6 +451,86 @@ def generate_binned_forest(fileName,forestModel,nlos,zbins,waverange,R,
 	else:
 		fGrid.write(fileName,outputDir,tspec=tspec,
 	            meta={'ZBINS':','.join(['%.3f'%_z for _z in zbins])})
+
+def _get_forest_mags(args):
+	import sqphoto # XXX make a photomap object that returns mags
+	forest_generator,photoMap,wave,zbins = args
+	grid = forest_generator()
+	nBands = len(photoMap['bandpasses'])
+	#
+	fGrid = grid.group_by('sightLine')
+	wi = np.arange(fGrid['T'].shape[-1],dtype=np.float32)
+	fGrid['dmag'] = np.zeros((1,nBands),dtype=np.float32)
+	fGrid['fratio'] = np.zeros((1,nBands),dtype=np.float32)
+	#
+	fakespec = namedtuple('fakespec','wave,f_lambda')
+	refspec = fakespec(wave,np.ones_like(wave))
+	refmags,reffluxes = sqphoto.calcSynPhot(refspec,photoMap)
+	#
+	for sightLine in fGrid.groups:
+		for i,z in enumerate(zbins):
+			spec = fakespec(wave,sightLine['T'][i])
+			mags,fluxes = sqphoto.calcSynPhot(spec,photoMap)
+			dmag = mags - refmags
+			dmag[fluxes<=0] = 99
+			sightLine['dmag'][i] = dmag
+			sightLine['fratio'][i] = fluxes.clip(0,np.inf) / reffluxes
+	del fGrid['z','T']
+	return fGrid
+
+def generate_grid_forest(fileName,forestModel,nlos,zbins,waverange,R,
+                         photoMap,outputDir='.',nproc=1,**kwargs):
+	import multiprocessing
+	from functools import partial
+	wave = fixed_R_dispersion(*tuple(waverange+(R,)))
+	n = nlos // nproc
+	forest_generator = partial(generate_binned_forest,
+	                           None,forestModel,n,zbins,waverange,R,
+	                           **kwargs)
+	if nproc == 1:
+		_map = _map
+	else:
+		pool = multiprocessing.Pool(nproc)
+		_map = pool.map
+	inp = [ (forest_generator,photoMap,wave,zbins) ]*nproc
+	fGrids = map(_get_forest_mags,inp)
+	for i in range(1,len(fGrids)):
+		fGrids[i]['sightLine'] += fGrids[i-1]['sightLine'].max() + 1
+	fGrid = vstack(fGrids)
+	fGrid.meta['ZBINS'] = ','.join(['%.3f'%_z for _z in zbins])
+	fGrid.meta['BANDS'] = ','.join(photoMap['bandpasses'])
+	fGrid.write(os.path.join(outputDir,fileName),overwrite=True)
+	if nproc > 1:
+		pool.close()
+
+class GridForest(object):
+	def __init__(self,fileName,simBands):
+		self.simBands = np.array(simBands)
+		self.data = Table.read(fileName).group_by('sightLine')
+		self.numSightLines = len(self.data.groups)
+		zbins = self.data.meta['ZBINS'].split(',')
+		self.zbins = np.array(zbins).astype(np.float32)
+		self.dz = np.diff(self.zbins)
+		self.bands = np.array(self.data.meta['BANDS'].split(','))
+		self.ii = np.array([ np.where(b==self.simBands)[0][0]
+		                        for b in self.bands ])
+		shp = (self.numSightLines,len(self.zbins),-1)
+		self.dmag = self.data['dmag'].reshape(shp)
+		self.frat = self.data['fratio'].reshape(shp)
+		self.dmdz = np.diff(self.dmag,axis=1) / self.dz[:,None]
+		self.dfdz = np.diff(self.frat,axis=1) / self.dz[:,None]
+	def get(self,losNum,z):
+		zi = np.digitize(z,self.zbins) - 1
+		if np.any( (zi<0) | (zi >= len(self.zbins)-1) ):
+			print "WARNING: qso z range {:.3f}|{:.3f} ".format(
+			             z.min(),z.max()),
+			print "outside forest grid {:.3f}|{:.3f}".format(
+			             self.zbins[0],self.zbins[-1])
+			zi = zi.clip(0,len(self.zbins)-2)
+		dz = z - self.zbins[zi]
+		dmag = self.dmag[losNum,zi] + self.dmdz[losNum,zi]*dz[:,None]
+		frat = self.frat[losNum,zi] + self.dfdz[losNum,zi]*dz[:,None]
+		return self.ii,dmag,frat
 
 # for now just duck-typing this
 class MeanIGMTransmissionGrid(object):
