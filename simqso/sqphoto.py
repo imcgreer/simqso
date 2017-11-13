@@ -386,3 +386,22 @@ def calcObsPhot(synFlux,photoMap):
 			raise ValueError
 	return Table({'obsFlux':obsFlux,'obsFluxErr':obsFluxErr,
 	              'obsMag':obsMag,'obsMagErr':obsMagErr})
+
+class LazyPhotoMap(object):
+	'''Needed for using photoMap in multiprocessing calls'''
+	def __init__(self,photSystems):
+		self.photSystems = photSystems
+		self.photoMap = None
+		self.photoCache = None
+	def __loadup(self,spec=None):
+		if self.photoMap is None:
+			self.photoMap = load_photo_map(self.photSystems)
+		if self.photoCache is None and spec is not None:
+			self.photoCache = getPhotoCache(spec.wave,self.photoMap)
+	def calcSynPhot(self,spec):
+		self.__loadup(spec)
+		return calcSynPhot(spec,photoCache=self.photoCache)
+	def getBandpasses(self):
+		self.__loadup()
+		return self.photoMap['bandpasses']
+

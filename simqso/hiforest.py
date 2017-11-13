@@ -2,6 +2,8 @@
 
 import os
 from collections import OrderedDict,namedtuple
+import multiprocessing
+from functools import partial
 import numpy as np
 import scipy.stats as stats
 import scipy.constants as const
@@ -452,11 +454,11 @@ def generate_binned_forest(fileName,forestModel,nlos,zbins,waverange,R,
 		fGrid.write(fileName,outputDir,tspec=tspec,
 	            meta={'ZBINS':','.join(['%.3f'%_z for _z in zbins])})
 
-def _get_forest_mags(args):
-	import sqphoto # XXX make a photomap object that returns mags
-	forest_generator,photoMap,wave,zbins = args
-	grid = forest_generator()
-	nBands = len(photoMap['bandpasses'])
+def _get_forest_mags(forestModel,zbins,waverange,R,photoMap,n,**kwargs):
+	wave = fixed_R_dispersion(*tuple(waverange+(R,)))
+	grid = generate_binned_forest(None,forestModel,n,zbins,waverange,R,
+	                              **kwargs)
+	nBands = len(photoMap.getBandpasses())
 	#
 	fGrid = grid.group_by('sightLine')
 	wi = np.arange(fGrid['T'].shape[-1],dtype=np.float32)
@@ -465,40 +467,43 @@ def _get_forest_mags(args):
 	#
 	fakespec = namedtuple('fakespec','wave,f_lambda')
 	refspec = fakespec(wave,np.ones_like(wave))
-	refmags,reffluxes = sqphoto.calcSynPhot(refspec,photoMap)
+	refmags,reffluxes = photoMap.calcSynPhot(refspec)
 	#
-	for sightLine in fGrid.groups:
+	for snum,sightLine in zip(fGrid.groups.keys['sightLine'],fGrid.groups):
 		for i,z in enumerate(zbins):
 			spec = fakespec(wave,sightLine['T'][i])
-			mags,fluxes = sqphoto.calcSynPhot(spec,photoMap)
+			mags,fluxes = photoMap.calcSynPhot(spec)
 			dmag = mags - refmags
 			dmag[fluxes<=0] = 99
 			sightLine['dmag'][i] = dmag
 			sightLine['fratio'][i] = fluxes.clip(0,np.inf) / reffluxes
+		if ( (snum+1) % 10 ) == 0:
+			try:
+				pid = multiprocessing.current_process().name.split('-')[1]
+			except:
+				pid = '--'
+			print '[%2s] completed %d sightlines' % (pid,snum)
 	del fGrid['z','T']
 	return fGrid
 
 def generate_grid_forest(fileName,forestModel,nlos,zbins,waverange,R,
                          photoMap,outputDir='.',nproc=1,**kwargs):
-	import multiprocessing
-	from functools import partial
-	wave = fixed_R_dispersion(*tuple(waverange+(R,)))
 	n = nlos // nproc
-	forest_generator = partial(generate_binned_forest,
-	                           None,forestModel,n,zbins,waverange,R,
-	                           **kwargs)
 	if nproc == 1:
-		_map = _map
+		_map = map
 	else:
 		pool = multiprocessing.Pool(nproc)
 		_map = pool.map
-	inp = [ (forest_generator,photoMap,wave,zbins) ]*nproc
-	fGrids = map(_get_forest_mags,inp)
+	forest_generator = partial(_get_forest_mags,forestModel,zbins,
+	                           waverange,R,photoMap,**kwargs)
+	_nlos = np.repeat(n,nproc)
+	_nlos[-1] += nlos - np.sum(_nlos)
+	fGrids = _map(forest_generator,_nlos)
 	for i in range(1,len(fGrids)):
 		fGrids[i]['sightLine'] += fGrids[i-1]['sightLine'].max() + 1
 	fGrid = vstack(fGrids)
 	fGrid.meta['ZBINS'] = ','.join(['%.3f'%_z for _z in zbins])
-	fGrid.meta['BANDS'] = ','.join(photoMap['bandpasses'])
+	fGrid.meta['BANDS'] = ','.join(photoMap.getBandpasses())
 	fGrid.write(os.path.join(outputDir,fileName),overwrite=True)
 	if nproc > 1:
 		pool.close()
