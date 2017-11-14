@@ -9,6 +9,7 @@ from scipy.integrate import quad,dblquad,romberg,simps
 from scipy.ndimage.filters import convolve
 from scipy import optimize
 from scipy.special import hyp2f1
+from scipy.stats import poisson
 from astropy.stats import poisson_conf_interval
 from astropy.table import Table
 import astropy.units as u
@@ -252,11 +253,13 @@ class DoublePowerLawLF(LuminosityFunction):
 		print 'using fast sample'
 		skyfrac = kwargs.get('skyArea',skyDeg2) / skyDeg2
 		eps_M,eps_z = 0.05,0.10
+		magLimPad = 0.2
 		full_Mrange = Mrange(zrange)
 		nM = int(-np.diff(full_Mrange) / eps_M)
 		nz = int(np.diff(zrange) / eps_z)
 		Medges = np.linspace(full_Mrange[0],full_Mrange[1],nM)
 		zedges = np.linspace(zrange[0],zrange[1],nz)
+		# XXX shouldn't assume evenly spaced bins here
 		dM = -np.diff(Medges)[0]
 		dz = np.diff(zedges)[0]
 		Mbins = Medges[:-1] + np.diff(Medges)/2
@@ -266,8 +269,9 @@ class DoublePowerLawLF(LuminosityFunction):
 		V_ij = dVdzdO * dz * dM * skyfrac * 4*np.pi
 		Mi,zj = np.meshgrid(Mbins,zbins,indexing='ij')
 		Phi_ij = self.Phi(Mi,zj)
-		N_ij = np.round(Phi_ij * V_ij).astype(np.int32)
-		N_ij[Mi>Mlim_z] = 0
+		N_ij = Phi_ij * V_ij
+		N_ij = poisson.rvs(N_ij)
+		N_ij[Mi>Mlim_z+magLimPad] = 0
 		ij = np.where(N_ij > 0)
 		Mz = [ ( np.repeat(M,n), np.repeat(z,n) )
 		          for M,z,n in zip(Mi[ij],zj[ij],N_ij[ij]) ]

@@ -482,7 +482,7 @@ def _get_forest_mags(forestModel,zbins,waverange,R,photoMap,n,**kwargs):
 				pid = multiprocessing.current_process().name.split('-')[1]
 			except:
 				pid = '--'
-			print '[%2s] completed %d sightlines' % (pid,snum)
+			print '[%2s] completed %d sightlines' % (pid,snum+1)
 	del fGrid['z','T']
 	return fGrid
 
