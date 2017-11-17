@@ -494,6 +494,30 @@ class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
 		super(BrokenPowerLawContinuumVar,self).__init__(samplers)
 		self.breakPts = np.asarray(breakPts).astype(np.float32)
 		self.meta['CNTBKPTS'] = ','.join(['%.1f' % b for b in self.breakPts])
+	def _normalize(self,wave,z,slopes,fluxNorm=None,
+	               minwave=12.4,getspec=True):
+		z1 = 1 + z
+		alpha_lams = -(2+np.asarray(slopes)) # a_nu --> a_lam
+		alpha_lams = alpha_lams.squeeze() # comes in as [1,N] from grid
+		breakpts = self.breakPts
+		if breakpts[0] > minwave:
+			breakpts = np.concatenate([[minwave],breakpts]) * z1
+		f0 = np.ones_like(breakpts)
+		for i,breakwv in enumerate(breakpts[1:],start=1):
+			wv1 = breakpts[i-1]
+			f0[i] = f0[i-1]*(breakwv/wv1)**alpha_lams[i-1]
+		if fluxNorm is not None:
+			normwv = fluxNorm['wavelength']
+			fnorm = _Mtoflam(normwv,fluxNorm['M_AB'],z,fluxNorm['DM'])
+			i = np.searchsorted(self.breakPts,normwv)
+			fatnorm = f0[i]*(normwv/self.breakPts[i-1])**alpha_lams[i]
+			f0 *= fnorm/fatnorm
+		if getspec:
+			ii = np.digitize(wave,self.breakPts*z1)
+			spec = f0[ii]*(wave/breakpts[ii])**alpha_lams[ii]
+			return spec
+		else:
+			return f0,alpha_lams,breakpts
 	def render(self,wave,z,slopes,fluxNorm=None,assocvals=None):
 		'''
 		Renders the broken power law continuum at redshift ``z`` given the
@@ -510,55 +534,20 @@ class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
 		        absolute AB magnitude at ``wavelength``
 		    DM : function to return distance modulus, as in ``DM(z)``
 		'''
-		spec = np.zeros_like(wave)
-		w1 = 1
-		spec[0] = 1.0
-		z1 = 1 + z
-		alpha_lams = -(2+np.asarray(slopes)) # a_nu --> a_lam
-		# add a breakpoint beyond the red edge of the spectrum in order
-		# to fill using the last power law slope if necessary
-		breakpts = np.concatenate([[0,],self.breakPts,[wave[-1]+1]])
-		wb = np.searchsorted(wave,breakpts*z1)
-		ii = np.where((wb>0)&(wb<=len(wave)))[0]
-		wb = wb[ii]
-		for alpha_lam,w2 in zip(alpha_lams[ii-1],wb):
-			if w1==w2:
-				break
-			spec[w1:w2] = spec[w1-1] * (wave[w1:w2]/wave[w1-1])**alpha_lam
-			w1 = w2
-		if fluxNorm is not None:
-			normwave = fluxNorm['wavelength']
-			wave0 = wave/z1
-			fnorm = _Mtoflam(normwave,fluxNorm['M_AB'],z,fluxNorm['DM'])
-			jj = np.where((self.breakPts > min(wave0[0],normwave)) &
-			              (self.breakPts < max(wave0[0],normwave)))[0]
-			if normwave > wave0[0]:
-				jj = jj[::-1]
-			for j in jj:
-				fnorm *= (self.breakPts[j]/normwave)**alpha_lams[j+1]
-				normwave = self.breakPts[j]
-			j = np.searchsorted(self.breakPts,wave0[0])
-			fscale = fnorm*(wave0[0]/normwave)**alpha_lams[j]
-			spec[:] *= fscale
-		return spec
+		return self._normalize(wave,z,slopes,fluxNorm)
 	def total_flux(self,slopes,fluxNorm,z,minwave=12.4,maxwave=1.3e4):
-		normwave = fluxNorm['wavelength']
-		fnorm = _Mtoflam(normwave,fluxNorm['M_AB'],z,fluxNorm['DM'])
-		wavepts = [ minwave ] + list(self.breakPts) + [ maxwave ]
-		alpha_lams = -(2+np.asarray(slopes)) # a_nu --> a_lam
-		ftot = 0.0
-		f1 = 1.0
-		for i,alam in enumerate(alpha_lams):
-			lam1,lam2 = wavepts[i],wavepts[i+1]
-			if lam2 > maxwave:
-				lam2 = maxwave
-			ftot += lam1*f1*( (np.power(lam2/lam1,alam+1) - 1) / (alam+1) )
-			if (normwave > lam1) and (normwave < lam2):
-				fatnorm = f1*np.power(normwave/lam1,alam)
-			f1 *= np.power(lam2/lam1,alam)
-			if lam2 == maxwave:
-				break
-		ftot *= fnorm/fatnorm
+		f0,alpha_lams,breakwvs = self._normalize(None,z,slopes,fluxNorm,
+		                                         minwave=minwave,
+		                                         getspec=False)
+		breakwvs /= (1+z)
+		i = np.searchsorted(breakwvs,maxwave) - 1
+		breakwvs = breakwvs[:i]
+		breakwvs = np.concatenate([breakwvs,[maxwave]])
+		f0,alpha_lams = f0[:i],alpha_lams[:i]
+		waveratio = breakwvs[1:]/breakwvs[:-1]
+		# integrate the power law spectra across the break
+		ftot = np.sum( breakwvs[:-1]*f0*(np.power(waveratio,alpha_lams+1)-1)
+		                 / (alpha_lams+1))
 		return ftot
 
 class EmissionFeatureVar(QsoSimVar,SpectralFeatureVar):
