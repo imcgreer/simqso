@@ -12,6 +12,8 @@ from simqso import sqbase,sqrun,sqmodels,sqphoto,lumfun,hiforest
 from simqso import sqgrids as grids
 from simqso.sqbase import continuum_kcorr,fixed_R_dispersion
 
+import ebossmodels
+
 dr9cosmo = FlatLambdaCDM(70,1-0.7,name='BOSSDR9')
 
 def def_kcorr(z):
@@ -71,9 +73,10 @@ def boss_dr9_model_vars(qsoGrid,wave):
 	qsoGrid.addVars(mvars)
 	return qsoGrid
 
-photSys = [ ('SDSS','Legacy'), ('WISE','AllWISE') ]
+photSys = [ ('SDSS','Legacy'), ('UKIRT','UKIDSS_LAS'), ('WISE','AllWISE') ]
 
-def runsim(fileName,forestFile,maxIter=2,nproc=1):
+def runsim(models,fileName,forestFile,qsoGrid=None,qlf=None,
+           maxIter=2,nproc=1,const=False):
 	np.random.seed(12345)
 	if nproc==1:
 		procMap = map
@@ -82,10 +85,22 @@ def runsim(fileName,forestFile,maxIter=2,nproc=1):
 		procMap = pool.map
 	wave = fixed_R_dispersion(0.3e4,6e4,500)
 	#
-	qlf = BOSS_DR9_LEDE()
-	qsoGrid = sample_qlf(qlf)
+	if qsoGrid is None:
+		if qlf is None:
+			qlf = BOSS_DR9_LEDE()
+		qsoGrid = sample_qlf(qlf)
 	#
-	qsoGrid = boss_dr9_model_vars(qsoGrid,wave)
+	qsoGrid = ebossmodels.add_continuum(qsoGrid,models['continuum'],
+	                                    const=const)
+	if 'dustem' in models:
+		qsoGrid = ebossmodels.add_dust_emission(qsoGrid,models['dustem'],
+		                                        const=const)
+	if 'emlines' in models:
+		qsoGrid = ebossmodels.add_emission_lines(qsoGrid,models['emlines'],
+		                                         const=const)
+	if 'iron' in models:
+		qsoGrid = ebossmodels.add_iron(qsoGrid,wave,models['iron'],
+		                               const=const)
 	#
 	qsoGrid.loadPhotoMap(photSys)
 	#
@@ -104,6 +119,7 @@ def runsim(fileName,forestFile,maxIter=2,nproc=1):
 	qsoGrid.write(fileName)
 	if nproc>1:
 		pool.close()
+	return qsoGrid
 
 class BandIndexes(object):
 	def __init__(self,simQsoTab):
@@ -230,11 +246,38 @@ def colorz(simqsos,coreqsos):
 	plt.xlim(0.85,4.05)
 	plt.ylabel('n(z)')
 
+def run_colorz_sim(models):
+	mrange = (-27,-25)
+	nm = 3
+	zrange = (0.9,4.0)
+	nz = 5
+	mbins = np.linspace(*tuple(mrange+(nm,)))
+	zbins = np.linspace(*tuple(zrange+(nz,)))
+	M,z = np.meshgrid(mbins,zbins,indexing='ij')
+	M = grids.AbsMagVar(grids.FixedSampler(M.flatten()),
+	                    restWave=1450)
+	z = grids.RedshiftVar(grids.FixedSampler(z.flatten()))
+	qsos = grids.QsoSimPoints([M,z],cosmo=dr9cosmo,units='luminosity')
+	qsos = runsim(models,'foo.fits','sdss_forest_grid.fits',qsos,const=True)
+	synmags = np.array(qsos.data['synMag'].reshape(nm,nz,-1))
+	synclrs = -np.diff(synmags,axis=-1)
+	return dict(mbins=mbins,zbins=zbins,
+	            synmags=synmags,syncolors=synclrs,
+	            qsos=qsos)
+
 if __name__=='__main__':
 	forestFile = 'sdss_forest_grid.fits'
 	if not os.path.exists(forestFile):
 		make_forest_grid()
 	fileName = 'ebosscore'
-	runsim(fileName,forestFile,nproc=7)
+	models = {'continuum':'bossdr9',#'def_plcontinuum',
+	          'dustem':'LR17',
+	          'emlines':'bossdr9',
+	          'iron':'def_iron',
+	}
+	const = False
+	nproc = 7
+	qsos = None
+	runsim(models,fileName,forestFile,const=const,nproc=nproc,qsoGrid=qsos)
 	apply_selection_fun(fileName+'.fits',verbose=1,redo=True)
 
