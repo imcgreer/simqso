@@ -220,36 +220,62 @@ def buildFeatures(qsoGrid,wave,simParams,forest=None):
 		qsoGrid.addVar(forestVar)
 
 def _getpar(feature,obj):
-	if isinstance(feature.sampler,grids.NullSampler):
+	if feature is None:
+		return None
+	elif isinstance(feature.sampler,grids.NullSampler):
 		return None
 	elif isinstance(feature.sampler,grids.IndexSampler):
 		return obj.index
 	else:
 		return obj[feature.name]
 
-def buildQsoSpectrum(wave,cosmo,specFeatures,obj,iterNum=1):
+def buildQsoSpectrum(wave,cosmo,specFeatures,obj,iterNum=1,
+                     save_components=False):
 	spec = sqbase.Spectrum(wave,z=obj['z'])
+	if save_components:
+		base = sqbase.Spectrum(spec.wave,spec.f_lambda.copy(),spec.z)
+		components = {}
 	# start with continuum
 	distmod = lambda z: cosmo.distmod(z).value
 	fluxNorm = {'wavelength':1450.,'M_AB':obj['absMag'],'DM':distmod}
 	for feature in specFeatures:
 		if isinstance(feature,grids.ContinuumVar):
+			assocvals = _getpar(feature.get_associated_var(),obj)
 			spec = feature.add_to_spec(spec,_getpar(feature,obj),
+			                           assocvals=assocvals,
 			                           fluxNorm=fluxNorm)
+			if save_components:
+				components[feature.name] = spec - base
+				base = components[feature.name]
 	# add emission (multiplicative) features
 	emspec = sqbase.Spectrum(wave,z=obj['z'])
+	if save_components:
+		base = sqbase.Spectrum(emspec.wave,emspec.f_lambda.copy(),emspec.z)
 	for feature in specFeatures:
 		if isinstance(feature,grids.EmissionFeatureVar):
-			emspec = feature.add_to_spec(emspec,_getpar(feature,obj))
+			assocvals = _getpar(feature.get_associated_var(),obj)
+			emspec = feature.add_to_spec(emspec,_getpar(feature,obj),
+			                             assocvals=assocvals)
+			if save_components:
+				components[feature.name] = spec - base
+				base = components[feature.name]
 	spec *= emspec + 1
 	# add any remaining features
 	for feature in specFeatures:
 		if isinstance(feature,grids.ContinuumVar) or \
 		   isinstance(feature,grids.EmissionFeatureVar):
 			continue
+		assocvals = _getpar(feature.get_associated_var(),obj)
 		spec = feature.add_to_spec(spec,_getpar(feature,obj),
+			                       assocvals=assocvals,
 		                           advance=(iterNum==1))
-	return spec
+		if save_components:
+			components[feature.name] = spec - base
+			base = components[feature.name]
+	if save_components:
+		return spec,components
+	else:
+		return spec
 
 def buildGrpSpectra(wave,cosmo,specFeatures,photoCache,saveSpectra,
                     fluxBand,nIter,verbose,objGroup):

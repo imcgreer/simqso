@@ -12,6 +12,11 @@ from astropy.io import fits
 from astropy.table import Table,hstack
 from astropy import units as u
 from astropy import cosmology
+from astropy.constants import sigma_sb
+try:
+	from astropy.modeling.blackbody import blackbody_lambda
+except ImportError:
+	from astropy.analytic_functions import blackbody_lambda
 
 from .sqbase import datadir,Spectrum
 from . import dustextinction
@@ -349,6 +354,7 @@ class QsoSimVar(object):
 			self.name = name
 		self.meta = {}
 		self.dependentVars = None
+		self.assocVar = None
 	def __call__(self,n,**kwargs):
 		return self.sampler(n,**kwargs)
 	def resample(self,*args,**kwargs):
@@ -358,6 +364,10 @@ class QsoSimVar(object):
 		self.sampler.resample(*args,**kwargs)
 	def _sampler_to_string(self):
 		return str(self.sampler)
+	def set_associated_var(self,assocVar):
+		self.assocVar = assocVar
+	def get_associated_var(self):
+		return self.assocVar
 	def updateMeta(self,meta,axPfx):
 		'''
 		Update the meta-data dictionary associated with the variable.
@@ -400,7 +410,7 @@ class SpectralFeatureVar(object):
 
 	Subclasses must define the render() function.
 	'''
-	def render(self,wave,z,par,**kwargs):
+	def render(self,wave,z,par,assocvals=None):
 		raise NotImplementedError
 	def add_to_spec(self,spec,par,**kwargs):
 		'''
@@ -484,7 +494,7 @@ class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
 		super(BrokenPowerLawContinuumVar,self).__init__(samplers)
 		self.breakPts = np.asarray(breakPts).astype(np.float32)
 		self.meta['CNTBKPTS'] = ','.join(['%.1f' % b for b in self.breakPts])
-	def render(self,wave,z,slopes,fluxNorm=None):
+	def render(self,wave,z,slopes,fluxNorm=None,assocvals=None):
 		'''
 		Renders the broken power law continuum at redshift ``z`` given the
 		set of sampled ``slopes``. Aribrarily normalized unless the
@@ -531,6 +541,25 @@ class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
 			fscale = fnorm*(wave0[0]/normwave)**alpha_lams[j]
 			spec[:] *= fscale
 		return spec
+	def total_flux(self,slopes,fluxNorm,z,minwave=12.4,maxwave=1.3e4):
+		normwave = fluxNorm['wavelength']
+		fnorm = _Mtoflam(normwave,fluxNorm['M_AB'],z,fluxNorm['DM'])
+		wavepts = [ minwave ] + list(self.breakPts) + [ maxwave ]
+		alpha_lams = -(2+np.asarray(slopes)) # a_nu --> a_lam
+		ftot = 0.0
+		f1 = 1.0
+		for i,alam in enumerate(alpha_lams):
+			lam1,lam2 = wavepts[i],wavepts[i+1]
+			if lam2 > maxwave:
+				lam2 = maxwave
+			ftot += lam1*f1*( (np.power(lam2/lam1,alam+1) - 1) / (alam+1) )
+			if (normwave > lam1) and (normwave < lam2):
+				fatnorm = f1*np.power(normwave/lam1,alam)
+			f1 *= np.power(lam2/lam1,alam)
+			if lam2 == maxwave:
+				break
+		ftot *= fnorm/fatnorm
+		return ftot
 
 class EmissionFeatureVar(QsoSimVar,SpectralFeatureVar):
 	'''
@@ -567,7 +596,7 @@ class GaussianEmissionLineVar(EmissionFeatureVar,MultiDimVar):
 	       [ 1215.987,   109.654,     9.312],
 	       [ 1215.74 ,   101.765,    10.822]])
 	'''
-	def render(self,wave,z,par):
+	def render(self,wave,z,par,assocvals=None):
 		return render_gaussians(wave,z,np.array([par]))
 
 class GaussianLineEqWidthVar(EmissionFeatureVar):
@@ -591,7 +620,7 @@ class GaussianLineEqWidthVar(EmissionFeatureVar):
 		self.wave0 = wave0
 		self.width0 = width0
 		self.log = log
-	def render(self,wave,z,ew0):
+	def render(self,wave,z,ew0,assocvals=None):
 		if self.log:
 			ew0 = np.power(10,ew0)
 		return render_gaussians(wave,z,
@@ -603,7 +632,7 @@ class GaussianEmissionLinesTemplateVar(EmissionFeatureVar,MultiDimVar):
 	emission lines.
 	'''
 	name = 'emLines'
-	def render(self,wave,z,lines):
+	def render(self,wave,z,lines,assocvals=None):
 		return render_gaussians(wave,z,lines)
 
 class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
@@ -635,8 +664,23 @@ class FeTemplateVar(EmissionFeatureVar):
 	def __init__(self,feGrid):
 		super(FeTemplateVar,self).__init__(NullSampler())
 		self.feGrid = feGrid
-	def render(self,wave,z,par):
+	def render(self,wave,z,par,assocvals=None):
 		return self.feGrid.get(z)
+
+class DustBlackbodyVar(ContinuumVar,MultiDimVar):
+	'''
+	Variable used to represent a warm dust component as a single blackbody,
+	treated as a continuum.
+	'''
+	def render(self,wave,z,par,fluxNorm=None,assocvals=None):
+		assert isinstance(self.assocVar,ContinuumVar)
+		assert assocvals is not None
+		fracdust,Tdust = par
+		L_bb = (sigma_sb.cgs * Tdust**4).value
+		fdisk = self.assocVar.total_flux(assocvals,fluxNorm,z)
+		flux_bb = fracdust * fdisk
+		flam_bb = np.pi*blackbody_lambda(wave/(1+z),Tdust).value / L_bb
+		return flux_bb*flam_bb
 
 class SightlineVar(QsoSimVar):
 	'''
