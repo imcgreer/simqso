@@ -3,18 +3,20 @@
 from simqso import sqmodels
 from simqso import sqgrids as grids
 
-qsomodels = {
-  # continuum models
+cont_models = {
   'bossdr9':[[(-1.50,0.3),(-0.50,0.3),(-0.37,0.3),(-1.70,0.3),(-1.03,0.3)],
              [1100.,5700.,9730.,22300.]],
-  'bossdr9expdust':[[(-0.50,0.3),(-0.30,0.3),(-0.37,0.3),
-                     (-1.70,0.3),(-1.03,0.3)],
-                    [1100.,5700.,9730.,22300.]],
+  'dr9expdust':[[(-0.50,0.3),(-0.30,0.3),(-0.37,0.3),
+                 (-1.70,0.3),(-1.03,0.3)],
+                 [1100.,5700.,9730.,22300.]],
   'def_plcontinuum':[[(-1.5,0.3),(-0.4,0.3)],[1200.]],
 }
 
+emline_models = {
+}
+
 def add_continuum(qsos,name='def_plcontinuum',const=False):
-	slopes,breakpts = qsomodels[name]
+	slopes,breakpts = cont_models[name]
 	if const:
 		slopes = [ grids.ConstSampler(s[0]) for s in slopes]
 	else:
@@ -44,7 +46,7 @@ def add_emission_lines(qsos,name='bossdr9',const=False):
 		emLineVar = sqmodels.get_Yang16_EmLineTemplate(qsos.absMag,
 		                                               NoScatter=const)
 	else:
-		kwargs = qsomodels.get(name,{})
+		kwargs = emline_models.get(name,{})
 		kwargs['NoScatter'] = const
 		emLineVar = grids.generateBEffEmissionLines(qsos.absMag,**kwargs)
 	qsos.addVar(emLineVar)
@@ -56,3 +58,13 @@ def add_iron(qsos,wave,name='def_iron',const=False):
 	feVar = grids.FeTemplateVar(fetempl)
 	qsos.addVar(feVar)
 	return qsos
+
+def add_dust_extinction(qsos,name='dr9expdust',const=False):
+	if const:
+		s = grids.ConstSampler(0.03)
+	else:
+		s = grids.ExponentialSampler(0.03)
+	dustVar = grids.SMCDustVar(s)
+	qsos.addVar(dustVar)
+	return qsos
+
