@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import os
+import os,sys
 import subprocess
 import multiprocessing
 import numpy as np
@@ -282,10 +282,19 @@ if __name__=='__main__':
 	if not os.path.exists(forestFile):
 		make_forest_grid()
 	fileName = 'ebosscore'
-	model = qso_models['bossdr9']
+	if len(sys.argv) > 1:
+		modelname = sys.argv[1]
+	else:
+		modelname = 'bossdr9'
+	model = qso_models[modelname]
 	const = False
 	nproc = 7
 	qsos = None
-	runsim(model,fileName,forestFile,const=const,nproc=nproc,qsoGrid=qsos)
-	apply_selection_fun(fileName+'.fits',verbose=1,redo=True)
-
+	if False:
+		runsim(model,fileName,forestFile,const=const,nproc=nproc,qsoGrid=qsos)
+		apply_selection_fun(fileName+'.fits',verbose=1,redo=True)
+	else:
+		import pickle
+		cz = run_colorz_sim(model)
+		del cz['qsos']
+		pickle.dump(cz,open(modelname+"_colorz.pkl","wb"))
