@@ -8,7 +8,7 @@ import numpy as np
 import scipy.stats as stats
 import scipy.constants as const
 from astropy.io import fits
-from astropy.table import Table,vstack
+from astropy.table import Table,vstack,hstack
 
 from .sqbase import datadir,fixed_R_dispersion,resample
 
@@ -509,7 +509,7 @@ def generate_grid_forest(fileName,forestModel,nlos,zbins,waverange,R,
 		pool.close()
 
 class GridForest(object):
-	def __init__(self,fileName,simBands):
+	def __init__(self,fileName,simBands,median=False):
 		self.simBands = np.array(simBands)
 		self.data = Table.read(fileName).group_by('sightLine')
 		self.numSightLines = len(self.data.groups)
@@ -520,8 +520,12 @@ class GridForest(object):
 		self.ii = np.array([ np.where(b==self.simBands)[0][0]
 		                        for b in self.bands ])
 		shp = (self.numSightLines,len(self.zbins),-1)
-		self.dmag = self.data['dmag'].reshape(shp)
-		self.frat = self.data['fratio'].reshape(shp)
+		self.dmag = np.array(self.data['dmag']).reshape(shp)
+		self.frat = np.array(self.data['fratio']).reshape(shp)
+		if median:
+			self.dmag = np.median(self.dmag,axis=0)[None,:,:]
+			self.frat = np.median(self.frat,axis=0)[None,:,:]
+			self.numSightLines = 1
 		self.dmdz = np.diff(self.dmag,axis=1) / self.dz[:,None]
 		self.dfdz = np.diff(self.frat,axis=1) / self.dz[:,None]
 	def get(self,losNum,z):
