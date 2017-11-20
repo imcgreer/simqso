@@ -58,15 +58,19 @@ class eBossQsos(object):
 		sdssFluxes = np.array(self.data['PSFFLUX'])
 		extCorr = np.array(self.data['EXTINCTION'])
 		self.sdssFluxes = np.ma.array(sdssFluxes*10**(0.4*extCorr))
+		# XXX need the galex ext values
 		# Galex
 		fuv = np.ma.array(self.data['FUV'],mask=self.data['FUV_IVAR']==0)
 		nuv = np.ma.array(self.data['NUV'],mask=self.data['NUV_IVAR']==0)
 		self.galexFluxes = np.ma.vstack([fuv,nuv]).T
 		# WISE (convert from Vega)
+		# using extinction conversions from ebosstarget_qso_selection.pro
 		w1 = np.ma.array(self.data['W1_NANOMAGGIES']*10**(-0.4*(2.699)),
 		                 mask=self.data['HAS_WISE_PHOT']!='T')
+		w1 *= 10**(0.4*(0.184*extCorr[:,2]/2.285))
 		w2 = np.ma.array(self.data['W2_NANOMAGGIES']*10**(-0.4*(3.339)),
 		                 mask=self.data['HAS_WISE_PHOT']!='T')
+		w2 *= 10**(0.4*(0.113*extCorr[:,2]/2.285))
 		self.wiseFluxes = np.ma.vstack([w1,w2]).T
 	def extract_features(self,featureset=['sdss','z'],
 	                     refband='i',ratios='byref'):
@@ -105,12 +109,14 @@ def fit_simqsos(simqsos,ncomp=15,refband='i'):
 	gmm = GaussianMixture(ncomp)
 	return gmm.fit(X)
 
-def test():
-	simqsos = Table.read('ebosscore.fits')
-	qsos = eBossQsos()
+def test(fn,qsos=None):
+	simqsos = Table.read(fn)
+	if qsos is None:
+		qsos = eBossQsos()
 	features = qsos.extract_features()
-	fit = fit_simqsos(qsos)
-	fit.score(features)
+	fit = fit_simqsos(simqsos)
+	s = fit.score(features)
+	print fn,s
 
 if __name__=='__main__':
 	make_coreqso_table(sys.argv[1],sys.argv[2])
