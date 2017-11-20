@@ -295,6 +295,13 @@ if __name__=='__main__':
 		apply_selection_fun(fileName+'.fits',verbose=1,redo=True)
 	else:
 		import pickle
+		cname = model['continuum']
+		#model['continuum'] = ebossmodels.cont_models[cname]
+		#model['continuum'][0][1] = (float(sys.argv[2]),0.3)
+		model['emlines'] = {'scaleEWs': {'CIVb':float(sys.argv[2]),
+		                                 'CIVn':float(sys.argv[2])}}
+		print model
 		cz = run_colorz_sim(model)
 		del cz['qsos']
-		pickle.dump(cz,open(modelname+"_colorz.pkl","wb"))
+		sfx = "_civ_"+sys.argv[2]
+		pickle.dump(cz,open(modelname+sfx+"_colorz.pkl","wb"))

@@ -15,8 +15,11 @@ cont_models = {
 emline_models = {
 }
 
-def add_continuum(qsos,name='def_plcontinuum',const=False):
-	slopes,breakpts = cont_models[name]
+def add_continuum(qsos,model='def_plcontinuum',const=False):
+	try:
+		slopes,breakpts = cont_models[model]
+	except:
+		slopes,breakpts = model
 	if const:
 		slopes = [ grids.ConstSampler(s[0]) for s in slopes]
 	else:
@@ -25,7 +28,7 @@ def add_continuum(qsos,name='def_plcontinuum',const=False):
 	qsos.addVar(contVar)
 	return qsos
 
-def add_dust_emission(qsos,name='LR17',const=False):
+def add_dust_emission(qsos,model='LR17',const=False):
 	contVar = qsos.getVars(grids.ContinuumVar)[0]
 	subDustVar = grids.DustBlackbodyVar([grids.ConstSampler(0.05),
 	                                     grids.ConstSampler(1800.)],
@@ -38,32 +41,35 @@ def add_dust_emission(qsos,name='LR17',const=False):
 	qsos.addVars([subDustVar,hotDustVar])
 	return qsos
 
-def add_emission_lines(qsos,name='bossdr9',const=False):
-	if name == 'bossdr9':
+def add_emission_lines(qsos,model='bossdr9',const=False):
+	if model == 'bossdr9':
 		emLineVar = sqmodels.BossDr9_EmLineTemplate(qsos.absMag,
 		                                            NoScatter=const)
-	elif name == 'yang16':
+	elif model == 'yang16':
 		emLineVar = sqmodels.get_Yang16_EmLineTemplate(qsos.absMag,
 		                                               NoScatter=const)
 	else:
-		kwargs = emline_models.get(name,{})
+		if isinstance(model,basestring):
+			kwargs = emline_models[model]
+		else:
+			kwargs = model
 		kwargs['NoScatter'] = const
 		emLineVar = grids.generateBEffEmissionLines(qsos.absMag,**kwargs)
 	qsos.addVar(emLineVar)
 	return qsos
 
-def add_iron(qsos,wave,name='def_iron',const=False):
+def add_iron(qsos,wave,model='def_iron',const=False):
 	fetempl = grids.VW01FeTemplateGrid(qsos.z,wave,
 	                                   scales=sqmodels.BossDr9_FeScalings)
 	feVar = grids.FeTemplateVar(fetempl)
 	qsos.addVar(feVar)
 	return qsos
 
-def add_dust_extinction(qsos,name='dr9expdust',const=False):
+def add_dust_extinction(qsos,model='dr9expdust',const=False):
 	if const:
-		s = grids.ConstSampler(0.03)
+		s = grids.ConstSampler(0.033)
 	else:
-		s = grids.ExponentialSampler(0.03)
+		s = grids.ExponentialSampler(0.033)
 	dustVar = grids.SMCDustVar(s)
 	qsos.addVar(dustVar)
 	return qsos
