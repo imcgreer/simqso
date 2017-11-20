@@ -103,9 +103,10 @@ class eBossQsos(object):
 
 def fit_simqsos(simqsos,ncomp=15,refband='i'):
 	j = 3 # XXX
-	fluxes = np.array(simqsos['obsFlux'][:,:5]) # XXX only sdss for now
+	ii = np.where(simqsos['selected'])[0]
+	fluxes = np.array(simqsos['obsFlux'][ii,:5]) # XXX only sdss for now
 	refFlux,fratios = get_column_ratio(fluxes,j)
-	X = np.ma.hstack([simqsos['z'][:,None],refFlux,fratios])
+	X = np.ma.hstack([simqsos['z'][ii,None],refFlux,fratios])
 	gmm = GaussianMixture(ncomp)
 	return gmm.fit(X)
 
