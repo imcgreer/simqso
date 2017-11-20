@@ -19,27 +19,6 @@ dr9cosmo = FlatLambdaCDM(70,1-0.7,name='BOSSDR9')
 def def_kcorr(z):
 	return continuum_kcorr('SDSS-i',1450,z)
 
-def BOSS_DR9_PLE(which=1):
-	if which==1:
-		row = -1.16,-3.37,-22.85,1.241,-0.249,-5.96
-	alpha,beta,MStar_i_z0,k1,k2,logPhiStar = row
-	MStar1450_z0 = MStar_i_z0 + 0.890
-	MStar = lumfun.PolyEvolParam([-2.5*k2,-2.5*k1,MStar1450_z0])
-	return lumfun.DoublePowerLawLF(logPhiStar,MStar,alpha,beta,
-	                               cosmo=dr9cosmo,kcorr=def_kcorr)
-
-def BOSS_DR9_LEDE():
-	c1,c2 = -0.689, -0.809
-	logPhiStar_z2_2 = -5.83
-	MStar_i_z2_2 = -26.49
-	MStar1450_z0 = MStar_i_z2_2 + 1.486 # --> M1450
-	MStar = lumfun.PolyEvolParam([c2,MStar1450_z0],z0=2.2)
-	logPhiStar = lumfun.PolyEvolParam([c1,logPhiStar_z2_2],z0=2.2)
-	alpha = -1.31
-	beta = -3.45
-	return lumfun.DoublePowerLawLF(logPhiStar,MStar,alpha,beta,
-	                               cosmo=dr9cosmo,kcorr=def_kcorr)
-
 def make_forest_grid(forestFile,nlos=1200,outputDir='.',nproc=6,**kwargs):
 	photSys = [('SDSS','Legacy','ugri')]
 	zbins = kwargs.pop('zBins',np.arange(0.9,4.6,0.01))
@@ -52,7 +31,7 @@ def make_forest_grid(forestFile,nlos=1200,outputDir='.',nproc=6,**kwargs):
 	                              photoMap,outputDir=outputDir,
 	                              nproc=nproc,**kwargs)
 
-def sample_qlf(qlf,mrange=(17,22),zrange=(0.9,4.0),skyArea=1000):
+def sample_qlf(qlf,mrange=(17,22),zrange=(0.9,4.0),skyArea=3000):
 	obsBand = 'SDSS-r'
 	kcorr = lambda z: sqbase.continuum_kcorr(obsBand,1450,z)
 	m2M = lambda z: sqbase.mag2lum(obsBand,1450,z,qlf.cosmo)
@@ -64,18 +43,9 @@ def sample_qlf(qlf,mrange=(17,22),zrange=(0.9,4.0),skyArea=1000):
 	                               qlfGrid.appMag-m2M(qlfGrid.z))))
 	return qlfGrid
 
-def boss_dr9_model_vars(qsoGrid,wave):
-	fetempl = grids.VW01FeTemplateGrid(qsoGrid.z,wave,
-	                                   scales=sqmodels.BossDr9_FeScalings)
-	mvars = [ sqmodels.BossDr9_fiducial_continuum,
-	          sqmodels.BossDr9_EmLineTemplate(qsoGrid.absMag),
-	          grids.FeTemplateVar(fetempl) ]
-	qsoGrid.addVars(mvars)
-	return qsoGrid
-
 photSys = [ ('SDSS','Legacy'), ('UKIRT','UKIDSS_LAS'), ('WISE','AllWISE') ]
 
-def runsim(model,fileName,forestFile,qsoGrid=None,qlf=None,
+def runsim(model,fileName,forestFile,qsoGrid,
            maxIter=2,nproc=1,medianforest=False,const=False,nophot=False):
 	np.random.seed(12345)
 	if nproc==1:
@@ -84,11 +54,6 @@ def runsim(model,fileName,forestFile,qsoGrid=None,qlf=None,
 		pool = multiprocessing.Pool(nproc)
 		procMap = pool.map
 	wave = fixed_R_dispersion(0.3e4,6e4,500)
-	#
-	if qsoGrid is None:
-		if qlf is None:
-			qlf = BOSS_DR9_LEDE()
-		qsoGrid = sample_qlf(qlf)
 	#
 	qsoGrid = ebossmodels.add_continuum(qsoGrid,model['continuum'],
 	                                    const=const)
@@ -233,14 +198,9 @@ def colorz(simqsos,coreqsos):
 		for which in ['syn','obs','ebosscore']:
 			if which=='ebosscore' and j==4:  continue # XXX
 			c = {'syn':'C0','obs':'C1','ebosscore':'C2'}[which]
-			if which=='syn':
-				plt.fill_between(zbins,colorz[which][0,j],colorz[which][2,j],
-				                 color=c,alpha=0.3)
-				plt.plot(zbins,colorz[which][1,j],c=c,ls='-')
-			else:
-				for i,pval in enumerate(pvals):
-					ls = '-' if pval==50 else '--'
-					plt.plot(zbins,colorz[which][i,j],c=c,ls=ls)
+			plt.fill_between(zbins,colorz[which][0,j],colorz[which][2,j],
+			                 color=c,alpha=0.3)
+			plt.plot(zbins,colorz[which][1,j],c=c,ls='-')
 		plt.xlim(0.85,4.05)
 		yr = [ (-0.7,4.2), (-0.3,1.7), (-0.15,0.5), (-0.2,0.5), (-0.15,0.75) ]
 		plt.ylim(*yr[j])
@@ -290,8 +250,12 @@ if __name__=='__main__':
 	const = False
 	nproc = 7
 	qsos = None
-	if False:
-		runsim(model,fileName,forestFile,const=const,nproc=nproc,qsoGrid=qsos)
+	if True:
+		qlf = sqmodels.BOSS_DR9_PLEpivot(cosmo=dr9cosmo)
+		qsoGrid = sample_qlf(qlf)#,skyArea=10)
+	if True:
+		runsim(model,fileName,forestFile,qsoGrid,
+		       const=const,nproc=nproc)
 		apply_selection_fun(fileName+'.fits',verbose=1,redo=True)
 	else:
 		import pickle

@@ -1,0 +1,117 @@
+#!/usr/bin/env python
+
+import os,sys
+import numpy as np
+from sklearn.mixture import GaussianMixture
+from astropy.table import Table
+from astropy.coordinates import SkyCoord
+from astropy import units as u
+
+def make_coreqso_table(dr14qso,ebosstarg):
+	if isinstance(dr14qso,basestring):
+		dr14qso = Table.read(dr14qso)
+	if isinstance(ebosstarg,basestring):
+		ebosstarg = Table.read(ebosstarg)
+	#
+	dr14coo = SkyCoord(dr14qso['RA'],dr14qso['DEC'],unit=u.deg)
+	# restrict to CORE quasar targets
+	ii = np.where(ebosstarg['EBOSS_TARGET1'] & (1<<10) > 0)[0]
+	ebosstarg = ebosstarg[ii]
+	ebosstargcoo = SkyCoord(ebosstarg['RA'],ebosstarg['DEC'],unit=u.deg)
+	# now identify confirmed quasars from DR14 in the target list
+	m1,m2,sep,_ = dr14coo.search_around_sky(ebosstargcoo,2*u.arcsec)
+	# for some reason there is a repeated entry...
+	_,ii = np.unique(m1,return_index=True)
+	dr14qso = dr14qso[m2[ii]]
+	# just a sanity check
+	jj = np.where(dr14qso['EXTINCTION']>0)[0]
+	assert np.allclose(dr14qso['EXTINCTION'][jj],
+	                   ebosstarg['EXTINCTION'][m1[ii[jj]]],atol=1e-3)
+	# extract all the WISE columns from targeting
+	wisecols = ['W1_MAG','W1_MAG_ERR',
+	            'W1_NANOMAGGIES','W1_NANOMAGGIES_IVAR',
+	            'W2_NANOMAGGIES','W2_NANOMAGGIES_IVAR',
+	            'HAS_WISE_PHOT']
+	# overwriting the DR14Q flux fields because they have invalid entries
+	for k in wisecols + ['EXTINCTION','PSFFLUX','PSFFLUX_IVAR']:
+		dr14qso[k] = ebosstarg[k][m1[ii]]
+	dr14qso.write('ebosscore_dr14q.fits',overwrite=True)
+
+def get_column_ratio(a,j):
+	col = a[:,[j]].copy()
+	a /= col
+	return col,np.delete(a,j,1)
+
+class eBossQsos(object):
+	def __init__(self,fileName='ebosscore_dr14q.fits',zrange=None):
+		dat = Table.read(fileName)
+		if zrange is not None:
+			dat = dat[np.logical_and(dat['Z']>zrange[0],dat['Z']<zrange[1])]
+		self.data = dat
+		self.set_specz_col('Z')
+		self._extract_fluxes()
+	def set_specz_col(self,colname):
+		self.speczName = colname
+		self.specz = self.data[colname]
+	def _extract_fluxes(self,ratios='byref',refNum=3):
+		# SDSS
+		sdssFluxes = np.array(self.data['PSFFLUX'])
+		extCorr = np.array(self.data['EXTINCTION'])
+		self.sdssFluxes = np.ma.array(sdssFluxes*10**(0.4*extCorr))
+		# Galex
+		fuv = np.ma.array(self.data['FUV'],mask=self.data['FUV_IVAR']==0)
+		nuv = np.ma.array(self.data['NUV'],mask=self.data['NUV_IVAR']==0)
+		self.galexFluxes = np.ma.vstack([fuv,nuv]).T
+		# WISE (convert from Vega)
+		w1 = np.ma.array(self.data['W1_NANOMAGGIES']*10**(-0.4*(2.699)),
+		                 mask=self.data['HAS_WISE_PHOT']!='T')
+		w2 = np.ma.array(self.data['W2_NANOMAGGIES']*10**(-0.4*(3.339)),
+		                 mask=self.data['HAS_WISE_PHOT']!='T')
+		self.wiseFluxes = np.ma.vstack([w1,w2]).T
+	def extract_features(self,featureset=['sdss','z'],
+	                     refband='i',ratios='byref'):
+		fluxes = []
+		names = []
+		if 'galex' in featureset:
+			fluxes.append(self.galexFluxes)
+			names.extend(['f','n'])
+		if 'sdss' in featureset:
+			fluxes.append(self.sdssFluxes)
+			names.extend(list('ugriz'))
+		if 'wise' in featureset:
+			fluxes.append(self.wiseFluxes)
+			names.extend(['w1','w2'])
+		#
+		fluxes = np.ma.hstack(fluxes)
+		j = names.index(refband)
+		if ratios=='byref':
+			refFlux,fluxes = get_column_ratio(fluxes,j)
+		elif ratios=='neighboring':
+			refFlux = fluxes[:,[j]]
+			fluxes = fluxes[:,:-1]/fluxes[:,1:]
+		else:
+			raise ValueError
+		features = [refFlux,fluxes]
+		if 'z' in featureset:
+			zfeat = np.ma.array(self.specz)[:,None]
+			features = [zfeat] + features
+		return np.ma.hstack(features)
+
+def fit_simqsos(simqsos,ncomp=15,refband='i'):
+	j = 3 # XXX
+	fluxes = np.array(simqsos['obsFlux'][:,:5]) # XXX only sdss for now
+	refFlux,fratios = get_column_ratio(fluxes,j)
+	X = np.ma.hstack([simqsos['z'][:,None],refFlux,fratios])
+	gmm = GaussianMixture(ncomp)
+	return gmm.fit(X)
+
+def test():
+	simqsos = Table.read('ebosscore.fits')
+	qsos = eBossQsos()
+	features = qsos.extract_features()
+	fit = fit_simqsos(qsos)
+	fit.score(features)
+
+if __name__=='__main__':
+	make_coreqso_table(sys.argv[1],sys.argv[2])
+

@@ -13,7 +13,7 @@ def BOSS_DR9_PLE(which=1):
 	if which==1:
 		row = -1.16,-3.37,-22.85,1.241,-0.249,-5.96
 	alpha,beta,MStar_i_z0,k1,k2,logPhiStar = row
-	MStar1450_z0 = MStar_i_z0 + 0.890
+	MStar1450_z0 = MStar_i_z0 + 1.486
 	MStar = lumfun.PolyEvolParam([-2.5*k2,-2.5*k1,MStar1450_z0])
 	return lumfun.DoublePowerLawLF(logPhiStar,MStar,alpha,beta,
 	                               cosmo=dr9cosmo,kcorr=def_kcorr)
