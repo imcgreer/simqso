@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 
+import numpy as np
 from astropy.cosmology import FlatLambdaCDM
 from . import sqgrids as grids
-from .lumfun import PolyEvolParam,DoublePowerLawLF
+from .lumfun import QlfEvolParam,PolyEvolParam,DoublePowerLawLF
 from .hiforest import IGMTransmissionGrid
 
 Fan99_model = {
@@ -182,4 +183,46 @@ class LogPhiStarEvolFixedK(PolyEvolParam):
 QLF_McGreer_2013 = DoublePowerLawLF(LogPhiStarEvolFixedK(-8.94),
                                     -27.21,-2.03,-4.0,
                                     cosmo=FlatLambdaCDM(H0=70, Om0=0.272))
+
+class LogPhiStarPLEPivot(PolyEvolParam):
+	'''The PLE-Pivot model is PLE (fixed Phi*) below zpivot and
+	   LEDE (polynomial in log(Phi*) above zpivot.'''
+	def __init__(self,*args,**kwargs):
+		self.zp = kwargs.pop('zpivot')
+		super(LogPhiStarPLEPivot,self).__init__(*args,**kwargs)
+	def eval_at_z(self,z,par=None):
+		# this fixes Phi* to be the zpivot value at z<zp
+		z = np.asarray(z).clip(self.zp,np.inf)
+		return super(LogPhiStarPLEPivot,self).eval_at_z(z,par)
+
+class MStarPLEPivot(QlfEvolParam):
+	'''The PLE-Pivot model for Mstar encapsulates two evolutionary models,
+	   one for z<zpivot and one for z>zp.'''
+	def __init__(self,*args,**kwargs):
+		self.zp = kwargs.pop('zpivot')
+		self.n1 = kwargs.pop('npar1')
+		self.z0_1 = kwargs.pop('z0_1',0.0)
+		self.z0_2 = kwargs.pop('z0_2',0.0)
+		super(MStarPLEPivot,self).__init__(*args,**kwargs)
+	def eval_at_z(self,z,par=None):
+		z = np.asarray(z)
+		par = self._extract_par(par)
+		return np.choose(z<self.zp,
+		                 [np.polyval(par[self.n1:],z-self.z0_2),
+		                  np.polyval(par[:self.n1],z-self.z0_1)])
+
+def BOSS_DR9_PLEpivot(**kwargs):
+	# the 0.3 makes the PLE and LEDE models align at the pivot redshift
+	MStar1450_z0 = -22.92 + 1.486 + 0.3
+	k1,k2 = 1.293,-0.268
+	c1,c2 = -0.689, -0.809
+	logPhiStar_z2_2 = -5.83
+	MStar_i_z2_2 = -26.49
+	MStar1450_z0_hiz = MStar_i_z2_2 + 1.486 # --> M1450
+	logPhiStar = LogPhiStarPLEPivot([c1,logPhiStar_z2_2],z0=2.2,zpivot=2.2)
+	MStar = MStarPLEPivot([-2.5*k2,-2.5*k1,MStar1450_z0,c2,MStar1450_z0_hiz],
+	                      zpivot=2.2,npar1=3,z0_1=0,z0_2=2.2)
+	alpha = -1.3
+	beta = -3.5
+	return DoublePowerLawLF(logPhiStar,MStar,alpha,beta,**kwargs)
 
