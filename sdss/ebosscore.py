@@ -205,5 +205,5 @@ if __name__=='__main__':
 		np.random.seed(12345)
 		qsoGrid = sample_qlf(qlf,skyArea=args.skyarea)
 		runsim(model,args.output,args.forest,qsoGrid,nproc=args.processes)
-	if not args.noselection:
-		apply_selection_fun(args.output+'.fits',verbose=1,redo=True)
+		if not args.noselection:
+			apply_selection_fun(args.output+'.fits',verbose=1,redo=True)
