@@ -246,7 +246,7 @@ def buildQsoSpectrum(wave,cosmo,specFeatures,obj,iterNum=1,
 			                           fluxNorm=fluxNorm)
 			if save_components:
 				components[feature.name] = spec - base
-				base = components[feature.name]
+				base.f_lambda[:] = spec.f_lambda
 	# add emission (multiplicative) features
 	emspec = sqbase.Spectrum(wave,z=obj['z'])
 	if save_components:
@@ -257,8 +257,8 @@ def buildQsoSpectrum(wave,cosmo,specFeatures,obj,iterNum=1,
 			emspec = feature.add_to_spec(emspec,_getpar(feature,obj),
 			                             assocvals=assocvals)
 			if save_components:
-				components[feature.name] = spec - base
-				base = components[feature.name]
+				components[feature.name] = emspec - base
+				base.f_lambda[:] = emspec.f_lambda
 	spec *= emspec + 1
 	# add any remaining features
 	for feature in specFeatures:
@@ -271,7 +271,7 @@ def buildQsoSpectrum(wave,cosmo,specFeatures,obj,iterNum=1,
 		                           advance=(iterNum==1))
 		if save_components:
 			components[feature.name] = spec - base
-			base = components[feature.name]
+			base.f_lambda[:] = spec.f_lambda
 	if save_components:
 		return spec,components
 	else:
