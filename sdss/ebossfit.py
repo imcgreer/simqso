@@ -90,16 +90,20 @@ class eBossQsos(object):
 		j = names.index(refband)
 		if ratios=='byref':
 			refFlux,fluxes = get_column_ratio(fluxes,j)
+			names = [refband] + [ b+'/'+refband for b in names ]
 		elif ratios=='neighboring':
 			refFlux = fluxes[:,[j]]
 			fluxes = fluxes[:,:-1]/fluxes[:,1:]
+			names = [refband] + [ b1+'/'+b2 
+			                       for b1,b2 in zip(names[:-1],names[1:]) ]
 		else:
 			raise ValueError
 		features = [refFlux,fluxes]
 		if 'z' in featureset:
 			zfeat = np.ma.array(self.specz)[:,None]
 			features = [zfeat] + features
-		return np.ma.hstack(features)
+			names = ['z_q'] + names
+		return np.ma.hstack(features),names
 
 def fit_simqsos(simqsos,ncomp=15,refband='i'):
 	j = 3 # XXX
@@ -114,7 +118,8 @@ def test(fn,qsos=None):
 	simqsos = Table.read(fn)
 	if qsos is None:
 		qsos = eBossQsos()
-	features = qsos.extract_features()
+	features,names = qsos.extract_features()
+	print names
 	fit = fit_simqsos(simqsos)
 	s = fit.score(features)
 	print fn,s

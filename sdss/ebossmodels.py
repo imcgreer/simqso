@@ -15,6 +15,11 @@ cont_models = {
 emline_models = {
 }
 
+dustem_models = {
+  'LR17':{'sublimdust':[(0.05,None),(1800.,None)],
+             'hotdust':[(0.2,None),(880.,None)]},
+}
+
 def add_continuum(qsos,model='def_plcontinuum',const=False):
 	try:
 		slopes,breakpts = cont_models[model]
@@ -30,15 +35,16 @@ def add_continuum(qsos,model='def_plcontinuum',const=False):
 
 def add_dust_emission(qsos,model='LR17',const=False):
 	contVar = qsos.getVars(grids.ContinuumVar)[0]
-	subDustVar = grids.DustBlackbodyVar([grids.ConstSampler(0.05),
-	                                     grids.ConstSampler(1800.)],
-	                                     name='sublimdust')
-	subDustVar.set_associated_var(contVar)
-	hotDustVar = grids.DustBlackbodyVar([grids.ConstSampler(0.2),
-	                                     grids.ConstSampler(880.)],
-	                                    name='hotdust')
-	hotDustVar.set_associated_var(contVar)
-	qsos.addVars([subDustVar,hotDustVar])
+	if isinstance(model,basestring):
+		model = dustem_models[model]
+	dustVars = []
+	for name,par in model.items():
+		dustVar = grids.DustBlackbodyVar([grids.ConstSampler(par[0][0]),
+		                                  grids.ConstSampler(par[1][0])],
+	                                     name=name)
+		dustVar.set_associated_var(contVar)
+		dustVars.append(dustVar)
+	qsos.addVars(dustVars)
 	return qsos
 
 def add_emission_lines(qsos,model='bossdr9',const=False):

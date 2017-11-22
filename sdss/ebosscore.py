@@ -4,7 +4,6 @@ import os,sys
 import subprocess
 import multiprocessing
 import numpy as np
-from scipy.stats import binned_statistic
 import matplotlib.pyplot as plt
 from astropy.cosmology import FlatLambdaCDM
 from astropy.table import Table,hstack
@@ -45,15 +44,18 @@ def sample_qlf(qlf,mrange=(17,22),zrange=(0.9,4.0),skyArea=3000):
 
 photSys = [ ('SDSS','Legacy'), ('UKIRT','UKIDSS_LAS'), ('WISE','AllWISE') ]
 
-def runsim(model,fileName,forestFile,qsoGrid,
-           maxIter=2,nproc=1,medianforest=False,const=False,nophot=False):
+def runsim(model,fileName,forest,qsoGrid,
+           maxIter=2,nproc=1,wave=None,
+           medianforest=False,const=False,
+           nophot=False,withspec=False):
 	np.random.seed(12345)
 	if nproc==1:
 		procMap = map
 	else:
 		pool = multiprocessing.Pool(nproc)
 		procMap = pool.map
-	wave = fixed_R_dispersion(0.3e4,6e4,500)
+	if wave is None:
+		wave = fixed_R_dispersion(0.3e4,6e4,500)
 	#
 	qsoGrid = ebossmodels.add_continuum(qsoGrid,model['continuum'],
 	                                    const=const)
@@ -72,15 +74,18 @@ def runsim(model,fileName,forestFile,qsoGrid,
 	#
 	qsoGrid.loadPhotoMap(photSys)
 	#
-	forest = hiforest.GridForest(forestFile,qsoGrid.photoBands,
-	                             median=medianforest)
-	forestVar = grids.SightlineVar(forest)
-	qsoGrid.addVar(forestVar)
+	if isinstance(forest,basestring):
+		forest = hiforest.GridForest(forest,qsoGrid.photoBands,
+		                             median=medianforest)
+	if not forest is None:
+		forestVar = grids.SightlineVar(forest)
+		qsoGrid.addVar(forestVar)
 	#
 	qsoGrid,spectra = sqrun.buildSpectraBulk(wave,qsoGrid,
 	                                         procMap=procMap,
 	                                         maxIter=maxIter,
-	                                         verbose=5)
+	                                         saveSpectra=withspec,
+	                                         verbose=0)
 	#
 	if not nophot:
 		photoData = sqphoto.calcObsPhot(qsoGrid.synFlux,qsoGrid.photoMap)
@@ -90,7 +95,10 @@ def runsim(model,fileName,forestFile,qsoGrid,
 		qsoGrid.write(fileName)
 	if nproc>1:
 		pool.close()
-	return qsoGrid
+	if withspec:
+		return qsoGrid,wave,spectra
+	else:
+		return qsoGrid
 
 class BandIndexes(object):
 	def __init__(self,simQsoTab):
