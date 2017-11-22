@@ -56,6 +56,11 @@ def ebosscore_colorz(coreqsos,pvals,zedges):
 	colorz = calc_colorz(coreqsos.specz,clrs,pvals,zedges)
 	return Table(dict(ebosscore=colorz))
 
+fratio_yrange = {
+  'u/g':(-0.3,1.3), 'g/r':(0.1,1.3), 'r/i':(0.5,1.2), 'i/z':(0.5,1.3),
+  'W1/W2':(0.4,1.3),
+}
+
 def colorz(simqsos,coreqsos):
 	zedges = np.linspace(0.9,4.0,32)
 	zbins = zedges[:-1] + np.diff(zedges)/2
@@ -176,19 +181,6 @@ def colorz_param_trends(modelName):
 			print
 	return cz['mbins'],cz['zbins'],tab
 
-def plot_model_trends(model='all'):
-	import ebossfit
-	coreqsos = ebossfit.eBossQsos() 
-	if model=='all':
-		models = eboscore.qso_models.keys()
-	else:
-		models = [model]
-	for modelName in models:
-		m,z,trends = colorz_param_trends(modelName)
-		trendfn = modelName+'_trends.fits'
-		trends.write(trendfn,overwrite=True)
-		plot_trends(modelName,trendfn,coreqsos)
-
 def plot_trends(modelName,trendFile,coreqsos):
 	mbins,zbins = get_colorz_bins()
 	eboss_zedges = np.linspace(0.9,4.0,32)
@@ -204,9 +196,10 @@ def plot_trends(modelName,trendFile,coreqsos):
 	#nrow,ncol = 5,2
 	nrow,ncol = 3,2
 	m_i = 3
-	clrnames = [b1+'-'+b2 for b1,b2 in zip('ugri','griz')] + ['W1-W2']
-	pclrs = [ 'C%d'%i for i in range(1,10,2) ]
 	asmags = False
+	f = '-' if asmags else '/'
+	clrnames = [b1+f+b2 for b1,b2 in zip('ugri','griz')] + ['W1'+f+'W2']
+	pclrs = [ 'C%d'%i for i in range(1,10,2) ]
 	for p,vals in pars.items():
 		#plt.figure(figsize=(7.5,8))
 		plt.figure(figsize=(7.5,5.5))
@@ -228,11 +221,25 @@ def plot_trends(modelName,trendFile,coreqsos):
 			                color=c,alpha=0.3)
 			ax.plot(eboss_zbins,obs_cz[1],c=c,ls='-')
 			ax.set_ylabel(clrnames[pnum-1])
+			ax.set_ylim(fratio_yrange[clrnames[pnum-1]])
 			plt.setp(ax.get_xticklabels()+ax.get_yticklabels(),fontsize=9)
 			ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.2))
 			if j==0: plt.legend()
 		plt.savefig(modelName+'_'+p+'.pdf')
 		plt.close()
+
+def plot_model_trends(model='all'):
+	import ebossfit
+	coreqsos = ebossfit.eBossQsos() 
+	if model=='all':
+		models = ebosscore.qso_models.keys()
+	else:
+		models = [model]
+	for modelName in models:
+		m,z,trends = colorz_param_trends(modelName)
+		trendfn = modelName+'_trends.fits'
+		trends.write(trendfn,overwrite=True)
+		plot_trends(modelName,trendfn,coreqsos)
 
 def model_spectrum(model,**kwargs):
 	from simqso.sqbase import fixed_R_dispersion
