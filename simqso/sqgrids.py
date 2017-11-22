@@ -12,7 +12,7 @@ from astropy.io import fits
 from astropy.table import Table,hstack
 from astropy import units as u
 from astropy import cosmology
-from astropy.constants import sigma_sb
+from astropy.constants import sigma_sb,b_wien
 try:
 	from astropy.modeling.blackbody import blackbody_lambda
 except ImportError:
@@ -661,6 +661,32 @@ class DustBlackbodyVar(ContinuumVar,MultiDimVar):
 	Variable used to represent a warm dust component as a single blackbody,
 	treated as a continuum.
 	'''
+	def __init__(self,*args,**kwargs):
+		self.approxMode = kwargs.pop('approx_mode','table')
+		super(DustBlackbodyVar,self).__init__(*args,**kwargs)
+		self._init_bb()
+	def _init_bb(self):
+		self.rfwave = {}
+		self.Blam = {}
+	def _calc_bb(self,Tdust,wave,z):
+		lampeak = (b_wien/(Tdust*u.K)).to('Angstrom').value
+		lam1,lam2 = np.array([0.25,15])*lampeak
+		if Tdust not in self.Blam:
+			npts = 100
+			# this hack keeps the points more closely spaced near lampeak
+			dwv1 = np.logspace(np.log10(lam1),np.log10(lampeak),npts)
+			dwv1 = np.cumsum(np.diff(dwv1))
+			rfwv2 = np.logspace(np.log10(lampeak),np.log10(lam2),npts)
+			rfwave = np.concatenate([ (lampeak-dwv1)[::-1], rfwv2 ])
+			self.rfwave[Tdust] = rfwave
+			bvals = blackbody_lambda(self.rfwave[Tdust],Tdust).value
+			self.Blam[Tdust] = interp1d(self.rfwave[Tdust],bvals,
+			                            kind='cubic')
+		Blam = self.Blam[Tdust]
+		i1,i2 = np.searchsorted(wave/(1+z),[lam1,lam2])
+		flam = np.zeros_like(wave)
+		flam[i1:i2] = Blam(wave[i1:i2]/(1+z))
+		return flam
 	def render(self,wave,z,par,fluxNorm=None,assocvals=None):
 		assert isinstance(self.assocVar,ContinuumVar)
 		assert assocvals is not None
@@ -668,8 +694,8 @@ class DustBlackbodyVar(ContinuumVar,MultiDimVar):
 		L_bb = (sigma_sb.cgs * Tdust**4).value
 		fdisk = self.assocVar.total_flux(assocvals,fluxNorm,z)
 		flux_bb = fracdust * fdisk
-		flam_bb = np.pi*blackbody_lambda(wave/(1+z),Tdust).value / L_bb
-		return flux_bb*flam_bb
+		Blam = self._calc_bb(Tdust,wave,z)
+		return flux_bb * np.pi * Blam / L_bb
 
 class SightlineVar(QsoSimVar):
 	'''
@@ -1213,7 +1239,6 @@ class VW01FeTemplateGrid(object):
 		# rescale segments of the Fe template
 		if feScalings is None:
 			feScalings = [(0,1e4,1.0),]
-		print 'using Fe scales: ',feScalings
 		for w1,w2,fscl in feScalings:
 			wi1,wi2 = np.searchsorted(wave,(w1,w2))
 			feTemplate[wi1:wi2] *= fscl
