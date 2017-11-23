@@ -13,12 +13,11 @@ cont_models = {
 }
 
 emline_models = {
-  'newb':{'scaleEWs':{'LyAb':1.4,'LyAn':1.4,
-                      'CIVb':0.75,'CIVn':0.75,
-                      'CIII]b':0.8,'CIII]n':0.8,
-                      'MgIIb':0.8,'MgIIn':0.8,
-                      'Hbeta':1.2,
-                      'HAb':1.5,'HAn':1.5},
+  'newb':{
+    'scaleEWs':{'LyAb':1.4,'LyAn':1.4,'CIVb':0.75,'CIVn':0.75,
+                 'CIII]b':0.8,'CIII]n':0.8,'MgIIb':0.8,'MgIIn':0.8,
+                 'Hbeta':1.2,'HAb':1.5,'HAn':1.5},
+    },
 }
 
 dustem_models = {
@@ -36,7 +35,7 @@ def add_continuum(qsos,model='def_plcontinuum',const=False):
 	if const:
 		slopes = [ grids.ConstSampler(s[0]) for s in slopes]
 	else:
-		slopes = [ grids.GaussianSampler(*s) for s in slopes],
+		slopes = [ grids.GaussianSampler(*s) for s in slopes]
 	contVar = grids.BrokenPowerLawContinuumVar(slopes,breakpts)
 	qsos.addVar(contVar)
 	return qsos
