@@ -12,6 +12,7 @@ from simqso import sqgrids as grids
 
 import ebossmodels
 import ebosscore
+import ebossfit
 
 def percfun(pval):
 	return lambda x: np.percentile(x,pval)
@@ -61,7 +62,7 @@ fratio_yrange = {
   'W1/W2':(0.4,1.3),
 }
 
-def colorz(simqsos,coreqsos):
+def colorz_compare(simqsos,coreqsos):
 	zedges = np.linspace(0.9,4.0,32)
 	zbins = zedges[:-1] + np.diff(zedges)/2
 	pvals = [25,50,75]
@@ -229,7 +230,6 @@ def plot_trends(modelName,trendFile,coreqsos):
 		plt.close()
 
 def plot_model_trends(model='all'):
-	import ebossfit
 	coreqsos = ebossfit.eBossQsos() 
 	if model=='all':
 		models = ebosscore.qso_models.keys()
@@ -312,17 +312,24 @@ if __name__=='__main__':
 	import argparse
 	parser = argparse.ArgumentParser(
 	                          description='run eboss color-z simulations.')
-	parser.add_argument('output',type=str,help='output file name')
+	parser.add_argument('fitsfile',type=str,help='input file name')
 	parser.add_argument('--forest',type=str,default='sdss_forest_grid.fits',
 	    help='file containing forest grid (default:sdss_forest_grid.fits')
 	parser.add_argument('-m','--model',type=str,default='bossdr9',
 	    help='name of quasar model')
 	parser.add_argument('--trends',action="store_true",
 	    help='show parameter color-z mean trends instead of running sim')
+	parser.add_argument('--tracks',action="store_true",
+	    help='show color-z mean trends instead of running sim')
 	args = parser.parse_args()
 	if args.trends:
 		plot_model_trends(model=args.model)
-	else:
+	elif args.tracks:
 		model = ebosscore.qso_models[args.model]
 		cz = model_colorz_tracks(model,args.forest)
+	else:
+		simqsos = Table.read(args.fitsfile)
+		coreqsos = ebossfit.eBossQsos()
+		colorz_compare(simqsos,coreqsos)
+		plt.savefig(args.fitsfile.replace('.fits','_colorz.pdf'))
 

@@ -13,11 +13,19 @@ cont_models = {
 }
 
 emline_models = {
+  'newb':{'scaleEWs':{'LyAb':1.4,'LyAn':1.4,
+                      'CIVb':0.75,'CIVn':0.75,
+                      'CIII]b':0.8,'CIII]n':0.8,
+                      'MgIIb':0.8,'MgIIn':0.8,
+                      'Hbeta':1.2,
+                      'HAb':1.5,'HAn':1.5},
 }
 
 dustem_models = {
   'LR17':{'sublimdust':[(0.05,None),(1800.,None)],
              'hotdust':[(0.2,None),(880.,None)]},
+  'LR17b':{'sublimdust':[(0.05,None),(1800.,None)],
+             'hotdust':[(0.1,None),(880.,None)]},
 }
 
 def add_continuum(qsos,model='def_plcontinuum',const=False):
