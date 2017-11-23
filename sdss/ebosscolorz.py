@@ -308,11 +308,23 @@ def model_spectrum_z(model,**kwargs):
 		plt.close()
 	plt.ion()
 
+def compare_model_spec():
+	plt.figure()
+	for name,model in ebosscore.qso_models.items():
+		spec,comp,_ = model_spectrum(model)
+		i = np.searchsorted(spec.wave,1450)
+		plt.plot(spec.wave/1e4,
+		         spec.wave*spec.f_lambda/spec.f_lambda[i],
+		         label=name)
+	plt.legend()
+	plt.xscale('log')
+	plt.yscale('log')
+
 if __name__=='__main__':
 	import argparse
 	parser = argparse.ArgumentParser(
 	                          description='run eboss color-z simulations.')
-	parser.add_argument('fitsfile',type=str,help='input file name')
+	parser.add_argument('fitsfile',nargs='?',type=str,help='input file name')
 	parser.add_argument('--forest',type=str,default='sdss_forest_grid.fits',
 	    help='file containing forest grid (default:sdss_forest_grid.fits')
 	parser.add_argument('-m','--model',type=str,default='bossdr9',

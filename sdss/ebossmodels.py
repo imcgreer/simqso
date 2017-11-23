@@ -25,6 +25,7 @@ dustem_models = {
              'hotdust':[(0.2,None),(880.,None)]},
   'LR17b':{'sublimdust':[(0.05,None),(1800.,None)],
              'hotdust':[(0.1,None),(880.,None)]},
+  'GHW06':{'hotdust':[(0.1,None),(1260.,None)]},
 }
 
 def add_continuum(qsos,model='def_plcontinuum',const=False):

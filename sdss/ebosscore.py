@@ -164,6 +164,8 @@ qso_models = {
          'dustem':'LR17','iron':'def_iron'},
   'newb':{'continuum':'def_plcontinuum','emlines':'newb',
          'dustem':'LR17b','iron':'def_iron'},
+  'newc':{'continuum':'def_plcontinuum','emlines':'newb',
+         'dustem':'GHW06','iron':'def_iron'},
 }
 
 def qlf_ranges(model,simName,forestFile,qlf,skyArea,**kwargs):
