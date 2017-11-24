@@ -130,7 +130,7 @@ def colorz_param_trends(modelName):
 			k = '_'.join([nm,s,k1])
 			tab[k] = cz[k2]
 	#
-	model = deepcopy(ebosscore.qso_models[modelName])
+	model = deepcopy(ebossmodels.qso_models[modelName])
 	cname = model['continuum']
 	for s in [-1.8,-1.5,-1.2]:
 		model['continuum'] = deepcopy(ebossmodels.cont_models[cname])
@@ -140,7 +140,7 @@ def colorz_param_trends(modelName):
 		add_entry(tab,'fuv','%+4.1f'%s,cz)
 		print
 	#
-	model = deepcopy(ebosscore.qso_models[modelName])
+	model = deepcopy(ebossmodels.qso_models[modelName])
 	cname = model['continuum']
 	for s in [-0.2,-0.4,-0.6]:
 		model['continuum'] = deepcopy(ebossmodels.cont_models[cname])
@@ -150,7 +150,7 @@ def colorz_param_trends(modelName):
 		add_entry(tab,'uv','%+4.1f'%s,cz)
 		print
 	#
-	model = deepcopy(ebosscore.qso_models[modelName])
+	model = deepcopy(ebossmodels.qso_models[modelName])
 	for l in ['LyA','CIV','MgII','Hbeta','HA','Pa']:
 		for scl in [0.5,1.0,2.0]:
 			model['emlines'] = {'scaleEWs':{}}
@@ -168,8 +168,8 @@ def colorz_param_trends(modelName):
 			add_entry(tab,l,'%3.1f'%scl,cz)
 		print
 	#
-	if 'dustem' in ebosscore.qso_models[modelName]:
-		model = deepcopy(ebosscore.qso_models[modelName])
+	if 'dustem' in ebossmodels.qso_models[modelName]:
+		model = deepcopy(ebossmodels.qso_models[modelName])
 		dustnm = model['dustem']
 		for f in [0.5,1.0,2.0]:
 			model['dustem'] = deepcopy(ebossmodels.dustem_models[dustnm])
@@ -232,7 +232,7 @@ def plot_trends(modelName,trendFile,coreqsos):
 def plot_model_trends(model='all'):
 	coreqsos = ebossfit.eBossQsos() 
 	if model=='all':
-		models = ebosscore.qso_models.keys()
+		models = ebossmodels.qso_models.keys()
 	else:
 		models = [model]
 	for modelName in models:
@@ -310,7 +310,7 @@ def model_spectrum_z(model,**kwargs):
 
 def compare_model_spec():
 	plt.figure()
-	for name,model in ebosscore.qso_models.items():
+	for name,model in ebossmodels.qso_models.items():
 		spec,comp,_ = model_spectrum(model)
 		i = np.searchsorted(spec.wave,1450)
 		plt.plot(spec.wave/1e4,
@@ -337,7 +337,7 @@ if __name__=='__main__':
 	if args.trends:
 		plot_model_trends(model=args.model)
 	elif args.tracks:
-		model = ebosscore.qso_models[args.model]
+		model = ebossmodels.qso_models[args.model]
 		cz = model_colorz_tracks(model,args.forest)
 	else:
 		simqsos = Table.read(args.fitsfile)

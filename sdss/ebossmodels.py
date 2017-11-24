@@ -26,6 +26,22 @@ dustem_models = {
   'LR17b':{'sublimdust':[(0.05,None),(1800.,None)],
              'hotdust':[(0.1,None),(880.,None)]},
   'GHW06':{'hotdust':[(0.1,None),(1260.,None)]},
+  'GHW06b':{'hotdust':[(0.05,None),(1800.,None)],
+           'hotdust':[(0.1,None),(1260.,None)]},
+}
+
+qso_models = {
+  'bossdr9':{'continuum':'bossdr9','emlines':'bossdr9','iron':'def_iron'},
+  'dr9expdust':{'continuum':'dr9expdust','emlines':'bossdr9',
+                'iron':'def_iron','dustext':'dr9expdust'},
+  'new':{'continuum':'def_plcontinuum','emlines':'bossdr9',
+         'dustem':'LR17','iron':'def_iron'},
+  'newb':{'continuum':'def_plcontinuum','emlines':'newb',
+         'dustem':'LR17b','iron':'def_iron'},
+  'newc':{'continuum':'def_plcontinuum','emlines':'newb',
+         'dustem':'GHW06','iron':'def_iron'},
+  'newd':{'continuum':'def_plcontinuum','emlines':'newb',
+         'dustem':'GHW06b','iron':'def_iron'},
 }
 
 def add_continuum(qsos,model='def_plcontinuum',const=False):

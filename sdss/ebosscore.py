@@ -156,18 +156,6 @@ def apply_selection_fun(fileName,verbose=0,redo=False):
 	qsos.write(fileName,overwrite=True)
 	os.remove(xdFile)
 
-qso_models = {
-  'bossdr9':{'continuum':'bossdr9','emlines':'bossdr9','iron':'def_iron'},
-  'dr9expdust':{'continuum':'dr9expdust','emlines':'bossdr9',
-                'iron':'def_iron','dustext':'dr9expdust'},
-  'new':{'continuum':'def_plcontinuum','emlines':'bossdr9',
-         'dustem':'LR17','iron':'def_iron'},
-  'newb':{'continuum':'def_plcontinuum','emlines':'newb',
-         'dustem':'LR17b','iron':'def_iron'},
-  'newc':{'continuum':'def_plcontinuum','emlines':'newb',
-         'dustem':'GHW06','iron':'def_iron'},
-}
-
 def qlf_ranges(model,simName,forestFile,qlf,skyArea,**kwargs):
 	np.random.seed(12345)
 	for dex in [0.2,0.5,1.0]:
@@ -185,11 +173,10 @@ if __name__=='__main__':
 	import argparse
 	parser = argparse.ArgumentParser(
 	                          description='run eboss quasar simulations.')
-	parser.add_argument('output',type=str,help='output file name')
-	parser.add_argument('--forest',type=str,default='sdss_forest_grid.fits',
-	    help='file containing forest grid (default:sdss_forest_grid.fits')
-	parser.add_argument('-m','--model',type=str,default='bossdr9',
+	parser.add_argument('model',type=str,
 	    help='name of quasar model')
+	parser.add_argument('--forest',type=str,default='sdss_forest_grid.fits',
+	    help='file containing forest grid (default:sdss_forest_grid.fits)')
 	parser.add_argument('-p','--processes',type=int,default=7,
 	    help='number of processes to create')
 	parser.add_argument('--qlf',type=str,default='bossdr9',
@@ -197,25 +184,38 @@ if __name__=='__main__':
 	parser.add_argument('--skyarea',type=float,default=3000,
 	    help='area of sky in simulation (default: 3000 deg2)')
 	parser.add_argument('--noselection',action='store_true',
-	    help='do not calculation selection function')
+	    help='do not calculate selection function')
 	parser.add_argument('--testranges',action='store_true',
 	    help='test range of parameter values')
+	parser.add_argument('--continuum',type=str,
+	    help='specify continuum model')
+	parser.add_argument('--emlines',type=str,
+	    help='specify emission line model')
+	parser.add_argument('--dustem',type=str,
+	    help='specify dust emission model')
+	parser.add_argument('--dustext',type=str,
+	    help='specify dust extinction model')
 	args = parser.parse_args()
 	if not os.path.exists(args.forest):
 		print 'forest file {} does not exist, generating...'.format(
 		                                                        args.forest)
 		make_forest_grid(args.forest)
-	model = qso_models[args.model]
+	simName = args.model
+	try:
+		model = ebossmodels.qso_models[args.model]
+	except KeyError:
+		model = dict(continuum=args.continuum,emlines=args.emlines,
+		             dustem=args.dustem,iron='def_iron',dustext=args.dustext)
 	if args.qlf=='bossdr9':
 		qlf = sqmodels.BOSS_DR9_PLEpivot(cosmo=dr9cosmo)
 	else:
 		raise ValueError
 	if args.testranges:
-		qlf_ranges(model,args.output,args.forest,qlf,args.skyarea,
+		qlf_ranges(model,simName,args.forest,qlf,args.skyarea,
 		           nproc=args.processes)
 	else:
 		np.random.seed(12345)
 		qsoGrid = sample_qlf(qlf,skyArea=args.skyarea)
-		runsim(model,args.output,args.forest,qsoGrid,nproc=args.processes)
+		runsim(model,simName,args.forest,qsoGrid,nproc=args.processes)
 		if not args.noselection:
-			apply_selection_fun(args.output+'.fits',verbose=1,redo=True)
+			apply_selection_fun(args.model+'.fits',verbose=1,redo=True)
