@@ -26,7 +26,7 @@ dustem_models = {
   'LR17b':{'sublimdust':[(0.05,None),(1800.,None)],
              'hotdust':[(0.1,None),(880.,None)]},
   'GHW06':{'hotdust':[(0.1,None),(1260.,None)]},
-  'GHW06b':{'hotdust':[(0.05,None),(1800.,None)],
+  'GHW06b':{'sublimdust':[(0.05,None),(1800.,None)],
            'hotdust':[(0.1,None),(1260.,None)]},
 }
 

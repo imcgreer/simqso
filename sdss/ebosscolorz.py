@@ -171,15 +171,25 @@ def colorz_param_trends(modelName):
 	if 'dustem' in ebossmodels.qso_models[modelName]:
 		model = deepcopy(ebossmodels.qso_models[modelName])
 		dustnm = model['dustem']
-		for f in [0.5,1.0,2.0]:
-			model['dustem'] = deepcopy(ebossmodels.dustem_models[dustnm])
-			for c in model['dustem']:
+		comps = ebossmodels.dustem_models[dustnm]
+		for i,c in enumerate(comps):
+			for f in [0.5,1.0,2.0]:
+				model['dustem'] = deepcopy(ebossmodels.dustem_models[dustnm])
 				pars = model['dustem'][c]
 				model['dustem'][c] = [(pars[0][0]*f,None)] + pars[1:]
-			print f,model
-			cz = model_colorz_tracks(model,forestFile)
-			add_entry(tab,'hotdust','%3.1f'%f,cz)
-			print
+				print f,model
+				cz = model_colorz_tracks(model,forestFile)
+				add_entry(tab,'%sfrac'%c,'%3.1f'%f,cz)
+				print
+		for i,c in enumerate(comps):
+			for f in [0.7,1.0,1.3]:
+				model['dustem'] = deepcopy(ebossmodels.dustem_models[dustnm])
+				pars = model['dustem'][c]
+				model['dustem'][c] = [pars[0]] + [(pars[1][0]*f,None)]
+				print f,model
+				cz = model_colorz_tracks(model,forestFile)
+				add_entry(tab,'%sT'%c,'%3.1f'%f,cz)
+				print
 	return cz['mbins'],cz['zbins'],tab
 
 def plot_trends(modelName,trendFile,coreqsos):
@@ -308,9 +318,12 @@ def model_spectrum_z(model,**kwargs):
 		plt.close()
 	plt.ion()
 
-def compare_model_spec():
+def compare_model_spec(models):
 	plt.figure()
-	for name,model in ebossmodels.qso_models.items():
+	if models is None:
+		models = ebossmodels.qso_models.keys()
+	for name in models:
+		model = ebossmodels.qso_models[name]
 		spec,comp,_ = model_spectrum(model)
 		i = np.searchsorted(spec.wave,1450)
 		plt.plot(spec.wave/1e4,
