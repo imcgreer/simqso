@@ -318,9 +318,9 @@ def model_spectrum_z(model,**kwargs):
 		plt.close()
 	plt.ion()
 
-def compare_model_spec(models):
+def compare_model_spec(models='all'):
 	plt.figure()
-	if models is None:
+	if models == 'all':
 		models = ebossmodels.qso_models.keys()
 	for name in models:
 		model = ebossmodels.qso_models[name]

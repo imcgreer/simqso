@@ -47,7 +47,7 @@ photSys = [ ('SDSS','Legacy'), ('UKIRT','UKIDSS_LAS'), ('WISE','AllWISE') ]
 def runsim(model,fileName,forest,qsoGrid,
            maxIter=2,nproc=1,wave=None,
            medianforest=False,const=False,
-           nophot=False,withspec=False):
+           nophot=False,withspec=False,outputDir='.'):
 	np.random.seed(12345)
 	if nproc==1:
 		procMap = map
@@ -92,7 +92,7 @@ def runsim(model,fileName,forest,qsoGrid,
 		qsoGrid.addData(photoData)
 	#
 	if fileName is not None:
-		qsoGrid.write(fileName)
+		qsoGrid.write(fileName,outputDir=outputDir)
 	if nproc>1:
 		pool.close()
 	if withspec:
@@ -177,8 +177,12 @@ if __name__=='__main__':
 	    help='name of quasar model')
 	parser.add_argument('--forest',type=str,default='sdss_forest_grid.fits',
 	    help='file containing forest grid (default:sdss_forest_grid.fits)')
+	parser.add_argument('-o','--outputdir',type=str,default='.',
+	    help='output directory (default:.)')
 	parser.add_argument('-p','--processes',type=int,default=7,
 	    help='number of processes to create')
+	parser.add_argument('-s','--seed',type=int,default=12345,
+	    help='random seed')
 	parser.add_argument('--qlf',type=str,default='bossdr9',
 	    help='seed QLF model (default: BOSS DR9 PLE-LEDE)')
 	parser.add_argument('--skyarea',type=float,default=3000,
@@ -196,16 +200,18 @@ if __name__=='__main__':
 	parser.add_argument('--dustext',type=str,
 	    help='specify dust extinction model')
 	args = parser.parse_args()
+	if not os.path.exists(args.outputdir):
+		os.makedirs(args.outputdir)
 	if not os.path.exists(args.forest):
 		print 'forest file {} does not exist, generating...'.format(
 		                                                        args.forest)
-		make_forest_grid(args.forest)
+		make_forest_grid(args.forest,outputDir=args.outputdir)
 	simName = args.model
 	try:
 		model = ebossmodels.qso_models[args.model]
 	except KeyError:
 		model = dict(continuum=args.continuum,emlines=args.emlines,
-		             dustem=args.dustem,iron='def_iron',dustext=args.dustext)
+		             dustem=args.dustem,iron='bossdr9',dustext=args.dustext)
 	if args.qlf=='bossdr9':
 		qlf = sqmodels.BOSS_DR9_PLEpivot(cosmo=dr9cosmo)
 	else:
@@ -214,8 +220,10 @@ if __name__=='__main__':
 		qlf_ranges(model,simName,args.forest,qlf,args.skyarea,
 		           nproc=args.processes)
 	else:
-		np.random.seed(12345)
+		np.random.seed(args.seed)
 		qsoGrid = sample_qlf(qlf,skyArea=args.skyarea)
-		runsim(model,simName,args.forest,qsoGrid,nproc=args.processes)
+		runsim(model,simName,args.forest,qsoGrid,nproc=args.processes,
+		       outputDir=args.outputdir)
 		if not args.noselection:
-			apply_selection_fun(args.model+'.fits',verbose=1,redo=True)
+			fn = os.path.join(args.outputdir,args.model+'.fits')
+			apply_selection_fun(fn,verbose=1,redo=True)
