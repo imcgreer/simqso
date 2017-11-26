@@ -1157,6 +1157,11 @@ def generateBEffEmissionLines(M1450,**kwargs):
 	for line,scl in kwargs.get('scaleEWs',{}).items():
 		i = np.where(lineCatalog['name']==line)[0][0]
 		lineCatalog['logEW'][i,:,1] += np.log10(scl)
+	for line,scl in kwargs.get('scaleLogScatter',{}).items():
+		i = np.where(lineCatalog['name']==line)[0][0]
+		logew = lineCatalog['logEW'][i,:,1]
+		logew[1] = logew[0] - scl*(logew[0]-logew[1])
+		logew[2] = logew[0] + scl*(logew[2]-logew[0])
 	if noScatter:
 		for k in ['wavelength','logEW','logWidth']:
 			lineCatalog[k][:,1:] = lineCatalog[k][:,[0]]
