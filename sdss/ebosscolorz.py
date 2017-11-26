@@ -132,23 +132,14 @@ def colorz_param_trends(modelName):
 	#
 	model = deepcopy(ebossmodels.qso_models[modelName])
 	cname = model['continuum']
-	for s in [-1.8,-1.5,-1.2]:
-		model['continuum'] = deepcopy(ebossmodels.cont_models[cname])
-		model['continuum'][0][0] = (s,0.3)
-		print s,model
-		cz = model_colorz_tracks(model,forestFile)
-		add_entry(tab,'fuv','%+4.1f'%s,cz)
-		print
-	#
-	model = deepcopy(ebossmodels.qso_models[modelName])
-	cname = model['continuum']
-	for s in [-0.2,-0.4,-0.6]:
-		model['continuum'] = deepcopy(ebossmodels.cont_models[cname])
-		model['continuum'][0][1] = (s,0.3)
-		print s,model
-		cz = model_colorz_tracks(model,forestFile)
-		add_entry(tab,'uv','%+4.1f'%s,cz)
-		print
+	for j in range(len(model['continuum'][0])):
+		for ds in [-0.3,0.0,0.3]:
+			model['continuum'] = deepcopy(ebossmodels.cont_models[cname])
+			model['continuum'][0][j] = (model['continuum'][0][j]+ds,None)
+			print ds,model
+			cz = model_colorz_tracks(model,forestFile)
+			add_entry(tab,'slope%d'%j,'%+4.1f'%s,cz)
+			print
 	#
 	model = deepcopy(ebossmodels.qso_models[modelName])
 	for l in ['LyA','CIV','MgII','Hbeta','HA','Pa']:
