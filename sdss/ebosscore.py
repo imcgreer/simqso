@@ -107,6 +107,18 @@ class BandIndexes(object):
 	def __call__(self,b):
 		return self.shortNames.index(b)
 
+def get_sim_optwise_mags(simqsos):
+	b = BandIndexes(simqsos)
+	# populate the fields needed for the mid-IR-optical color cuts
+	simqsos['f_opt'] = ( 1.0*simqsos['obsFlux'][:,b('g')] +
+	                     0.8*simqsos['obsFlux'][:,b('r')] +
+	                     0.6*simqsos['obsFlux'][:,b('i')] ) / 2.4
+	# need conversion to Vega for WISE
+	f_W1_Vega = simqsos['obsFlux'][:,b('W1')] * 10**(0.4*(2.699))
+	f_W2_Vega = simqsos['obsFlux'][:,b('W2')] * 10**(0.4*(3.339))
+	simqsos['f_WISE'] = ( 1.0*f_W1_Vega + 0.5*f_W2_Vega ) / 1.5
+	return simqsos
+
 def apply_selection_fun(fileName,verbose=0,redo=False):
 	xdFile = 'xdtmp.fits'
 	qsos = Table.read(fileName)
@@ -122,13 +134,7 @@ def apply_selection_fun(fileName,verbose=0,redo=False):
 		qsos = hstack([qsos,xdqso])
 	b = BandIndexes(qsos)
 	# populate the fields needed for the mid-IR-optical color cuts
-	qsos['f_opt'] = ( 1.0*qsos['obsFlux'][:,b('g')] +
-	                  0.8*qsos['obsFlux'][:,b('r')] +
-	                  0.6*qsos['obsFlux'][:,b('i')] ) / 2.4
-	# need conversion to Vega for WISE
-	f_W1_Vega = qsos['obsFlux'][:,b('W1')] * 10**(0.4*(2.699))
-	f_W2_Vega = qsos['obsFlux'][:,b('W2')] * 10**(0.4*(3.339))
-	qsos['f_WISE'] = ( 1.0*f_W1_Vega + 0.5*f_W2_Vega ) / 1.5
+	qsos = get_sim_optwise_mags(qsos)
 	#
 	sel = True
 	if verbose:
