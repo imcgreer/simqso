@@ -59,16 +59,16 @@ def runsim(model,fileName,forest,qsoGrid,
 	#
 	qsoGrid = ebossmodels.add_continuum(qsoGrid,model['continuum'],
 	                                    const=const)
-	if 'dustem' in model:
+	if model.get('dustem'):
 		qsoGrid = ebossmodels.add_dust_emission(qsoGrid,model['dustem'],
 		                                        const=const)
-	if 'emlines' in model:
+	if model.get('emlines'):
 		qsoGrid = ebossmodels.add_emission_lines(qsoGrid,model['emlines'],
 		                                         const=const)
-	if 'iron' in model:
+	if model.get('iron'):
 		qsoGrid = ebossmodels.add_iron(qsoGrid,wave,model['iron'],
 		                               const=const)
-	if 'dustext' in model:
+	if model.get('dustext'):
 		qsoGrid = ebossmodels.add_dust_extinction(qsoGrid,model['dustext'],
 		                                          const=const)
 	#
@@ -195,6 +195,8 @@ if __name__=='__main__':
 	    help='specify continuum model')
 	parser.add_argument('--emlines',type=str,
 	    help='specify emission line model')
+	parser.add_argument('--iron',type=str,
+	    help='specify iron template')
 	parser.add_argument('--dustem',type=str,
 	    help='specify dust emission model')
 	parser.add_argument('--dustext',type=str,
@@ -211,7 +213,7 @@ if __name__=='__main__':
 		model = ebossmodels.qso_models[args.model]
 	except KeyError:
 		model = dict(continuum=args.continuum,emlines=args.emlines,
-		             dustem=args.dustem,iron='bossdr9',dustext=args.dustext)
+		             dustem=args.dustem,iron=args.iron,dustext=args.dustext)
 	if args.qlf=='bossdr9':
 		qlf = sqmodels.BOSS_DR9_PLEpivot(cosmo=dr9cosmo)
 	else:
