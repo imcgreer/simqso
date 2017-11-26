@@ -62,16 +62,30 @@ class eBossQsos(object):
 		# Galex
 		fuv = np.ma.array(self.data['FUV'],mask=self.data['FUV_IVAR']==0)
 		nuv = np.ma.array(self.data['NUV'],mask=self.data['NUV_IVAR']==0)
-		self.galexFluxes = np.ma.vstack([fuv,nuv]).T
+		self.galexFluxes = np.ma.vstack([fuv,nuv]).transpose()
+		# UKIDSS
+		self.ukidssFluxes = np.ma.vstack(
+		         [ np.ma.array(self.data[b+'FLUX'],
+		                       mask=self.data['UKIDSS_MATCHED']==0)
+		              for b in 'YJHK' ] ).transpose()
+		# units are W/m^2/Hz, 1e26 converts to Jy and 5.44 to nanomaggie
+		self.ukidssFluxes *= 1e26*10**5.44
 		# WISE (convert from Vega)
 		# using extinction conversions from ebosstarget_qso_selection.pro
-		w1 = np.ma.array(self.data['W1_NANOMAGGIES']*10**(-0.4*(2.699)),
+		w1 = np.ma.array(self.data['W1_NANOMAGGIES'],
 		                 mask=self.data['HAS_WISE_PHOT']!='T')
 		w1 *= 10**(0.4*(0.184*extCorr[:,2]/2.285))
-		w2 = np.ma.array(self.data['W2_NANOMAGGIES']*10**(-0.4*(3.339)),
+		w2 = np.ma.array(self.data['W2_NANOMAGGIES'],
 		                 mask=self.data['HAS_WISE_PHOT']!='T')
 		w2 *= 10**(0.4*(0.113*extCorr[:,2]/2.285))
+		self.wiseVegaFluxes = np.ma.vstack([w1,w2]).transpose()
+		w1 *= 10**(-0.4*2.699)
+		w2 *= 10**(-0.4*3.339)
 		self.wiseFluxes = np.ma.vstack([w1,w2]).T
+	def get_optwise(self):
+		f_WISE = np.average(self.wiseVegaFluxes,axis=1,weights=[1,0.5])
+		f_opt = np.average(self.sdssFluxes[:,1:4],axis=1,weights=[1,0.8,0.6])
+		return f_opt,f_WISE
 	def extract_features(self,featureset=['sdss','z'],
 	                     refband='i',ratios='byref'):
 		fluxes = []
@@ -82,9 +96,12 @@ class eBossQsos(object):
 		if 'sdss' in featureset:
 			fluxes.append(self.sdssFluxes)
 			names.extend(list('ugriz'))
+		if 'ukidss' in featureset:
+			fluxes.append(self.ukidssFluxes)
+			names.extend(list('YJHK'))
 		if 'wise' in featureset:
 			fluxes.append(self.wiseFluxes)
-			names.extend(['w1','w2'])
+			names.extend(['W1','W2'])
 		#
 		fluxes = np.ma.hstack(fluxes)
 		j = names.index(refband)

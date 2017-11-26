@@ -14,8 +14,14 @@ import ebossmodels
 import ebosscore
 import ebossfit
 
-def percfun(pval):
-	return lambda x: np.percentile(x,pval)
+class percfun(object):
+	def __init__(self,pval):
+		self.pval = pval
+	def __call__(self,x):
+		x = x[x<1e20]
+		if len(x) < 10:
+			return np.nan
+		return np.percentile(x,self.pval)
 
 def calc_colorz(z,clrs,pvals,zedges):
 	zbins = zedges[:-1] + np.diff(zedges)/2
@@ -27,8 +33,13 @@ def calc_colorz(z,clrs,pvals,zedges):
 
 def sim_colorz(simqsos,pvals,zedges,ratios=True,refBand=None):
 	b = ebosscore.BandIndexes(simqsos)
-	c_ii = [ b(_b) for _b in list('ugri')+['W1'] ]
-	fluxk = 'Flux' if ratios else 'Mag'
+	if ratios:
+		fluxk = 'Flux'
+		d = '/'
+	else:
+		fluxk = 'Mag'
+		d = '-'
+	bnames = [ d.join(bb) for bb in zip(b.shortNames[:-1],b.shortNames[1:]) ]
 	colorz = {}
 	for which in ['syn','obs']:
 		z = simqsos['z']
@@ -40,22 +51,28 @@ def sim_colorz(simqsos,pvals,zedges,ratios=True,refBand=None):
 			if refBand is None:
 				clrs = flux[:,:-1] / flux[:,1:]
 			else:
-				clrs = flux / flux[:,[refBand]]
-				clrs = np.delete(flux,refBand,1)
+				clrs = flux / flux[:,[b(refBand)]]
+				clrs = np.delete(flux,b(refBand),1)
 		else:
 			clrs = -np.diff(flux,axis=1)
-		colorz[which] = calc_colorz(z,clrs[:,c_ii],pvals,zedges)
+		# needs to be masked to match observations table
+		clrs = np.ma.array(clrs)
+		colorz[which] = calc_colorz(z,clrs,pvals,zedges)
 	tab = Table(colorz)
-	return tab
+	return tab,bnames
 
 def ebosscore_colorz(coreqsos,pvals,zedges):
-	features,names = coreqsos.extract_features(featureset=['sdss','wise'],
+	photsets = ['sdss','ukidss','wise']
+	features,names = coreqsos.extract_features(featureset=photsets,
 	                                            ratios='neighboring')
-	print names
+	# remove the refmag feature
 	clrs = features[:,1:]
-	clrs = np.delete(clrs,-2,1)
+	clrs = clrs.filled(1e20)
 	colorz = calc_colorz(coreqsos.specz,clrs,pvals,zedges)
-	return Table(dict(ebosscore=colorz))
+	return Table(dict(ebosscore=colorz)),names[1:]
+
+# mags
+#yr = [ (-0.7,4.2), (-0.3,1.7), (-0.15,0.5), (-0.2,0.5), (-0.15,0.75) ]
 
 fratio_yrange = {
   'u/g':(-0.3,1.3), 'g/r':(0.1,1.3), 'r/i':(0.5,1.2), 'i/z':(0.5,1.3),
@@ -66,34 +83,33 @@ def colorz_compare(simqsos,coreqsos):
 	zedges = np.linspace(0.9,4.0,32)
 	zbins = zedges[:-1] + np.diff(zedges)/2
 	pvals = [25,50,75]
-	colorz = sim_colorz(simqsos,pvals,zedges)
-	colorz2 = ebosscore_colorz(coreqsos,pvals,zedges)
+	colorz,simClrNames = sim_colorz(simqsos,pvals,zedges)
+	colorz2,ebossClrNames = ebosscore_colorz(coreqsos,pvals,zedges)
+	assert np.all(np.array(simClrNames)==np.array(ebossClrNames))
 	colorz = hstack([colorz,colorz2])
-	bandnames = list('ugriz') #+ ['W1','W2']
-	colornames = [ b1+'-'+b2 for b1,b2 in zip(bandnames[:-1],bandnames[1:]) ]
-	colornames += ['W1-W2'] # otherwise get z-W1
-	plt.figure(figsize=(10,7))
-	plt.subplots_adjust(0.075,0.05,0.97,0.97,0.2,0.13)
-	for j in range(colorz['syn'].shape[1]):
-		plt.subplot(3,2,j+1)
+	fig = plt.figure(figsize=(9.5,7))
+	plt.subplots_adjust(0.055,0.05,0.99,0.99,0.23,0.15)
+	for j,clrName in enumerate(simClrNames):
+		plt.subplot(4,3,j+1)
 		for which in ['syn','obs','ebosscore']:
 			c = {'syn':'C0','obs':'C1','ebosscore':'C2'}[which]
 			plt.fill_between(zbins,colorz[which][0,j],colorz[which][2,j],
 			                 color=c,alpha=0.3)
 			plt.plot(zbins,colorz[which][1,j],c=c,ls='-')
 		plt.xlim(0.85,4.05)
-		if False:
-			yr = [ (-0.7,4.2), (-0.3,1.7), (-0.15,0.5), (-0.2,0.5), (-0.15,0.75) ]
-		else:
-			yr = [ (-0.3,1.3), (0.1,1.3), (0.5,1.2), (0.5,1.3), (0.4,1.3) ]
-		plt.ylim(*yr[j])
-		plt.ylabel(colornames[j])
-	plt.subplot(3,2,6)
+		yr = fratio_yrange.get(clrName)
+		if yr:
+			plt.ylim(*yr)
+		plt.ylabel(clrName,size=9)
+	plt.subplot(4,3,12)
 	plt.hist(simqsos['z'],zbins,log=True)
 	plt.hist(simqsos['z'][simqsos['selected']],zbins,log=True)
 	plt.hist(coreqsos.specz,zbins,log=True,alpha=0.5)
 	plt.xlim(0.85,4.05)
-	plt.ylabel('n(z)')
+	plt.ylabel('n(z)',size=9)
+	for ax in fig.get_axes():
+		plt.setp(ax.get_xticklabels()+ax.get_yticklabels(),fontsize=8)
+		ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.2))
 
 def get_colorz_bins(mrange=(-27,-23),zrange=(0.9,4.0),nm=7,nz=500):
 	mbins = np.linspace(*tuple(mrange+(nm,)))
