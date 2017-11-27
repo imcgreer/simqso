@@ -10,13 +10,15 @@ cont_models = {
                  (-1.70,0.3),(-1.03,0.3)],
                  [1100.,5700.,9730.,22300.]],
   'ebossdr14':[[(-1.5,0.3),(-0.4,0.3)],[1200.]],
+  'dr14expdust':[[(-1.2,0.3),(-0.3,0.3)],[1200.]],
 }
 
 emline_models = {
   'ebossdr14':{
-    'scaleEWs':{'LyAb':1.4,'LyAn':1.4,'CIVb':0.75,'CIVn':0.75,
+    'scaleEWs':{'LyAb':1.1,'LyAn':1.1,'CIVb':0.75,'CIVn':0.75,
                  'CIII]b':0.8,'CIII]n':0.8,'MgIIb':0.8,'MgIIn':0.8,
-                 'Hbeta':1.2,'HAb':1.5,'HAn':1.5},
+                 'Hbeta':1.2,},#'HAb':1.0,'HAn':1.0},
+    'scaleLogScatter':{'HAb':5,},#'HAn':5},
     },
 }
 
@@ -32,6 +34,9 @@ dustem_models = {
   #
   'GHW06b':{'sublimdust':[(0.03,None),(1800.,None)],
            'hotdust':[(0.07,None),(1260.,None)]},
+  #
+  'dr14expdust':{'sublimdust':[(0.03,None),(1800.,None)],
+                 'hotdust':[(0.06,None),(880.,None)]},
 }
 
 qso_models = {
@@ -46,6 +51,10 @@ qso_models = {
   #
   'ebossdr14ghwdust':{'continuum':'ebossdr14','emlines':'ebossdr14',
                       'dustem':'GHW06b','iron':'bossdr9'},
+  #
+  'dr14expdust':{'continuum':'dr14expdust','emlines':'ebossdr14',
+                 'dustem':'dr14expdust','iron':'bossdr9',
+                 'dustext':'dr9expdust'},
 }
 
 def add_continuum(qsos,model='ebossdr14',const=False):
