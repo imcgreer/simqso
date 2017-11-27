@@ -19,7 +19,7 @@ def def_kcorr(z):
 	return continuum_kcorr('SDSS-i',1450,z)
 
 def make_forest_grid(forestFile,forestType,wave,z,
-                     nlos=1200,outputDir='.',nproc=6,**kwargs):
+                     nlos=5000,outputDir='.',nproc=6,**kwargs):
 	zbins = kwargs.pop('zBins',np.arange(0.9,4.6,0.01))
 	waverange = kwargs.pop('waverange',(2900.,9000))
 	R = kwargs.pop('R',300)
@@ -53,7 +53,8 @@ def sample_qlf(qlf,mrange=(17,22),zrange=(0.9,4.0),skyArea=3000):
 photSys = [ ('SDSS','Legacy'), ('UKIRT','UKIDSS_LAS'), ('WISE','AllWISE') ]
 
 def runsim(model,fileName,forest,qsoGrid,
-           foresttype='meanmag',maxIter=2,nproc=1,wave=None,
+           foresttype='meanmag',nlos=5000,
+           maxIter=2,nproc=1,wave=None,
            medianforest=False,const=False,
            nophot=False,withspec=False,outputDir='.'):
 	np.random.seed(12345)
@@ -87,7 +88,7 @@ def runsim(model,fileName,forest,qsoGrid,
 		if not os.path.exists(forestFile):
 			print 'forest file {} does not exist, generating...'.format(forest)
 			make_forest_grid(forestFile,foresttype,wave,qsoGrid.z,
-			                 outputDir=outputDir)
+			                 nlos=nlos,outputDir=outputDir)
 		if foresttype == 'meanmag':
 			forest = hiforest.GridForest(forestFile,
 			                             qsoGrid.photoBands,
@@ -212,6 +213,8 @@ if __name__=='__main__':
 	    help='seed QLF model (default: BOSS DR9 PLE-LEDE)')
 	parser.add_argument('--skyarea',type=float,default=3000,
 	    help='area of sky in simulation (default: 3000 deg2)')
+	parser.add_argument('--nlos',type=int,default=5000,
+	    help='number of sightlines for forest spectra (default: 5000)')
 	parser.add_argument('--noselection',action='store_true',
 	    help='do not calculate selection function')
 	parser.add_argument('--testranges',action='store_true',
@@ -247,8 +250,8 @@ if __name__=='__main__':
 		np.random.seed(args.seed)
 		qsoGrid = sample_qlf(qlf,skyArea=args.skyarea)
 		runsim(model,simName,args.forest,qsoGrid,
-		       foresttype=args.foresttype,nproc=args.processes,
-		       outputDir=args.outputdir)
+		       foresttype=args.foresttype,nlos=args.nlos,
+		       nproc=args.processes,outputDir=args.outputdir)
 		if not args.noselection:
 			fn = os.path.join(args.outputdir,args.model+'.fits')
 			apply_selection_fun(fn,verbose=1,redo=True)
