@@ -31,7 +31,8 @@ def calc_colorz(z,clrs,pvals,zedges):
 		colorz[i] = clrz
 	return colorz
 
-def sim_colorz(simqsos,pvals,zedges,ratios=True,refBand=None):
+def sim_colorz(simqsos,pvals,zedges,ratios=True,refBand=None,
+               maglim=None,maglimband='i'):
 	b = ebosscore.BandIndexes(simqsos)
 	if ratios:
 		fluxk = 'Flux'
@@ -44,9 +45,13 @@ def sim_colorz(simqsos,pvals,zedges,ratios=True,refBand=None):
 	for which in ['syn','obs']:
 		z = simqsos['z']
 		flux = simqsos[which+fluxk]
+		sel = np.ones(len(simqsos),dtype=bool)
+		if maglim is not None:
+			sel &= simqsos['obsMag'][:,b(maglimband)] < maglim
 		if which=='obs':
-			flux = flux[simqsos['selected']]
-			z = z[simqsos['selected']]
+			sel &= simqsos['selected']
+		flux = flux[sel]
+		z = z[sel]
 		if ratios:
 			if refBand is None:
 				clrs = flux[:,:-1] / flux[:,1:]
@@ -61,14 +66,21 @@ def sim_colorz(simqsos,pvals,zedges,ratios=True,refBand=None):
 	tab = Table(colorz)
 	return tab,bnames
 
-def ebosscore_colorz(coreqsos,pvals,zedges):
+def ebosscore_colorz(coreqsos,pvals,zedges,maglim=None,maglimband='i'):
 	photsets = ['sdss','ukidss','wise']
 	features,names = coreqsos.extract_features(featureset=photsets,
-	                                            ratios='neighboring')
+	                                           refband=maglimband,
+	                                           ratios='neighboring')
+	zqso = coreqsos.specz
+	if maglim:
+		refMag = 22.5 - 2.5*np.log10(features[:,0].clip(1e-5,np.inf))
+		ii = np.where(refMag < maglim)[0]
+		features = features[ii]
+		zqso = zqso[ii]
 	# remove the refmag feature
 	clrs = features[:,1:]
 	clrs = clrs.filled(1e20)
-	colorz = calc_colorz(coreqsos.specz,clrs,pvals,zedges)
+	colorz = calc_colorz(zqso,clrs,pvals,zedges)
 	return Table(dict(ebosscore=colorz)),names[1:]
 
 # mags
@@ -79,12 +91,14 @@ fratio_yrange = {
   'W1/W2':(0.4,1.3),
 }
 
-def colorz_compare(simqsos,coreqsos):
+def colorz_compare(simqsos,coreqsos,maglim=None):
 	zedges = np.linspace(0.9,4.0,32)
 	zbins = zedges[:-1] + np.diff(zedges)/2
 	pvals = [25,50,75]
-	colorz,simClrNames = sim_colorz(simqsos,pvals,zedges)
-	colorz2,ebossClrNames = ebosscore_colorz(coreqsos,pvals,zedges)
+	colorz,simClrNames = sim_colorz(simqsos,pvals,zedges,
+	                                maglim=maglim)
+	colorz2,ebossClrNames = ebosscore_colorz(coreqsos,pvals,zedges,
+	                                         maglim=maglim)
 	assert np.all(np.array(simClrNames)==np.array(ebossClrNames))
 	colorz = hstack([colorz,colorz2])
 	fig = plt.figure(figsize=(9.5,7))
@@ -353,6 +367,8 @@ if __name__=='__main__':
 	    help='show parameter color-z mean trends instead of running sim')
 	parser.add_argument('--tracks',action="store_true",
 	    help='show color-z mean trends instead of running sim')
+	parser.add_argument('--maglim',type=float,
+	    help='limiting magnitude')
 	args = parser.parse_args()
 	if args.trends:
 		plot_model_trends(model=args.model)
@@ -362,6 +378,10 @@ if __name__=='__main__':
 	else:
 		simqsos = Table.read(args.fitsfile)
 		coreqsos = ebossfit.eBossQsos()
-		colorz_compare(simqsos,coreqsos)
-		plt.savefig(args.fitsfile.replace('.fits','_colorz.pdf'))
+		colorz_compare(simqsos,coreqsos,maglim=args.maglim)
+		if args.maglim:
+			sfx = '_ilt%.1f' % args.maglim
+		else:
+			sfx = ''
+		plt.savefig(args.fitsfile.replace('.fits','_colorz'+sfx+'.pdf'))
 
