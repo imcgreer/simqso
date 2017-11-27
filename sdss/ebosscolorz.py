@@ -150,8 +150,7 @@ def model_colorz_tracks(model,forestFile,**kwargs):
 	            synfluxes=synfluxes,synfratios=synfratios,
 	            qsos=qsos)
 
-def colorz_param_trends(modelName):
-	forestFile ='sdss_forest_grid.fits'
+def colorz_param_trends(modelName,forestFile):
 	tab = Table()
 	#
 	def add_entry(tab,nm,s,cz):
@@ -162,13 +161,13 @@ def colorz_param_trends(modelName):
 	#
 	model = deepcopy(ebossmodels.qso_models[modelName])
 	cname = model['continuum']
-	for j in range(len(model['continuum'][0])):
+	for j in range(len(ebossmodels.cont_models[cname][0])):
 		for ds in [-0.3,0.0,0.3]:
 			model['continuum'] = deepcopy(ebossmodels.cont_models[cname])
-			model['continuum'][0][j] = (model['continuum'][0][j]+ds,None)
+			model['continuum'][0][j] = (model['continuum'][0][j][0]+ds,None)
 			print ds,model
 			cz = model_colorz_tracks(model,forestFile)
-			add_entry(tab,'slope%d'%j,'%+4.1f'%s,cz)
+			add_entry(tab,'slope%d'%j,'%+4.1f'%ds,cz)
 			print
 	#
 	model = deepcopy(ebossmodels.qso_models[modelName])
@@ -218,7 +217,7 @@ def plot_trends(modelName,trendFile,coreqsos):
 	eboss_zedges = np.linspace(0.9,4.0,32)
 	eboss_zbins = eboss_zedges[:-1] + np.diff(eboss_zedges)/2
 	pvals = [25,50,75]
-	obs_colorz = ebosscore_colorz(coreqsos,pvals,eboss_zedges)['ebosscore']
+	obs_colorz = ebosscore_colorz(coreqsos,pvals,eboss_zedges)[0]['ebosscore']
 	trends = Table.read(trendFile)
 	pars = defaultdict(list)
 	for c in trends.colnames:
@@ -260,16 +259,19 @@ def plot_trends(modelName,trendFile,coreqsos):
 		plt.savefig(modelName+'_'+p+'.pdf')
 		plt.close()
 
-def plot_model_trends(model='all'):
+def plot_model_trends(model='all',forestFile=None):
 	coreqsos = ebossfit.eBossQsos() 
 	if model=='all':
 		models = ebossmodels.qso_models.keys()
 	else:
 		models = [model]
 	for modelName in models:
-		m,z,trends = colorz_param_trends(modelName)
 		trendfn = modelName+'_trends.fits'
-		trends.write(trendfn,overwrite=True)
+		if not os.path.exists(trendfn):
+			m,z,trends = colorz_param_trends(modelName,forestFile)
+			trends.write(trendfn,overwrite=True)
+		else:
+			trends = Table.read(trendfn)
 		plot_trends(modelName,trendfn,coreqsos)
 
 def model_spectrum(model,**kwargs):
@@ -359,8 +361,8 @@ if __name__=='__main__':
 	parser = argparse.ArgumentParser(
 	                          description='run eboss color-z simulations.')
 	parser.add_argument('fitsfile',nargs='?',type=str,help='input file name')
-	parser.add_argument('--forest',type=str,default='sdss_forest_grid.fits',
-	    help='file containing forest grid (default:sdss_forest_grid.fits')
+	parser.add_argument('--forest',type=str,default='sdss_forest_grid',
+	    help='file containing forest grid (default:sdss_forest_grid)')
 	parser.add_argument('-m','--model',type=str,default='bossdr9',
 	    help='name of quasar model')
 	parser.add_argument('--trends',action="store_true",
@@ -371,7 +373,7 @@ if __name__=='__main__':
 	    help='limiting magnitude')
 	args = parser.parse_args()
 	if args.trends:
-		plot_model_trends(model=args.model)
+		plot_model_trends(model=args.model,forestFile=args.forest)
 	elif args.tracks:
 		model = ebossmodels.qso_models[args.model]
 		cz = model_colorz_tracks(model,args.forest)
