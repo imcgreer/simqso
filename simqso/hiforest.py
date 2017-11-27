@@ -437,7 +437,8 @@ class CachedIGMTransmissionGrid(object):
 	def next_spec(self,sightLine,z,**kwargs):
 		return self.current_spec(sightLine,z,**kwargs)
 	def current_spec(self,sightLine,z,**kwargs):
-		i = self.losIndex[(sightLine,z)]
+		# z is saved as float32 and need to match type
+		i = self.losIndex[(sightLine,np.float32(z))]
 		return self.tspec['T'][i]
 
 def generate_binned_forest(fileName,forestModel,nlos,zbins,waverange,R,

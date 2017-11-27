@@ -18,17 +18,25 @@ dr9cosmo = FlatLambdaCDM(70,1-0.7,name='BOSSDR9')
 def def_kcorr(z):
 	return continuum_kcorr('SDSS-i',1450,z)
 
-def make_forest_grid(forestFile,nlos=1200,outputDir='.',nproc=6,**kwargs):
-	photSys = [('SDSS','Legacy','ugri')]
+def make_forest_grid(forestFile,forestType,wave,z,
+                     nlos=1200,outputDir='.',nproc=6,**kwargs):
 	zbins = kwargs.pop('zBins',np.arange(0.9,4.6,0.01))
 	waverange = kwargs.pop('waverange',(2900.,9000))
 	R = kwargs.pop('R',300)
 	forestModel = sqmodels.WP11_model
-	photoMap = sqphoto.LazyPhotoMap(photSys)
-	hiforest.generate_grid_forest(forestFile,forestModel,
-	                              nlos,zbins,waverange,R,
-	                              photoMap,outputDir=outputDir,
-	                              nproc=nproc,**kwargs)
+	if forestType == 'meanmag':
+		photSys = [('SDSS','Legacy','ugri')]
+		photoMap = sqphoto.LazyPhotoMap(photSys)
+		hiforest.generate_grid_forest(forestFile,forestModel,
+		                              nlos,zbins,waverange,R,
+		                              photoMap,outputDir=outputDir,
+		                              nproc=nproc,**kwargs)
+	else:
+		forest = hiforest.IGMTransmissionGrid(wave,forestModel,nlos,
+		                                      zmax=z.max(),**kwargs)
+		losSampler = grids.RandomSubSampler(forest.numSightLines)
+		losMap = losSampler.sample(qsoGrid.nObj)
+		forest.write(forestFile,outputDir,losMap=losMap,z_em=z)
 
 def sample_qlf(qlf,mrange=(17,22),zrange=(0.9,4.0),skyArea=3000):
 	obsBand = 'SDSS-r'
@@ -45,7 +53,7 @@ def sample_qlf(qlf,mrange=(17,22),zrange=(0.9,4.0),skyArea=3000):
 photSys = [ ('SDSS','Legacy'), ('UKIRT','UKIDSS_LAS'), ('WISE','AllWISE') ]
 
 def runsim(model,fileName,forest,qsoGrid,
-           maxIter=2,nproc=1,wave=None,
+           foresttype='meanmag',maxIter=2,nproc=1,wave=None,
            medianforest=False,const=False,
            nophot=False,withspec=False,outputDir='.'):
 	np.random.seed(12345)
@@ -74,11 +82,20 @@ def runsim(model,fileName,forest,qsoGrid,
 	#
 	qsoGrid.loadPhotoMap(photSys)
 	#
-	if isinstance(forest,basestring):
-		forest = hiforest.GridForest(forest,qsoGrid.photoBands,
-		                             median=medianforest)
 	if not forest is None:
-		forestVar = grids.SightlineVar(forest)
+		forestFile = os.path.join(outputDir,forest+'.fits')
+		if not os.path.exists(forestFile):
+			print 'forest file {} does not exist, generating...'.format(forest)
+			make_forest_grid(forestFile,foresttype,wave,qsoGrid.z,
+			                 outputDir=outputDir)
+		if foresttype == 'meanmag':
+			forest = hiforest.GridForest(forestFile,
+			                             qsoGrid.photoBands,
+			                             median=medianforest)
+			forestVar = grids.SightlineVar(forest)
+		else:
+			forest = hiforest.CachedIGMTransmissionGrid(forest,outputDir)
+			forestVar = grids.HIAbsorptionVar(forest,losMap=forest.losMap)
 		qsoGrid.addVar(forestVar)
 	#
 	qsoGrid,spectra = sqrun.buildSpectraBulk(wave,qsoGrid,
@@ -181,8 +198,10 @@ if __name__=='__main__':
 	                          description='run eboss quasar simulations.')
 	parser.add_argument('model',type=str,
 	    help='name of quasar model')
-	parser.add_argument('--forest',type=str,default='sdss_forest_grid.fits',
-	    help='file containing forest grid (default:sdss_forest_grid.fits)')
+	parser.add_argument('--forest',type=str,default='sdss_forest_grid',
+	    help='file containing forest spectra (default:sdss_forest_grid)')
+	parser.add_argument('--foresttype',type=str,default='meanmag',
+	    help="type of forest spectra (default: 'meanmag', also 'fullres')")
 	parser.add_argument('-o','--outputdir',type=str,default='.',
 	    help='output directory (default:.)')
 	parser.add_argument('-p','--processes',type=int,default=7,
@@ -208,12 +227,9 @@ if __name__=='__main__':
 	parser.add_argument('--dustext',type=str,
 	    help='specify dust extinction model')
 	args = parser.parse_args()
+	assert args.foresttype in ['meanmag','fullres']
 	if not os.path.exists(args.outputdir):
 		os.makedirs(args.outputdir)
-	if not os.path.exists(args.forest):
-		print 'forest file {} does not exist, generating...'.format(
-		                                                        args.forest)
-		make_forest_grid(args.forest,outputDir=args.outputdir)
 	simName = args.model
 	try:
 		model = ebossmodels.qso_models[args.model]
@@ -230,7 +246,8 @@ if __name__=='__main__':
 	else:
 		np.random.seed(args.seed)
 		qsoGrid = sample_qlf(qlf,skyArea=args.skyarea)
-		runsim(model,simName,args.forest,qsoGrid,nproc=args.processes,
+		runsim(model,simName,args.forest,qsoGrid,
+		       foresttype=args.foresttype,nproc=args.processes,
 		       outputDir=args.outputdir)
 		if not args.noselection:
 			fn = os.path.join(args.outputdir,args.model+'.fits')
