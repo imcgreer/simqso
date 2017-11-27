@@ -61,7 +61,7 @@ def add_continuum(qsos,model='ebossdr14',const=False):
 	print "CONTINUUM: {}".format(model)
 	try:
 		slopes,breakpts = cont_models[model]
-	except KeyError:
+	except:
 		if isinstance(model,basestring):
 			slopes,breakpts = eval(model)
 		else:
@@ -80,7 +80,7 @@ def add_dust_emission(qsos,model='LR17',const=False):
 	try:
 		model = dustem_models[model]
 		print "DUST EMISSION: {}".format(model)
-	except KeyError:
+	except:
 		if isinstance(model,basestring):
 			model = eval(model)
 		else:
@@ -107,7 +107,7 @@ def add_emission_lines(qsos,model='bossdr9',const=False):
 	else:
 		try:
 			kwargs = emline_models[model]
-		except KeyError:
+		except:
 			if isinstance(model,basestring):
 				kwargs = eval(model)
 			else:
