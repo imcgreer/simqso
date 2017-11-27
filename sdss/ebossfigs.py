@@ -3,11 +3,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from astropy.stats import sigma_clip
-#from astropy.constants import pc
-#from astropy import units as u
 
+from simqso import linetemplates
 import ebosscore
-import linetemplates
 
 def get_mag_z_bins(ebossqsos,simqsos,nz=6,nm=20,bandNum=2):
 	zedges = np.linspace(0.9,4.0,nz+1)
@@ -111,17 +109,13 @@ def colorcolor(ebossqsos,simqsos,which='optwise',**kwargs):
 #		if i>=4:
 #			ax.set_xlabel('r mag')
 
-trlines = {
-  'HAb':'BR_HA__EW',
-}
-
 def compare_qsfit_lines(simqsos,qsfit,line):
 	#
 	j = simqsos.meta['LINENAME'].split(',').index(line)
 	simEw = simqsos['emLines'][:,j,1]
 	simM1450 = simqsos['absMag']
 	#
-	qsfitEw = qsfit[trlines[line]]
+	qsfitEw = qsfit[linetemplates.trlines_qsfit[line]]
 	qsfitM1450 = linetemplates.get_qsfit_M1450(qsfit)
 	ii = np.where(~np.isnan(qsfitEw) & ~np.isnan(qsfitM1450))[0]
 	qsfitEw = np.array(qsfitEw[ii])
