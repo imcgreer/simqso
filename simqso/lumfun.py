@@ -222,17 +222,25 @@ class DoublePowerLawLF(LuminosityFunction):
 		eps_M,eps_z = 5e-2,2e-2
 		nM = int(-np.diff(Mrange(zrange)) / eps_M)
 		nz = int(np.diff(zrange) / eps_z)
-		skyfrac = kwargs.get('skyArea',skyDeg2) / skyDeg2
-		dVdzdO = interp_dVdzdO(zrange,self.cosmo)
-		phi_z = lambda z: integrateDPL(Mrange(z),*self.eval_par_at_z(z,p)) * \
-		                        dVdzdO(z)
-		zbins = np.linspace(zrange[0],zrange[1],nz)
-		zsamp = [quad(phi_z,*zr)[0] for zr in zip(zbins[:-1],zbins[1:])]
-		zsamp = [0,] + zsamp
-		Ntot = np.sum(zsamp)
-		zfun = interp1d(np.cumsum(zsamp)/Ntot,zbins)
-		Ntot = np.int(np.round(Ntot * skyfrac * 4*np.pi))
-		print 'integration returned ',Ntot,' objects'
+		zin = kwargs.get('zin')
+		if zin is None:
+			# integrate across redshift to get the dN/dz distribution
+			skyfrac = kwargs.get('skyArea',skyDeg2) / skyDeg2
+			dVdzdO = interp_dVdzdO(zrange,self.cosmo)
+			phi_z = lambda z: integrateDPL(Mrange(z),
+			                    *self.eval_par_at_z(z,p)) * \
+			                        dVdzdO(z)
+			zbins = np.linspace(zrange[0],zrange[1],nz)
+			zsamp = [quad(phi_z,*zr)[0] for zr in zip(zbins[:-1],zbins[1:])]
+			zsamp = [0,] + zsamp
+			Ntot = np.sum(zsamp)
+			zfun = interp1d(np.cumsum(zsamp)/Ntot,zbins)
+			Ntot = np.int(np.round(Ntot * skyfrac * 4*np.pi))
+			print 'integration returned ',Ntot,' objects'
+		else:
+			# redshifts supplied by user
+			zfun = lambda x: zin
+			Ntot = len(zin)
 		x = np.random.random(Ntot)
 		y = np.random.random(Ntot)
 		z = zfun(x)
