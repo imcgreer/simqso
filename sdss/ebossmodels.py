@@ -17,8 +17,8 @@ emline_models = {
   'ebossdr14':{
     'scaleEWs':{'LyAb':1.1,'LyAn':1.1,'CIVb':0.75,'CIVn':0.75,
                  'CIII]b':0.8,'CIII]n':0.8,'MgIIb':0.8,'MgIIn':0.8,
-                 'Hbeta':1.2,},#'HAb':1.0,'HAn':1.0},
-    'scaleLogScatter':{'HAb':5,},#'HAn':5},
+                 'Hbeta':1.1,},#'HAb':1.0,'HAn':1.0},
+    'scaleLogScatter':{'CIVb':2,'MgIIb':2,'Hbeta':3,'HAb':4,},
     },
 }
 
