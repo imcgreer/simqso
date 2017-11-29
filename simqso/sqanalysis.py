@@ -26,6 +26,8 @@ class Interpolator(object):
 		self.points = np.array([x,y]).T
 		self.values = z
 	def ev(self,x,y):
+		x = np.asarray(x)
+		y = np.asarray(y)
 		xi = np.array([x.ravel(),y.ravel()]).T
 		rv = griddata(self.points,self.values,xi,method='linear')
 		return rv.reshape(x.shape)
