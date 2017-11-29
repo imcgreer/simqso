@@ -635,6 +635,8 @@ def save_spectra(wave,spectra,fileName,outputDir='.',overwrite=True):
 	hdr['CRPIX1'] = 1
 	hdr['CRVAL1'] = logwave[0]
 	hdr['CRTYPE1'] = 'LOGWAVE'
+	hdr['SPECSCAL'] = (1e-17,'erg/s/cm^2/A')
+	spectra = (spectra*1e17).astype(np.float32)
 	if not fileName.endswith('.fits'):
 		fileName += '.fits'
 	fits.writeto(os.path.join(outputDir,fileName),spectra,header=hdr,

@@ -421,7 +421,7 @@ class IGMTransmissionGrid(object):
 # for now just duck-typing this
 class CachedIGMTransmissionGrid(object):
 	def __init__(self,fileName,outputDir='.'):
-		if not fileName.endswith('.fits') or fileName.endswith('.fits.gz'):
+		if not (fileName.endswith('.fits') or fileName.endswith('.fits.gz')):
 			fileName += '.fits'
 		fn = os.path.join(outputDir,fileName)
 		self.tspec = tspec = Table.read(fn)

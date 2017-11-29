@@ -355,8 +355,12 @@ class QsoSimVar(object):
 		self.meta = {}
 		self.dependentVars = None
 		self.assocVar = None
+		self.dtype = np.float32
 	def __call__(self,n,**kwargs):
-		return self.sampler(n,**kwargs)
+		vals = self.sampler(n,**kwargs)
+		if vals is not None:
+			vals = vals.astype(self.dtype)
+		return vals
 	def resample(self,*args,**kwargs):
 		'''
 		Update the samplers of any dependent variables and then resample.
@@ -398,7 +402,7 @@ class MultiDimVar(QsoSimVar):
 				self._recurse_resample(sampler,*args,**kwargs)
 	def __call__(self,n,**kwargs):
 		arr = self._recurse_call(self.sampler,n,**kwargs)
-		return np.rollaxis(np.array(arr),-1)
+		return np.rollaxis(np.array(arr),-1).astype(self.dtype)
 	def resample(self,*args,**kwargs):
 		self._recurse_resample(self.sampler,*args,**kwargs)
 	def _sampler_to_string(self):
@@ -714,6 +718,7 @@ class SightlineVar(QsoSimVar):
 			s = FixedSampler(losMap)
 		super(SightlineVar,self).__init__(s)
 		self.forest = forest
+		self.dtype = np.int32
 
 class HIAbsorptionVar(SightlineVar,SpectralFeatureVar):
 	'''

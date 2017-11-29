@@ -81,9 +81,10 @@ def runsim(model,fileName,forest,qsoGrid,
 	qsoGrid.loadPhotoMap(photSys)
 	#
 	if not forest is None:
-		forestFile = os.path.join(outputDir,forest+'.fits')
-		if not os.path.exists(forestFile):
-			forestFile = os.path.join('.',forest+'.fits')
+		for extn in ['','.fits','.fits.gz']:
+			forestFile = forest+extn
+			if os.path.exists(forestFile):
+				break
 		if not os.path.exists(forestFile):
 			print 'forest file {} does not exist, generating...'.format(forest)
 			make_forest_grid(forest,foresttype,wave,qsoGrid.z,
@@ -94,7 +95,7 @@ def runsim(model,fileName,forest,qsoGrid,
 			                             median=medianforest)
 			forestVar = grids.SightlineVar(forest)
 		else:
-			forest = hiforest.CachedIGMTransmissionGrid(forest,outputDir)
+			forest = hiforest.CachedIGMTransmissionGrid(forestFile)
 			forestVar = grids.HIAbsorptionVar(forest,losMap=forest.losMap)
 		qsoGrid.addVar(forestVar)
 	#
@@ -109,7 +110,7 @@ def runsim(model,fileName,forest,qsoGrid,
 		qsoGrid.addData(photoData)
 	#
 	if fileName is not None:
-		qsoGrid.write(fileName,outputDir=outputDir)
+		qsoGrid.write(fileName)
 	if nproc>1:
 		pool.close()
 	if withspec:
@@ -148,6 +149,8 @@ def apply_selection_fun(fileName,verbose=0,redo=False):
 		xdqso = Table.read(xdFile)
 		if redo and 'PQSO' in qsos.colnames:
 			qsos.remove_columns(xdqso.colnames)
+		for col in xdqso.colnames:
+			xdqso[col] = xdqso[col].astype(np.float32)
 		qsos = hstack([qsos,xdqso])
 	b = BandIndexes(qsos)
 	# populate the fields needed for the mid-IR-optical color cuts
@@ -175,7 +178,7 @@ def apply_selection_fun(fileName,verbose=0,redo=False):
 	if verbose:
 		print "{:7d} after optical--mid-IR color cut".format(sel.sum())
 	#
-	qsos['selected'] = sel
+	qsos['selected'] = sel.astype(np.uint8)
 	qsos.write(fileName,overwrite=True)
 	os.remove(xdFile)
 
@@ -254,7 +257,7 @@ if __name__=='__main__':
 			fn += '_'+args.suffix
 		fn = os.path.join(args.outputdir,fn+'.fits')
 		qsoGrid = sample_qlf(qlf,skyArea=args.skyarea)
-		runsim(model,simName,args.forest,qsoGrid,
+		runsim(model,fn,args.forest,qsoGrid,
 		       foresttype=args.foresttype,nlos=args.nlos,
 		       nproc=args.processes,outputDir=args.outputdir)
 		if not args.noselection:
