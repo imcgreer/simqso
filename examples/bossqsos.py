@@ -2,12 +2,8 @@
 
 from astropy.cosmology import FlatLambdaCDM
 from simqso import qsoSimulation,lumfun,sqmodels
-from simqso.sqbase import continuum_kcorr
 
 dr9cosmo = FlatLambdaCDM(70,1-0.7,name='BOSSDR9')
-
-def def_kcorr(z):
-	return continuum_kcorr('SDSS-i',1450,z)
 
 def BOSS_DR9_PLE(which=1):
 	if which==1:
@@ -16,7 +12,7 @@ def BOSS_DR9_PLE(which=1):
 	MStar1450_z0 = MStar_i_z0 + 1.486
 	MStar = lumfun.PolyEvolParam([-2.5*k2,-2.5*k1,MStar1450_z0])
 	return lumfun.DoublePowerLawLF(logPhiStar,MStar,alpha,beta,
-	                               cosmo=dr9cosmo,kcorr=def_kcorr)
+	                               cosmo=dr9cosmo)
 
 def BOSS_DR9_LEDE():
 	c1,c2 = -0.689, -0.809
@@ -28,7 +24,7 @@ def BOSS_DR9_LEDE():
 	alpha = -1.31
 	beta = -3.45
 	return lumfun.DoublePowerLawLF(logPhiStar,MStar,alpha,beta,
-	                               cosmo=dr9cosmo,kcorr=def_kcorr)
+	                               cosmo=dr9cosmo)
 
 simParams = {
   # filename for simulation output (".fits" is appended)
