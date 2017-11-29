@@ -84,7 +84,7 @@ def runsim(model,fileName,forest,qsoGrid,
 		forestFile = os.path.join(outputDir,forest+'.fits')
 		if not os.path.exists(forestFile):
 			print 'forest file {} does not exist, generating...'.format(forest)
-			make_forest_grid(forestFile,foresttype,wave,qsoGrid.z,
+			make_forest_grid(forest,foresttype,wave,qsoGrid.z,
 			                 nlos=nlos,outputDir=outputDir)
 		if foresttype == 'meanmag':
 			forest = hiforest.GridForest(forestFile,
