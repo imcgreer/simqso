@@ -43,8 +43,7 @@ def sample_qlf(qlf,mrange=(17,22),zrange=(0.9,4.0),
 		kcorr = sqbase.EmissionLineKCorr(obsBand,restBand)
 	else:
 		kcorr = sqbase.ContinuumKCorr(obsBand,restBand)
-	qlfGrid = grids.generateQlfPoints(qlf,mrange,zrange,
-	                                  kcorr,obsBand,restBand,
+	qlfGrid = grids.generateQlfPoints(qlf,mrange,zrange,kcorr,
 	                                  skyArea=skyArea,fast_sample=True)
 	return qlfGrid
 
@@ -52,7 +51,7 @@ photSys = [ ('SDSS','Legacy'), ('UKIRT','UKIDSS_LAS'), ('WISE','AllWISE') ]
 
 def runsim(model,fileName,forest,qsoGrid,
            foresttype='meanmag',nlos=5000,
-           maxIter=2,nproc=1,wave=None,
+           maxIter=3,nproc=1,wave=None,
            medianforest=False,const=False,
            nophot=False,withspec=False,outputDir='.'):
 	np.random.seed(12345)
