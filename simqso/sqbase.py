@@ -107,17 +107,24 @@ def continuum_kcorr(obsBand,restBand,z,alpha_nu=-0.5):
 	           2.5*alpha_nu*np.log10(restWave/obsWave)
 	return kcorr
 
-class ContinuumKCorr(object):
-	def __init__(self,obsBand,restBand,alpha_nu=-0.5):
+class SimKCorr(object):
+	def __init__(self,obsBand,restBand):
 		self.obsBand = obsBand
 		self.restBand = restBand
+	def __call__(self,m,z,inverse=False):
+		raise NotImplementedError
+
+class ContinuumKCorr(SimKCorr):
+	def __init__(self,obsBand,restBand,alpha_nu=-0.5):
+		super(ContinuumKCorr,self).__init__(obsBand,restBand)
 		self.alpha_nu = alpha_nu
 	def __call__(self,m,z,inverse=False):
 		return continuum_kcorr(self.obsBand,self.restBand,z,
 		                       alpha_nu=self.alpha_nu)
 
-class EmissionLineKCorr(object):
+class EmissionLineKCorr(SimKCorr):
 	def __init__(self,obsBand,restBand,datFile=None):
+		super(EmissionLineKCorr,self).__init__(obsBand,restBand)
 		if not obsBand.startswith('SDSS'):
 			raise ValueError
 		if datFile is None:

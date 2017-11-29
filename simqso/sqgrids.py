@@ -1136,14 +1136,14 @@ class QsoSimGrid(QsoSimObjects):
 
 
 
-def generateQlfPoints(qlf,mRange,zRange,kcorr,obsBand,restBand,**kwargs):
+def generateQlfPoints(qlf,mRange,zRange,kcorr,**kwargs):
 	'''
 	Generate a `QsoSimPoints` grid fed by `AppMagVar` and `RedshiftVar`
 	instances which are sampled from an input luminosity function.
 	'''
 	M,m,z = qlf.sample_from_fluxrange(mRange,zRange,kcorr,**kwargs)
-	M = AbsMagVar(FixedSampler(M),restBand)
-	m = AppMagVar(FixedSampler(m),obsBand)
+	M = AbsMagVar(FixedSampler(M),kcorr.restBand)
+	m = AppMagVar(FixedSampler(m),kcorr.obsBand)
 	z = RedshiftVar(FixedSampler(z))
 	qlfGrid = QsoSimPoints([M,m,z],cosmo=qlf.cosmo,units='flux')
 	return qlfGrid

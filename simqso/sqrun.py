@@ -95,8 +95,6 @@ def buildQsoGrid(simParams):
 		                                  gridPars['mRange'],
 		                                  gridPars['zRange'],
 		                                  kcorr,
-		                                  gridPars['ObsBand'],
-		                                  gridPars['RestBand'],
 		                                  **gridPars['QLFargs'])
 		units = 'flux'
 	else:
