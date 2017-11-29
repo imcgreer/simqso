@@ -51,8 +51,15 @@ def buildQsoGrid(simParams):
 		gridType = gridPars['GridType']
 	except KeyError:
 		raise ValueError('Must specify a GridType')
-	m2M = lambda z: sqbase.mag2lum(gridPars['ObsBand'],gridPars['RestBand'],
-	                               z,cosmodef)
+	kcorrType = gridPars.get('InitialKCorrection','Continuum')
+	if kcorrType == 'Continuum':
+		kcorr = sqbase.ContinuumKCorr(gridPars['ObsBand'],
+		                              gridPars['RestBand'])
+	elif kcorrType == 'DefaultEmissionLine':
+		kcorr = sqbase.EmissionLineKCorr(gridPars['ObsBand'],
+		                                 gridPars['RestBand'])
+	else:
+		raise ValueError
 	reseed(gridPars)
 	#
 	def get_nbins(low,high,n):
@@ -81,26 +88,27 @@ def buildQsoGrid(simParams):
 	elif gridType == 'LuminosityFunction':
 		try:
 			qlf = gridPars['QLFmodel']
+			qlf.set_cosmology(cosmodef)
 		except KeyError:
 			raise ValueError('Must specify a parameterization of the LF')
-		m,z = grids.generateQlfPoints(qlf,
-		                              gridPars['mRange'],
-		                              gridPars['zRange'],
-		                              gridPars['ObsBand'],
-		                              **gridPars['QLFargs'])
+		qsoGrid = grids.generateQlfPoints(qlf,
+		                                  gridPars['mRange'],
+		                                  gridPars['zRange'],
+		                                  kcorr,
+		                                  gridPars['ObsBand'],
+		                                  gridPars['RestBand'],
+		                                  **gridPars['QLFargs'])
 		units = 'flux'
 	else:
 		raise ValueError('GridType %s unknown' % gridType)
-	if gridType == 'LuminosityFunction':
-		qsoGrid = grids.QsoSimPoints([m,z],units=units,cosmo=cosmodef)
-	else:
+	if gridType != 'LuminosityFunction':
 		qsoGrid = grids.QsoSimGrid([m,z],nBins,gridPars['nPerBin'],
 		                           units=units,cosmo=cosmodef)
 	try:
 		_ = qsoGrid.absMag
 	except:
-		absMag = qsoGrid.appMag - m2M(qsoGrid.z)
-		absMag = grids.AbsMagVar(grids.FixedSampler(absMag))
+		absMag = grids.AbsMagFromAppMagVar(qsoGrid.appMag,z,kcorr,cosmo,
+		                                   gridPars['RestBand'])
 		qsoGrid.addVar(absMag)
 	return qsoGrid
 

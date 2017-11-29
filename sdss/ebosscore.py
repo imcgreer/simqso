@@ -15,9 +15,6 @@ import ebossmodels
 
 dr9cosmo = FlatLambdaCDM(70,1-0.7,name='BOSSDR9')
 
-def def_kcorr(z):
-	return continuum_kcorr('SDSS-i',1450,z)
-
 def make_forest_grid(forestFile,forestType,wave,z,
                      nlos=5000,outputDir='.',nproc=6,**kwargs):
 	zbins = kwargs.pop('zBins',np.arange(0.9,4.6,0.01))
@@ -38,16 +35,17 @@ def make_forest_grid(forestFile,forestType,wave,z,
 		losMap = losSampler.sample(qsoGrid.nObj)
 		forest.write(forestFile,outputDir,losMap=losMap,z_em=z)
 
-def sample_qlf(qlf,mrange=(17,22),zrange=(0.9,4.0),skyArea=3000):
+def sample_qlf(qlf,mrange=(17,22),zrange=(0.9,4.0),
+               skyArea=3000,emlinekcorr=True):
 	obsBand = 'SDSS-r'
-	kcorr = lambda z: sqbase.continuum_kcorr(obsBand,1450,z)
-	m2M = lambda z: sqbase.mag2lum(obsBand,1450,z,qlf.cosmo)
-	m,z = grids.generateQlfPoints(qlf,mrange,zrange,obsBand,
-	                              kcorr=kcorr,skyArea=skyArea,
-	                              fast_sample=True)
-	qlfGrid = grids.QsoSimPoints([m,z],cosmo=qlf.cosmo,units='flux')
-	qlfGrid.addVar(grids.AbsMagVar(grids.FixedSampler(
-	                               qlfGrid.appMag-m2M(qlfGrid.z))))
+	restBand = 1450
+	if emlinekcorr:
+		kcorr = sqbase.EmissionLineKCorr(obsBand,restBand)
+	else:
+		kcorr = sqbase.ContinuumKCorr(obsBand,restBand)
+	qlfGrid = grids.generateQlfPoints(qlf,mrange,zrange,
+	                                  kcorr,obsBand,restBand,
+	                                  skyArea=skyArea,fast_sample=True)
 	return qlfGrid
 
 photSys = [ ('SDSS','Legacy'), ('UKIRT','UKIDSS_LAS'), ('WISE','AllWISE') ]

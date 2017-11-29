@@ -4,7 +4,7 @@ import os
 import time
 import numpy as np
 from astropy.convolution import convolve,Gaussian1DKernel
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d,interp2d
 from astropy import units as u
 
 datadir = os.path.split(__file__)[0]+'/data/'
@@ -107,37 +107,45 @@ def continuum_kcorr(obsBand,restBand,z,alpha_nu=-0.5):
 	           2.5*alpha_nu*np.log10(restWave/obsWave)
 	return kcorr
 
-def mag2lum(obsBand,restBand,z,cosmo,alpha_nu=-0.5):
-	'''
-	Convert observed mags to absolute mags using a simple power-law 
-	k-correction.
+class ContinuumKCorr(object):
+	def __init__(self,obsBand,restBand,alpha_nu=-0.5):
+		self.obsBand = obsBand
+		self.restBand = restBand
+		self.alpha_nu = alpha_nu
+	def __call__(self,m,z,inverse=False):
+		return continuum_kcorr(self.obsBand,self.restBand,z,
+		                       alpha_nu=self.alpha_nu)
 
-	Parameters
-	----------
-	obsBand : str or float
-	    Observed band. Can be one of "SDSS-[ugriz]", "CFHT-[gri]", or a
-	    wavelength in Angstroms.
-	restBand : str or float
-	    Rest-frame band. Can be one of "SDSS-[ugriz]", "CFHT-[gri]", or a
-	    wavelength in Angstroms.
-	z : float or ndarray
-	    Emission redshift(s).
-	cosmo : astropy.cosmology object
-	    Cosmology used to obtain distance modulus.
-	alpha_nu : float
-	    Spectral index used to get k-correction, as f_nu ~ nu^alpha_nu.
+class EmissionLineKCorr(object):
+	def __init__(self,obsBand,restBand,datFile=None):
+		if not obsBand.startswith('SDSS'):
+			raise ValueError
+		if datFile is None:
+			datFile = os.path.join(datadir,'bossdr9kcorr_ugriz.npz')
+		self.data = np.load(datFile)
+		b_j = 'ugriz'.find(obsBand[-1])
+		self.kcorr = self.data['kcorr'][...,b_j]
+		self.mbins = self.data['mbins'][...,b_j]
+		self.Mbins = self.data['Mbins']
+		self.zbins = self.data['zbins']
+		self.zz = np.tile(self.zbins,(len(self.Mbins),1))
+		self.K_M = interp2d(self.Mbins,self.zbins,self.kcorr.transpose())
+		self.K_m = interp2d(self.mbins,self.zz,self.kcorr)
+	def __call__(self,m,z,inverse=False):
+		Kfun = self.K_M if inverse else self.K_m
+		if np.isscalar(m) or np.isscalar(z):
+			return Kfun(m,z)
+		return np.array([ Kfun(_m,_z)[0] for _m,_z in zip(m,z) ])
+#		if inverse:
+#			return griddata([self.Mbins,self.zbins],self.kcorr,(m,z))
+#		else:
 
-	Returns
-	-------
-	dm : ndarray
-	    dm = K(z) + DM(z), the sum of the spectral k-correction and the
-	    distance modulus, as in dm = m - M = K(z) + DM(z).
-	'''
-	z = np.asarray(z)
-	DM = [cosmo.distmod(_z).value for _z in z.flat]
-	DM = np.array(DM).reshape(z.shape)
-	kcorr = continuum_kcorr(obsBand,restBand,z,alpha_nu=alpha_nu)
-	return kcorr + DM
+class AppToAbsMag(object):
+	def __init__(self,cosmo,kcorr):
+		self.cosmo = cosmo
+		self.kcorr = kcorr
+	def __call__(self,m,z,inverse=False):
+		return self.cosmo.distmod(z).value + self.kcorr(m,z,inverse=inverse)
 
 class Spectrum(object):
 	'''

@@ -790,8 +790,8 @@ class AbsMagFromAppMagVar(AbsMagVar):
 	restWave : float
 		Rest wavelength in Angstroms for the absolute magnitudes.
 	'''
-	def __init__(self,appMag,m2M,restWave=None):
-		absMag = m2M(appMag)
+	def __init__(self,appMag,z,kcorr,cosmo,restWave=None):
+		absMag = appMag - self.cosmo.distmod(z).value - kcorr(appMag,z)
 		sampler = FixedSampler(absMag)
 		super(AbsMagFromAppMagVar,self).__init__(sampler,restWave)
 
@@ -1136,15 +1136,17 @@ class QsoSimGrid(QsoSimObjects):
 
 
 
-def generateQlfPoints(qlf,mRange,zRange,band,**kwargs):
+def generateQlfPoints(qlf,mRange,zRange,kcorr,obsBand,restBand,**kwargs):
 	'''
 	Generate a `QsoSimPoints` grid fed by `AppMagVar` and `RedshiftVar`
 	instances which are sampled from an input luminosity function.
 	'''
-	m,z = qlf.sample_from_fluxrange(mRange,zRange,**kwargs)
-	m = AppMagVar(FixedSampler(m),band)
+	M,m,z = qlf.sample_from_fluxrange(mRange,zRange,kcorr,**kwargs)
+	M = AbsMagVar(FixedSampler(M),restBand)
+	m = AppMagVar(FixedSampler(m),obsBand)
 	z = RedshiftVar(FixedSampler(z))
-	return m,z
+	qlfGrid = QsoSimPoints([M,m,z],cosmo=qlf.cosmo,units='flux')
+	return qlfGrid
 
 def generateBEffEmissionLines(M1450,**kwargs):
 	trendFn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v6')

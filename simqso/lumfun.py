@@ -14,6 +14,8 @@ from astropy.stats import poisson_conf_interval
 from astropy.table import Table
 import astropy.units as u
 
+from .sqbase import AppToAbsMag
+
 skyDeg2 = 41253.
 
 def interp_dVdzdO(zrange,cosmo):
@@ -144,9 +146,8 @@ class PolyEvolParam(QlfEvolParam):
 
 
 class LuminosityFunction(object):
-	def __init__(self,cosmo=None,kcorr=None):
+	def __init__(self,cosmo=None):
 		self.cosmo = cosmo
-		self.kcorr = kcorr
 		self.set_scale('log')
 		self.paramBounds = {}
 	def __str__(self):
@@ -154,6 +155,8 @@ class LuminosityFunction(object):
 		for pname,p in self.params.items():
 			s += '%15s:  %s\n' % (pname,str(p))
 		return s
+	def set_cosmology(self,cosmo):
+		self.cosmo = cosmo
 	@staticmethod
 	def _resolvepar(p):
 		if isinstance(p,QlfEvolParam):
@@ -191,11 +194,6 @@ class LuminosityFunction(object):
 		self.paramBounds[paramName] = paramBounds
 	def get_param_bounds(self,paramName):
 		return self.paramBounds.get(paramName)
-	def _m2M(self,z,kcorr=None):
-		if kcorr is None:
-			kcorr = self.kcorr
-		return self.cosmo.distmod(z).value + kcorr(z)
-
 
 class DoublePowerLawLF(LuminosityFunction):
 	def __init__(self,logPhiStar=None,MStar=None,alpha=None,beta=None,
@@ -280,17 +278,17 @@ class DoublePowerLawLF(LuminosityFunction):
 		z += dz * (np.random.rand(len(M)) - 0.5)
 		print 'to generate {} quasars'.format(len(M))
 		return M,z
-	def sample_from_fluxrange(self,mrange,zrange,p=None,**kwargs):
-		kcorr = kwargs.get('kcorr')
+	def sample_from_fluxrange(self,mrange,zrange,kcorr,p=None,**kwargs):
 		fast = kwargs.get('fast_sample',False)
-		_mrange = mrange[::-1]
-		_Mrange = lambda z: np.array(_mrange) - self._m2M(z,kcorr=kcorr)
+		m2M = AppToAbsMag(self.cosmo,kcorr)
+		_mrange = np.array(mrange[::-1])
+		_Mrange = lambda z: _mrange - m2M(_mrange,z)
 		if fast:
 			M,z = self._fast_sample(_Mrange,zrange,p,**kwargs)
 		else:
 			M,z = self._sample(_Mrange,zrange,p,**kwargs)
-		m = M + self._m2M(z,kcorr=kcorr)
-		return m,z
+		m = M + m2M(M,z,inverse=True)
+		return M,m,z
 	def sample_from_Lrange(self,Mrange,zrange,p=None,**kwargs):
 		_Mrange = lambda z: Mrange
 		return self._sample(_Mrange,zrange,p,**kwargs)
@@ -304,22 +302,28 @@ class DoublePowerLawLF(LuminosityFunction):
 		Lcdf /= Lcdf[-1]
 		Lcdf = np.concatenate([[0.,],Lcdf])
 		return interp1d(Lcdf,Mbins)
-	def sample_at_flux_intervals(self,mrange,zbins,Nintervals,nPerBin,p=None):
+	def sample_at_flux_intervals(self,mrange,zbins,Nintervals,nPerBin,
+	                             kcorr,p=None):
+		m2M = AppToAbsMag(self.cosmo,kcorr)
 		_mrange = np.array(mrange[::-1])
 		medges = np.empty((Nintervals+1,len(zbins)))
 		mgrid = np.empty((Nintervals,len(zbins),nPerBin))
 		xedges = np.linspace(0.,1,Nintervals+1)
 		for j,z in enumerate(zbins):
-			Mrange = _mrange - self._m2M(z)
+			Mrange = _mrange - m2M(_mrange,z)
 			Lcdf_fun = self._get_Lcdf_fun(Mrange,z,p)
-			medges[:,j] = Lcdf_fun(xedges)[::-1] + self._m2M(z)
+			Mvals = Lcdf_fun(xedges)[::-1]
+			medges[:,j] = Mvals + m2M(Mvals,z,inverse=True)
 			for i in range(Nintervals):
 				x = xedges[i] + np.diff(xedges)[i]*np.random.random(nPerBin)
-				mgrid[i,j,:] = Lcdf_fun(x) + self._m2M(z)
+				Mx = Lcdf_fun(x)
+				mgrid[i,j,:] = Mx + m2M(Mx,z,inverse=True)
 		return medges,mgrid
-	def integrate(self,mrange,zrange,p=None):
+	def integrate(self,mrange,zrange,kcorr,p=None):
+		m2M = AppToAbsMag(self.cosmo,kcorr)
 		dVdzdO = interp_dVdzdO(zrange,self.cosmo)
-		Mrange = lambda z: np.array(mrange) - self._m2M(z)
+		_mrange = np.array(mrange)
+		Mrange = lambda z: _mrange - m2M(_mrange,z)
 		phi_z = lambda z: integrateDPL(Mrange(z),*self.eval_par_at_z(z,p)) * \
 		                        dVdzdO(z)
 		nqso,err = quad(phi_z,*zrange)
