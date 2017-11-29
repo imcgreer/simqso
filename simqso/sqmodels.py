@@ -144,16 +144,18 @@ def BossDr9_EmLineTemplate(*args,**kwargs):
 	                              'MgIIb':0.8,'MgIIn':0.8})
 	return grids.generateBEffEmissionLines(*args,**kwargs)
 
-def get_BossDr9_model_vars(qsoGrid,wave,nSightLines):
-	igmGrid = IGMTransmissionGrid(wave,
-	                              forestModels['Worseck&Prochaska2011'],
-	                              nSightLines,zmax=qsoGrid.z.max())
+def get_BossDr9_model_vars(qsoGrid,wave,nSightLines,noforest=False):
+	if not noforest:
+		igmGrid = IGMTransmissionGrid(wave,
+		                              forestModels['Worseck&Prochaska2011'],
+		                              nSightLines,zmax=qsoGrid.z.max())
 	fetempl = grids.VW01FeTemplateGrid(qsoGrid.z,wave,
 	                                   scales=BossDr9_FeScalings)
 	mvars = [ BossDr9_fiducial_continuum,
 	          BossDr9_EmLineTemplate(qsoGrid.absMag),
-	          grids.FeTemplateVar(fetempl),
-	          grids.HIAbsorptionVar(igmGrid) ]
+	          grids.FeTemplateVar(fetempl) ]
+	if not noforest:
+		mvars.append( grids.HIAbsorptionVar(igmGrid) )
 	return mvars
 
 

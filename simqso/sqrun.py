@@ -617,12 +617,37 @@ def qsoSimulation(simParams,**kwargs):
 	else:
 		return qsoGrid
 
-def load_spectra(simFileName,outputDir='.'):
+def load_sim_output(simFileName,outputDir='.',with_spec=True):
 	simdat,par = readSimulationData(simFileName,outputDir,retParams=True)
-	sp = fits.getdata(os.path.join(outputDir,simFileName+'_spectra.fits'))
-	wave = buildWaveGrid(par)
-	qsos = hstack([simdat.data,Table(dict(spec=sp))])
-	return wave,qsos
+	if with_spec:
+		sp = fits.getdata(os.path.join(outputDir,simFileName+'_spectra.fits'))
+		wave = buildWaveGrid(par)
+		qsos = hstack([simdat.data,Table(dict(spec=sp))])
+		return wave,qsos
+	else:
+		return simdat.data
+
+def save_spectra(wave,spectra,fileName,outputDir='.',overwrite=True):
+	logwave = np.log(wave[:2])
+	dloglam = np.diff(logwave)
+	hdr = fits.Header()
+	hdr['CD1_1'] = float(dloglam)
+	hdr['CRPIX1'] = 1
+	hdr['CRVAL1'] = logwave[0]
+	hdr['CRTYPE1'] = 'LOGWAVE'
+	if not fileName.endswith('.fits'):
+		fileName += '.fits'
+	fits.writeto(os.path.join(outputDir,fileName),spectra,header=hdr,
+	             overwrite=overwrite)
+
+def load_spectra(fileName,outputDir='.'):
+	if not fileName.endswith('.fits'):
+		fileName += '.fits'
+	spec,hdr = fits.getdata(fileName,header=True)
+	wi = np.arange(spec.shape[-1])
+	logwave = hdr['CRVAL1'] + hdr['CD1_1']*(wi-(hdr['CRPIX1']-1))
+	wave = np.exp(logwave)
+	return wave,spec
 
 def generate_default_binned_forest(fileName,outputDir='.',**kwargs):
 	nlos = kwargs.pop('numSightlines',1000)
