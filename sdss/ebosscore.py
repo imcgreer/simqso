@@ -83,6 +83,8 @@ def runsim(model,fileName,forest,qsoGrid,
 	if not forest is None:
 		forestFile = os.path.join(outputDir,forest+'.fits')
 		if not os.path.exists(forestFile):
+			forestFile = os.path.join('.',forest+'.fits')
+		if not os.path.exists(forestFile):
 			print 'forest file {} does not exist, generating...'.format(forest)
 			make_forest_grid(forest,foresttype,wave,qsoGrid.z,
 			                 nlos=nlos,outputDir=outputDir)
@@ -202,6 +204,8 @@ if __name__=='__main__':
 	    help="type of forest spectra (default: 'meanmag', also 'fullres')")
 	parser.add_argument('-o','--outputdir',type=str,default='.',
 	    help='output directory (default:.)')
+	parser.add_argument('--suffix',type=str,
+	    help='suffix to add to filename ( --> <MODEL>_<SUFFIX>.fits )')
 	parser.add_argument('-p','--processes',type=int,default=7,
 	    help='number of processes to create')
 	parser.add_argument('-s','--seed',type=int,default=12345,
@@ -245,10 +249,13 @@ if __name__=='__main__':
 		           nproc=args.processes)
 	else:
 		np.random.seed(args.seed)
+		fn = args.model
+		if args.suffix:
+			fn += '_'+args.suffix
+		fn = os.path.join(args.outputdir,fn+'.fits')
 		qsoGrid = sample_qlf(qlf,skyArea=args.skyarea)
 		runsim(model,simName,args.forest,qsoGrid,
 		       foresttype=args.foresttype,nlos=args.nlos,
 		       nproc=args.processes,outputDir=args.outputdir)
 		if not args.noselection:
-			fn = os.path.join(args.outputdir,args.model+'.fits')
 			apply_selection_fun(fn,verbose=1,redo=True)
