@@ -178,7 +178,7 @@ def apply_selection_fun(fileName,verbose=0,redo=False):
 	if verbose:
 		print "{:7d} after optical--mid-IR color cut".format(sel.sum())
 	#
-	qsos['selected'] = sel.astype(np.uint8)
+	qsos['selected'] = sel
 	qsos.write(fileName,overwrite=True)
 	os.remove(xdFile)
 
@@ -211,6 +211,8 @@ if __name__=='__main__':
 	    help='suffix to add to filename ( --> <MODEL>_<SUFFIX>.fits )')
 	parser.add_argument('-p','--processes',type=int,default=7,
 	    help='number of processes to create')
+	parser.add_argument('-R','--redo',action='store_true',
+	    help='force redo if output exists')
 	parser.add_argument('-s','--seed',type=int,default=12345,
 	    help='random seed')
 	parser.add_argument('--qlf',type=str,default='bossdr9',
@@ -256,6 +258,8 @@ if __name__=='__main__':
 		if args.suffix:
 			fn += '_'+args.suffix
 		fn = os.path.join(args.outputdir,fn+'.fits')
+		if os.path.exists(fn) and not args.redo:
+			sys.exit(0)
 		qsoGrid = sample_qlf(qlf,skyArea=args.skyarea)
 		runsim(model,fn,args.forest,qsoGrid,
 		       foresttype=args.foresttype,nlos=args.nlos,

@@ -122,12 +122,29 @@ class eBossQsos(object):
 			names = ['z_q'] + names
 		return np.ma.hstack(features),names
 
-def fit_simqsos(simqsos,ncomp=15,refband='i'):
+def prep_simqsos(simqsos,refband='i'):
 	j = 3 # XXX
 	ii = np.where(simqsos['selected'])[0]
 	fluxes = np.array(simqsos['obsFlux'][ii,:5]) # XXX only sdss for now
 	refFlux,fratios = get_column_ratio(fluxes,j)
 	X = np.ma.hstack([simqsos['z'][ii,None],refFlux,fratios])
+	return X
+
+def model_selection(simqsos,refband='i'):
+	X = prep_simqsos(simqsos,refband)
+	cv_types = ['spherical', 'tied', 'diag', 'full']
+	n_components = range(5,31,5)
+	bic = []
+	for cv_type in cv_types:
+		for ncomp in n_components:
+			gmm = GaussianMixture(ncomp,covariance_type=cv_type)
+			gmm.fit(X)
+			bic.append(gmm.bic(X))
+			print cv_type,ncomp,bic[-1]
+	return bic
+
+def fit_simqsos(simqsos,ncomp=15,refband='i'):
+	X = prep_simqsos(simqsos,refband)
 	gmm = GaussianMixture(ncomp)
 	return gmm.fit(X)
 
@@ -142,5 +159,6 @@ def test(fn,qsos=None):
 	print fn,s
 
 if __name__=='__main__':
-	make_coreqso_table(sys.argv[1],sys.argv[2])
+	#make_coreqso_table(sys.argv[1],sys.argv[2])
+	test(sys.argv[1])
 
