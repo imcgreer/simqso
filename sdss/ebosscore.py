@@ -196,14 +196,16 @@ def qlf_ranges(model,simName,forestFile,qlf,skyArea,**kwargs):
 			apply_selection_fun(fn+'.fits',verbose=1,redo=True)
 
 def emline_ranges(model,modelName,line,forestFile,qlf,skyArea,**kwargs):
-	np.random.seed(12345)
 	for scl in [0.5,0.75,1.0,1.25,1.5]:
 		fn = '_'.join([modelName,line,'%.2f'%scl])
 		fn = os.path.join(kwargs.get('outputDir','.'),fn+'.fits')
 		print 'running simulation {}'.format(fn)
+		np.random.seed(12345)
 		qsos = sample_qlf(qlf,skyArea=skyArea)
-		runsim(model,fn,forestFile,qsos,**kwargs)
-		apply_selection_fun(fn,verbose=1,redo=True)
+		np.random.seed(int(pow(2,10**scl)))
+		if not os.path.exists(fn) or args.redo:
+			runsim(model,fn,forestFile,qsos,**kwargs)
+			apply_selection_fun(fn,verbose=1,redo=True)
 
 if __name__=='__main__':
 	import argparse
