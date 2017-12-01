@@ -365,7 +365,7 @@ class IGMTransmissionGrid(object):
 	def next_spec(self,sightLine,z,**kwargs):
 		if self.currentSightLineNum != sightLine:
 			if self.verbose > 0:
-				print 'finished sightline ',self.currentSightLineNum
+				print('finished sightline ',self.currentSightLineNum)
 #			self.currentSightLine = generate_los(self.forestModel,
 #			                                     self.zmin,self.zmax) 
 			self.currentSightLine = self.sightLines[sightLine]
@@ -483,7 +483,7 @@ def _get_forest_mags(forestModel,zbins,waverange,R,photoMap,n,**kwargs):
 				pid = multiprocessing.current_process().name.split('-')[1]
 			except:
 				pid = '--'
-			print '[%2s] completed %d sightlines' % (pid,snum+1)
+			print('[%2s] completed %d sightlines' % (pid,snum+1))
 	del fGrid['z','T']
 	return fGrid
 
@@ -532,10 +532,10 @@ class GridForest(object):
 	def get(self,losNum,z):
 		zi = np.digitize(z,self.zbins) - 1
 		if np.any( (zi<0) | (zi >= len(self.zbins)-1) ):
-			print "WARNING: qso z range {:.3f}|{:.3f} ".format(
-			             z.min(),z.max()),
-			print "outside forest grid {:.3f}|{:.3f}".format(
-			             self.zbins[0],self.zbins[-1])
+			print("WARNING: qso z range {:.3f}|{:.3f} ".format(
+			             z.min(),z.max())),
+			print("outside forest grid {:.3f}|{:.3f}".format(
+			             self.zbins[0],self.zbins[-1]))
 			zi = zi.clip(0,len(self.zbins)-2)
 		dz = z - self.zbins[zi]
 		dmag = self.dmag[losNum,zi] + self.dmdz[losNum,zi]*dz[:,None]

@@ -234,7 +234,7 @@ class DoublePowerLawLF(LuminosityFunction):
 			Ntot = np.sum(zsamp)
 			zfun = interp1d(np.cumsum(zsamp)/Ntot,zbins)
 			Ntot = np.int(np.round(Ntot * skyfrac * 4*np.pi))
-			print 'integration returned ',Ntot,' objects'
+			print('integration returned ',Ntot,' objects')
 		else:
 			# redshifts supplied by user
 			zfun = lambda x: zin
@@ -253,10 +253,10 @@ class DoublePowerLawLF(LuminosityFunction):
 			Mfun = interp1d(np.cumsum(Msamp)/N_M,Mbins)
 			M[i] = Mfun(y[i])
 			if Ntot > 1e4 and ((i+1)%(Ntot//10))==0:
-				print i+1,' out of ',Ntot
+				print(i+1,' out of ',Ntot)
 		return M,z
 	def _fast_sample(self,Mrange,zrange,p,**kwargs):
-		print 'using fast sample'
+		print('using fast sample')
 		skyfrac = kwargs.get('skyArea',skyDeg2) / skyDeg2
 		eps_M,eps_z = 0.05,0.10
 		magLimPad = 0.2
@@ -284,7 +284,7 @@ class DoublePowerLawLF(LuminosityFunction):
 		M,z = np.hstack(Mz)
 		M += dM * (np.random.rand(len(M)) - 0.5)
 		z += dz * (np.random.rand(len(M)) - 0.5)
-		print 'to generate {} quasars'.format(len(M))
+		print('to generate {} quasars'.format(len(M)))
 		return M,z
 	def sample_from_fluxrange(self,mrange,zrange,kcorr,p=None,**kwargs):
 		fast = kwargs.get('fast_sample',False)
@@ -352,8 +352,8 @@ class DoublePowerLawLF(LuminosityFunction):
 			break_wave = kwargs.get('break_wave',1100.)
 			alpha1 = kwargs.get('alpha1',-0.5)
 			alpha2 = kwargs.get('alpha2',-1.5)
-			#print 'warning: using SED model (%.2f,%.1f,%.2f)' % \
-			#       (alpha2,break_wave,alpha1)
+			#print('warning: using SED model (%.2f,%.1f,%.2f)' % \
+			#       (alpha2,break_wave,alpha1))
 			l912 = (1450./break_wave)**alpha1 * (break_wave/912.)**alpha2
 		# for now return e1450, e912
 		return LStar_nu * x, LStar_nu * l912 * x
@@ -622,7 +622,7 @@ def joint_qlf_likelihood_fun(par,surveys,lfintegrator,Phi_Mz,verbose):
 		lfsum = lfintegrator(Phi_Mz,s.p_Mz,par)
 		second_term += 2 * s.area_srad * lfsum
 	if verbose:
-		print 'testing ',par,first_term,second_term
+		print('testing ',par,first_term,second_term)
 	return first_term + second_term
 
 class FitMethod(object):
@@ -703,13 +703,13 @@ class JointQLFFitter(object):
 		logbins = logRange + (ntry,)
 		#
 		S0 = self.getS(surveys)
-		print 'S0 is ',S0,' at ',self.qlfModel.params[paramName].get()
+		print('S0 is ',S0,' at ',self.qlfModel.params[paramName].get())
 		rv = {}
 		#
 		for i,pval0 in self.qlfModel.params[paramName].iterfree():
 			fitvals = [(pval0,S0)]
 			qlfModel = self.qlfModel.copy()
-			print 'trying %s[#%d]' % (paramName,i)
+			print('trying %s[#%d]' % (paramName,i))
 			for sgn in [-1,1]:
 				delv = sgn*np.logspace(*logbins)
 				for dv in delv:
@@ -721,7 +721,7 @@ class JointQLFFitter(object):
 						fitvals.insert(0, (pval0+dv, S) )
 					else:
 						fitvals.append(   (pval0+dv, S) )
-					print ' '.join(['%.3f']*6) % (pval0,S0,pval0+dv,S,dv,S-S0)
+					print(' '.join(['%.3f']*6) % (pval0,S0,pval0+dv,S,dv,S-S0))
 					if S-S0 > 10:
 						# this is more than 3 sigma
 						break

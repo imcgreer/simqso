@@ -981,7 +981,7 @@ class QsoSimObjects(object):
 			self.simPars = ast.literal_eval(hdr['SQPARAMS'])
 			self.setCosmology(self.simPars['Cosmology'])
 		except:
-			print 'WARNING: no params in header'
+			print('WARNING: no params in header')
 		for i,v in enumerate(range(hdr['NSIMVAR'])):
 			cls = hdr['AX%dTYPE'%i]
 			name = hdr['AX%dNAME'%i]
@@ -995,7 +995,7 @@ class QsoSimObjects(object):
 					c.name = name
 				self.addVar(c,noVals=True)
 			except:
-				print 'WARNING: failed to restore %s' % cls
+				print('WARNING: failed to restore %s' % cls)
 				self.qsoVars.append(None)
 				self.varNames.append('<null>')
 		self._restore(hdr)
@@ -1203,8 +1203,8 @@ def generateVdBCompositeEmLines(minEW=1.0,noFe=False):
 	if noFe:
 		isFe = lines['ID'].find('Fe') == 0
 		lines = lines[~isFe]
-	print 'using the following lines from VdB template: ',
-	print ','.join(list(lines['ID']))
+	print('using the following lines from VdB template: ',)
+	print(','.join(list(lines['ID'])))
 	c = ConstSampler
 	lineList = [ [c(l['OWave']),c(l['EqWid']),c(l['Width'])] for l in lines ]
 	lines = GaussianEmissionLinesTemplateVar(lineList)
