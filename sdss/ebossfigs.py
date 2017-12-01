@@ -109,6 +109,51 @@ def colorcolor(ebossqsos,simqsos,which='optwise',**kwargs):
 #		if i>=4:
 #			ax.set_xlabel('r mag')
 
+def intrinsic_lf(simqsos,qlf,nz=6,nm=20,skyArea=3000.):
+	_init_fig()
+	plt.subplots_adjust(left=0.11)
+	#
+	zedges = np.linspace(0.9,4.0,nz+1)
+	zbins = zedges[:-1] + np.diff(zedges)/2
+	medges = np.linspace(-29,-21.5,nm+1)
+	mbins = medges[:-1] + np.diff(medges)/2
+	m1450 = simqsos['absMag']
+	zi = np.digitize(simqsos['z'],zedges)
+	dm = np.diff(medges)[0]
+	dz = np.diff(zedges)[0]
+	dVdz = qlf.cosmo.differential_comoving_volume(zbins).value
+	dO = (skyArea/41253)*4*np.pi
+	#
+	for i,z in enumerate(zbins):
+		ax = plt.subplot(3,2,i+1)
+		ii = np.where((zi==i+1) & simqsos['selected'])[0]
+		n_s,_ = np.histogram(m1450[ii],medges)
+		ii = np.where(zi==i+1)[0]
+		n_t,_ = np.histogram(m1450[ii],medges)
+		#
+		dVdzdmdzdO = dVdz[i] * dm * dz * dO
+		e_s = np.sqrt(n_s.astype(float)) / dVdzdmdzdO
+		e_t = np.sqrt(n_t.astype(float)) / dVdzdmdzdO
+		n_s = n_s.astype(float) / dVdzdmdzdO
+		n_t = n_t.astype(float) / dVdzdmdzdO
+		#
+		ii = np.where(n_t>0)[0]
+		plt.errorbar(mbins[ii],n_t[ii],e_t[ii],
+		             fmt='s',mfc='none',mec='0.2',ms=5,
+		             ecolor='0.2',label='sim-int')
+		plt.plot(medges,10**qlf(medges,z),label='qlf')
+		ii = np.where(n_s>0)[0]
+		plt.plot(mbins[ii],n_s[ii])
+		if i==0:
+			plt.legend()
+		plt.yscale('log')
+		plt.xlim(-21.2,-30)
+		ax.set_title(r'$%.1f<z<%.1f$' % (zedges[i],zedges[i+1]))
+		if i%2==0:
+			ax.set_ylabel(r'$\Phi(M)$')
+		if i>=4:
+			ax.set_xlabel(r'$M_{1450}$')
+
 def compare_qsfit_lines(simqsos,qsfit,line):
 	#
 	j = simqsos.meta['LINENAME'].split(',').index(line)
