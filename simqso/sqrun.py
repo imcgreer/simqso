@@ -326,7 +326,7 @@ def buildGrpSpectra(wave,cosmo,specFeatures,photoCache,saveSpectra,
 
 def _regroup(spOut):
         # XXX tell me there's a better way to do this
-        n = len(spOut[0])
+        n = len(list(spOut)[0])
         rv = [ [] for i in range(n) ]
         for sp in spOut:
                 for j in range(n):
