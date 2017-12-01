@@ -134,7 +134,8 @@ def buildForest(wave,z,simParams,outputDir):
         if tgrid is None:
                 nlos = forestParams['NumLinesOfSight']
                 forestModel = forestParams['ForestModel']
-                if isinstance(forestModel,basestring):
+                #if isinstance(forestModel,basestring):
+                if isinstance(forestModel, str):
                         forestModel = sqmodels.forestModels[forestModel]
                 tgrid = hiforest.IGMTransmissionGrid(wave,forestModel,nlos,
                                                      zmax=z.max(),**forestParams)
