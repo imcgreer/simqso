@@ -326,7 +326,7 @@ def buildGrpSpectra(wave,cosmo,specFeatures,photoCache,saveSpectra,
 
 def _regroup(spOut):
         # XXX tell me there's a better way to do this
-        n = len(list(spOut)[0])
+        n = len(spOut[0])
         rv = [ [] for i in range(n) ]
         for sp in spOut:
                 for j in range(n):
@@ -426,7 +426,7 @@ def buildSpectraBulk(wave,qsoGrid,procMap=map,
                                          specFeatures,photoCache,iterNum=iterNum,
                                          saveSpectra=saveSpectra)
                 print('buildSpectra iteration ',iterNum,' out of ',nIter)
-                specOut = procMap(build_one_spec,qsoGrid)
+                specOut = list(procMap(build_one_spec,qsoGrid))
                 specOut = _regroup(specOut)
                 synMag,synFlux,spectra = specOut
                 v = qsoGrid.getVars(grids.SightlineVar)

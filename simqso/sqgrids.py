@@ -956,7 +956,9 @@ class QsoSimObjects(object):
                 else:
                         return None
         def getBandIndex(self,band):
-            return next(j for j in range(len(self.photoBands)) if self.photoMap['filtName'][self.photoBands[j]]==band) 
+                shortNames = [ self.photoMap['filtName'][b] for b in self.photoBands ]
+                return shortNames.index(band)
+
         def getObsBandIndex(self):
                 return self.getBandIndex(self.getVars(AppMagVar)[0].obsBand)
         def read(self,gridFile,clean=False):
