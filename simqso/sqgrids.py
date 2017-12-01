@@ -937,7 +937,7 @@ class QsoSimObjects(object):
                 if isinstance(varType, str):
                         return self.qsoVars[self.varNames.index(varType)]
                 else:
-                        return filter(lambda v: isinstance(v,varType),self.qsoVars)
+                        return list(filter(lambda v: isinstance(v,varType),self.qsoVars))
         def varIndex(self,varName):
                 return self.varNames.index(varName)
         def resample(self):
