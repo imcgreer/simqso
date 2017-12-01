@@ -359,7 +359,7 @@ class QsoSimVar(object):
         def __call__(self,n,**kwargs):
                 vals = self.sampler(n,**kwargs)
                 if vals is not None:
-                        vals = vals.astype(self.dtype)
+                        vals = np.array(vals).astype(self.dtype)
                 return vals
         def resample(self,*args,**kwargs):
                 '''
@@ -956,8 +956,7 @@ class QsoSimObjects(object):
                 else:
                         return None
         def getBandIndex(self,band):
-                return next(j for j in range(len(self.photoBands))
-                              if self.photoMap['filtName'][self.photoBands[j]]==band)
+            return next(j for j in range(len(self.photoBands)) if self.photoMap['filtName'][self.photoBands[j]]==band) 
         def getObsBandIndex(self):
                 return self.getBandIndex(self.getVars(AppMagVar)[0].obsBand)
         def read(self,gridFile,clean=False):
