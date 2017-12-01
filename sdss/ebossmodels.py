@@ -66,11 +66,11 @@ def add_continuum(qsos,model='ebossdr14',const=False):
 			slopes,breakpts = eval(model)
 		else:
 			slopes,breakpts = model
+	print "CONTINUUM: {}".format(str(slopes))
 	if const:
 		slopes = [ grids.ConstSampler(s[0]) for s in slopes]
 	else:
 		slopes = [ grids.GaussianSampler(*s) for s in slopes]
-	print "CONTINUUM: {}".format(str(slopes))
 	contVar = grids.BrokenPowerLawContinuumVar(slopes,breakpts)
 	qsos.addVar(contVar)
 	return qsos

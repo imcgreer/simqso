@@ -195,6 +195,16 @@ def qlf_ranges(model,simName,forestFile,qlf,skyArea,**kwargs):
 			runsim(model,fn,forestFile,qsos,**kwargs)
 			apply_selection_fun(fn+'.fits',verbose=1,redo=True)
 
+def emline_ranges(model,modelName,line,forestFile,qlf,skyArea,**kwargs):
+	np.random.seed(12345)
+	for scl in [0.5,0.75,1.0,1.25,1.5]:
+		fn = '_'.join([modelName,line,'%.2f'%scl])
+		fn = os.path.join(kwargs.get('outputDir','.'),fn+'.fits')
+		print 'running simulation {}'.format(fn)
+		qsos = sample_qlf(qlf,skyArea=skyArea)
+		runsim(model,fn,forestFile,qsos,**kwargs)
+		apply_selection_fun(fn,verbose=1,redo=True)
+
 if __name__=='__main__':
 	import argparse
 	parser = argparse.ArgumentParser(
@@ -239,22 +249,34 @@ if __name__=='__main__':
 	assert args.foresttype in ['meanmag','fullres']
 	if not os.path.exists(args.outputdir):
 		os.makedirs(args.outputdir)
-	simName = args.model
-	try:
-		model = ebossmodels.qso_models[args.model]
-	except KeyError:
-		model = dict(continuum=args.continuum,emlines=args.emlines,
-		             dustem=args.dustem,iron=args.iron,dustext=args.dustext)
+	#
+	modelName = args.model
+	model = ebossmodels.qso_models.get(args.model,{})
+	if args.continuum:
+		model['continuum'] = args.continuum
+	if args.emlines:
+		model['emlines'] = args.emlines
+	if args.dustem:
+		model['dustem'] = args.dustem
+	if args.iron:
+		model['continuum'] = args.iron
+	if args.dustext:
+		model['continuum'] = args.dustext
+	#
 	if args.qlf=='bossdr9':
 		qlf = sqmodels.BOSS_DR9_PLEpivot(cosmo=dr9cosmo)
 	else:
 		raise ValueError
+	#
 	if args.testranges:
-		qlf_ranges(model,simName,args.forest,qlf,args.skyarea,
-		           nproc=args.processes)
+		#qlf_ranges(model,simName,args.forest,qlf,args.skyarea,
+		#           nproc=args.processes)
+		emline_ranges(model,modelName,'LyAb',args.forest,qlf,args.skyarea,
+		              foresttype=args.foresttype,
+		              nproc=args.processes,outputDir=args.outputdir)
 	else:
 		np.random.seed(args.seed)
-		fn = args.model
+		fn = modelName
 		if args.suffix:
 			fn += '_'+args.suffix
 		fn = os.path.join(args.outputdir,fn+'.fits')
