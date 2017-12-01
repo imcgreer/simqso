@@ -7,7 +7,8 @@ from astropy.convolution import convolve,Gaussian1DKernel
 from scipy.interpolate import interp1d,interp2d
 from astropy import units as u
 
-datadir = os.path.split(__file__)[0]+'/data/'
+from pkg_resources import resource_filename
+datadir = resource_filename('simqso', 'data/')
 
 def fixed_R_dispersion(lam1,lam2,R):
         '''Generate a wavelength grid at a fixed resolution d(log(lambda))^-1.

@@ -23,8 +23,7 @@ def _getlinelistdata():
 	# Line list obtained from Prochaska's XIDL code
 	# https://svn.ucolick.org/xidl/trunk/Spec/Lines/all_lin.fits
 	linelist = fits.getdata(datadir+'all_lin.fits')
-	Hlines = np.array([i for i in range(linelist.size) 
-	                       if 'HI' in linelist.ION[i]])
+	Hlines = np.array([i for i in range(linelist.size) if 'HI' in linelist.ION[i]])
 	transitionParams = {}
 	for n,idx in enumerate(Hlines[::-1],start=2):
 		transitionParams[n] = (linelist.WREST[idx],
