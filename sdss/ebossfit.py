@@ -106,59 +106,121 @@ class eBossQsos(object):
 		fluxes = np.ma.hstack(fluxes)
 		j = names.index(refband)
 		if ratios=='byref':
-			refFlux,fluxes = get_column_ratio(fluxes,j)
-			names = [refband] + [ b+'/'+refband for b in names ]
+			refFlux,features = get_column_ratio(fluxes,j)
+			names = [ b+'/'+refband for b in names 
+			                          if b is not refband ]
 		elif ratios=='neighboring':
 			refFlux = fluxes[:,[j]]
-			fluxes = fluxes[:,:-1]/fluxes[:,1:]
-			names = [refband] + [ b1+'/'+b2 
-			                       for b1,b2 in zip(names[:-1],names[1:]) ]
+			features = fluxes[:,:-1]/fluxes[:,1:]
+			names = [ b1+'/'+b2 for b1,b2 in zip(names[:-1],names[1:]) ]
 		else:
 			raise ValueError
-		features = [refFlux,fluxes]
 		if 'z' in featureset:
-			zfeat = np.ma.array(self.specz)[:,None]
-			features = [zfeat] + features
-			names = ['z_q'] + names
-		return np.ma.hstack(features),names
+			z = np.ma.array(self.specz)[:,None]
+			z = np.ma.log10(1+z)
+			features = [z,features]
+			names = ['logz_q'] + names
+		return np.ma.hstack(features),names,refFlux
 
 def prep_simqsos(simqsos,refband='i'):
 	j = 3 # XXX
 	ii = np.where(simqsos['selected'])[0]
 	fluxes = np.array(simqsos['obsFlux'][ii,:5]) # XXX only sdss for now
+	print 'WARNING: HACK to get around bad forest transmission vals'
+	print fluxes.max()
+	jj = np.where(np.all(fluxes < 1e5,axis=1))[0]
+	ii = ii[jj]
+	fluxes = fluxes[jj]
+	print fluxes.max()
 	refFlux,fratios = get_column_ratio(fluxes,j)
-	X = np.ma.hstack([simqsos['z'][ii,None],refFlux,fratios])
-	return X
+	logz = np.log10(1 + simqsos['z'][ii,None])
+	X = np.ma.hstack([logz,fratios])
+	return X,refFlux
 
-def model_selection(simqsos,refband='i'):
-	X = prep_simqsos(simqsos,refband)
-	cv_types = ['spherical', 'tied', 'diag', 'full']
-	n_components = range(5,31,5)
-	bic = []
+def fit_mixtures(X,mag,mbins,binwidth=0.2,
+                 keepscore=False,keepbic=False,**kwargs):
+	kwargs.setdefault('n_components',25)
+	kwargs.setdefault('covariance_type','full')
+	fits = []
+	if keepscore:
+		scores = []
+	if keepbic:
+		bics = []
+	for bincenter in mbins:
+		# this is not an efficient way to assign bins, but the time
+		# is negligible compared to the GMM fitting anyway
+		ii = np.where( np.abs(mag-bincenter) < binwidth )[0]
+		if False:
+			print '{:.2f}: {} qsos'.format(bincenter,len(ii))
+		gmm = GaussianMixture(**kwargs)
+		gmm.fit(X[ii])
+		fits.append(gmm)
+		if keepscore:
+			scores.append(gmm.score(X[ii]))
+		if keepbic:
+			bics.append(gmm.bic(X[ii]))
+	rv = (fits,)
+	if keepscore:
+		rv += (scores,)
+	if keepbic:
+		rv += (bics,)
+	return rv
+
+def fit_simqsos(simqsos,refband='i',mbins=None):
+	if mbins is None:
+		mbins = np.arange(17.7,22.51,0.1)
+	X,refFlux = prep_simqsos(simqsos,refband)
+	mag = 22.5 - 2.5*np.log10(refFlux.clip(1e-10,np.inf))
+	fits, = fit_mixtures(X,mag,mbins)
+	return fits
+
+def model_selection(simqsos,refband='i',mbin=20.):
+	X,refFlux = prep_simqsos(simqsos,refband)
+	mag = 22.5 - 2.5*np.log10(refFlux.clip(1e-10,np.inf))
+	cv_types = ['full'] #['spherical', 'tied', 'diag', 'full']
+	n_components = np.arange(5,51,5)
+	bics = []
 	for cv_type in cv_types:
 		for ncomp in n_components:
-			gmm = GaussianMixture(ncomp,covariance_type=cv_type)
-			gmm.fit(X)
-			bic.append(gmm.bic(X))
-			print cv_type,ncomp,bic[-1]
-	return bic
+			fits,bic = fit_mixtures(X,mag,np.array([mbin]),
+			                        keepbic=True,
+			                        n_components=ncomp,
+			                        covariance_type=cv_type)
+			bics.append(bic[0])
+			print cv_type,ncomp,bic[0]
+	return np.array(bics)
 
-def fit_simqsos(simqsos,ncomp=15,refband='i'):
-	X = prep_simqsos(simqsos,refband)
-	gmm = GaussianMixture(ncomp)
-	return gmm.fit(X)
+def plot_model_selection(simqsos):
+	import matplotlib.pyplot as plt
+	n_components = np.arange(5,51,5)
+	plt.figure()
+	for mbin in [19.,20.,21.]:
+		bics = model_selection(simqsos,mbin=mbin)
+		plt.plot(n_components,bics-bics.min(),label=str(mbin))
+	plt.legend()
 
-def test(fn,qsos=None):
-	simqsos = Table.read(fn)
+def fit_ebossqsos(simqsos,qsos=None):
+	if isinstance(simqsos,basestring):
+		simqsos = Table.read(simqsos)
 	if qsos is None:
 		qsos = eBossQsos()
-	features,names = qsos.extract_features()
-	print names
-	fit = fit_simqsos(simqsos)
-	s = fit.score(features)
-	print fn,s
+	features,names,refFlux = qsos.extract_features()
+	mags = 22.5 - 2.5*np.log10(refFlux.clip(1e-10,np.inf))
+	print names,features.shape
+	fits = fit_simqsos(simqsos)
+	mbins = np.arange(17.7,22.51,0.1)
+	binNums = np.digitize(mags,mbins-0.1/2)
+	n,score = 0,0
+	for i,fit in enumerate(fits):
+		ii = np.where(binNums==i)[0]
+		if len(ii) > 0:
+			s = fit.score_samples(features[ii])
+			score += s.sum()
+			n += len(ii)
+	score /= n
+	print score
 
 if __name__=='__main__':
 	#make_coreqso_table(sys.argv[1],sys.argv[2])
-	test(sys.argv[1])
+	fit_ebossqsos(sys.argv[1])
 

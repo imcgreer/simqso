@@ -68,18 +68,16 @@ def sim_colorz(simqsos,pvals,zedges,ratios=True,refBand=None,
 
 def ebosscore_colorz(coreqsos,pvals,zedges,maglim=None,maglimband='i'):
 	photsets = ['sdss','ukidss','wise']
-	features,names = coreqsos.extract_features(featureset=photsets,
-	                                           refband=maglimband,
-	                                           ratios='neighboring')
+	features,names,refFlux = coreqsos.extract_features(featureset=photsets,
+	                                                   refband=maglimband,
+	                                                   ratios='neighboring')
 	zqso = coreqsos.specz
 	if maglim:
-		refMag = 22.5 - 2.5*np.log10(features[:,0].clip(1e-5,np.inf))
+		refMag = 22.5 - 2.5*np.log10(refFlux.clip(1e-5,np.inf))
 		ii = np.where(refMag < maglim)[0]
 		features = features[ii]
 		zqso = zqso[ii]
-	# remove the refmag feature
-	clrs = features[:,1:]
-	clrs = clrs.filled(1e20)
+	clrs = features.filled(1e20)
 	colorz = calc_colorz(zqso,clrs,pvals,zedges)
 	return Table(dict(ebosscore=colorz)),names[1:]
 
