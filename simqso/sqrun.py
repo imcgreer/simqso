@@ -363,7 +363,7 @@ def buildSpectraBySightLine(wave,qsoGrid,procMap=map,
         # pool.map() doesn't like the iterable produced by table.group_by(), so
         # forcing resolution of the elements here with list() -- not that much
         # memory anyway
-        specOut = procMap(build_grp_spec,list(qsoGroups))
+        specOut = list(procMap(build_grp_spec,list(qsoGroups)))
         if qsoGrid.photoMap:
                 bands = qsoGrid.photoBands
                 def newarr():
