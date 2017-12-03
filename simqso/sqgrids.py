@@ -1160,7 +1160,7 @@ def generateBEffEmissionLines(M1450,**kwargs):
     excludeLines = kwargs.get('ExcludeLines',[])
     onlyLines = kwargs.get('OnlyLines')
     M_i = M1450 - 1.486 + 0.596
-    lineCatalog = Table.read(datadir+trendFn+'.fits')
+    lineCatalog = Table.read(os.path.join(datadir,trendFn+'.fits'))
     for line,scl in kwargs.get('scaleEWs',{}).items():
         i = np.where(lineCatalog['name']==line)[0][0]
         lineCatalog['logEW'][i,:,1] += np.log10(scl)
@@ -1228,7 +1228,6 @@ class VW01FeTemplateGrid(object):
                             bounds_error=False,fill_value=0.0)
             self.feGrid[i] = rfEW(wave)
     def _loadVW01Fe(self,wave):
-        fepath = datadir+'VW01_Fe/'
         feTemplate = np.zeros_like(wave)
         if self.useopt:
             templnames = ['Fe_UVOPT_V01_T06_BR92','Fe2_UV191','Fe3_UV47']

@@ -291,7 +291,7 @@ supported_photo_systems = {
 # should find a better container / organization for this
 def load_photo_map(photSystems):
     bandpasses = OrderedDict()
-    filterdata = fits.open(datadir+'filtercurves.fits')
+    filterdata = fits.open(os.path.join(datadir,'filtercurves.fits'))
     mapObserved = {}
     magSys = {}
     filtName = {} # ugh

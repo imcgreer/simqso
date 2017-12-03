@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from astropy.constants import pc
@@ -42,7 +43,7 @@ def get_qsfit_M1450(qsfit,alpha_nu=-0.4):
 
 def compare_qsfit_shen07(line,qsfit,shen07,minEw=10,**kwargs):
     trendFn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v6')
-    lineCatalog = Table.read(datadir+trendFn+'.fits')
+    lineCatalog = Table.read(os.path.join(datadir,trendFn+'.fits'))
     line_i = np.where(lineCatalog['name']==line)[0][0]
     #
     qsfitEw = qsfit[trlines_qsfit[line]]

@@ -22,7 +22,7 @@ fourpi = 4*np.pi
 def _getlinelistdata():
     # Line list obtained from Prochaska's XIDL code
     # https://svn.ucolick.org/xidl/trunk/Spec/Lines/all_lin.fits
-    linelist = fits.getdata(datadir+'all_lin.fits')
+    linelist = fits.getdata(os.path.join(datadir,'all_lin.fits'))
     Hlines = np.array([i for i in range(linelist.size) 
                            if b'HI' in linelist.ION[i]])
     transitionParams = {}
