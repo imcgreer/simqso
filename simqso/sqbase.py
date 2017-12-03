@@ -7,7 +7,8 @@ from astropy.convolution import convolve,Gaussian1DKernel
 from scipy.interpolate import interp1d,interp2d
 from astropy import units as u
 
-datadir = os.path.split(__file__)[0]+'/data/'
+from pkg_resources import resource_filename
+datadir = resource_filename('simqso', 'data')
 
 def fixed_R_dispersion(lam1,lam2,R):
     '''Generate a wavelength grid at a fixed resolution d(log(lambda))^-1.
@@ -103,8 +104,8 @@ def continuum_kcorr(obsBand,restBand,z,alpha_nu=-0.5):
         restWave = effWave[restBand]
     # Following continuum K-corrections given in 
     #  Richards et al. 2006, AJ 131, 2766
-    kcorr = -2.5*(1+alpha_nu)*np.log10(1+z) - \
-               2.5*alpha_nu*np.log10(restWave/obsWave)
+    kcorr = ( -2.5*(1+alpha_nu)*np.log10(1+z) -
+                 2.5*alpha_nu*np.log10(restWave/obsWave) )
     return kcorr
 
 class SimKCorr(object):

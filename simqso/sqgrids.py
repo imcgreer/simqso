@@ -359,7 +359,7 @@ class QsoSimVar(object):
     def __call__(self,n,**kwargs):
         vals = self.sampler(n,**kwargs)
         if vals is not None:
-            vals = vals.astype(self.dtype)
+            vals = np.array(vals).astype(self.dtype)
         return vals
     def resample(self,*args,**kwargs):
         '''
