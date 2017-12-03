@@ -138,25 +138,25 @@ BossDr9_FeScalings = [ (0,1540,0.5),(1540,1680,2.0),(1680,1868,1.6),
                        (1868,2140,1.0),(2140,3500,1.0) ]
 
 def BossDr9_EmLineTemplate(*args,**kwargs):
-	kwargs.setdefault('scaleEWs',{'LyAb':1.1,'LyAn':1.1,
-	                              'CIVb':0.75,'CIVn':0.75,
-	                              'CIII]b':0.8,'CIII]n':0.8,
-	                              'MgIIb':0.8,'MgIIn':0.8})
-	return grids.generateBEffEmissionLines(*args,**kwargs)
+    kwargs.setdefault('scaleEWs',{'LyAb':1.1,'LyAn':1.1,
+                                  'CIVb':0.75,'CIVn':0.75,
+                                  'CIII]b':0.8,'CIII]n':0.8,
+                                  'MgIIb':0.8,'MgIIn':0.8})
+    return grids.generateBEffEmissionLines(*args,**kwargs)
 
 def get_BossDr9_model_vars(qsoGrid,wave,nSightLines,noforest=False):
-	if not noforest:
-		igmGrid = IGMTransmissionGrid(wave,
-		                              forestModels['Worseck&Prochaska2011'],
-		                              nSightLines,zmax=qsoGrid.z.max())
-	fetempl = grids.VW01FeTemplateGrid(qsoGrid.z,wave,
-	                                   scales=BossDr9_FeScalings)
-	mvars = [ BossDr9_fiducial_continuum,
-	          BossDr9_EmLineTemplate(qsoGrid.absMag),
-	          grids.FeTemplateVar(fetempl) ]
-	if not noforest:
-		mvars.append( grids.HIAbsorptionVar(igmGrid) )
-	return mvars
+    if not noforest:
+        igmGrid = IGMTransmissionGrid(wave,
+                                      forestModels['Worseck&Prochaska2011'],
+                                      nSightLines,zmax=qsoGrid.z.max())
+    fetempl = grids.VW01FeTemplateGrid(qsoGrid.z,wave,
+                                       scales=BossDr9_FeScalings)
+    mvars = [ BossDr9_fiducial_continuum,
+              BossDr9_EmLineTemplate(qsoGrid.absMag),
+              grids.FeTemplateVar(fetempl) ]
+    if not noforest:
+        mvars.append( grids.HIAbsorptionVar(igmGrid) )
+    return mvars
 
 
 Yang16_continuum = grids.BrokenPowerLawContinuumVar([
@@ -168,63 +168,63 @@ Yang16_continuum = grids.BrokenPowerLawContinuumVar([
                                     [1100.,5700.,9730.,23820.])
 
 def get_Yang16_EmLineTemplate(*args):
-	kwargs = {'scaleEWs':{'LyAb':1.1,'LyAn':1.1,
-	                      'CIVb':1.2,'CIVn':1.2,
-	                      'CIII]b':1.0,'CIII]n':1.0,
-	                      'MgIIb':1.2,'MgIIn':1.2,
-	                      'Hbeta':1.2,'[OIII]4364':1.2,
-	                      'HAn':1.0,'HAb':1.0}}
-	return grids.generateBEffEmissionLines(*args,**kwargs)
+    kwargs = {'scaleEWs':{'LyAb':1.1,'LyAn':1.1,
+                          'CIVb':1.2,'CIVn':1.2,
+                          'CIII]b':1.0,'CIII]n':1.0,
+                          'MgIIb':1.2,'MgIIn':1.2,
+                          'Hbeta':1.2,'[OIII]4364':1.2,
+                          'HAn':1.0,'HAb':1.0}}
+    return grids.generateBEffEmissionLines(*args,**kwargs)
 
 class LogPhiStarEvolFixedK(PolyEvolParam):
-	def __init__(self,logPhiStar_zref,k=-0.47,fixed=False,zref=6.0):
-		super(LogPhiStarEvolFixedK,self).__init__([k,logPhiStar_zref],
-		                                          fixed=[True,fixed],
-		                                          z0=zref)
+    def __init__(self,logPhiStar_zref,k=-0.47,fixed=False,zref=6.0):
+        super(LogPhiStarEvolFixedK,self).__init__([k,logPhiStar_zref],
+                                                  fixed=[True,fixed],
+                                                  z0=zref)
 
 QLF_McGreer_2013 = DoublePowerLawLF(LogPhiStarEvolFixedK(-8.94),
                                     -27.21,-2.03,-4.0,
                                     cosmo=FlatLambdaCDM(H0=70, Om0=0.272))
 
 class LogPhiStarPLEPivot(PolyEvolParam):
-	'''The PLE-Pivot model is PLE (fixed Phi*) below zpivot and
-	   LEDE (polynomial in log(Phi*) above zpivot.'''
-	def __init__(self,*args,**kwargs):
-		self.zp = kwargs.pop('zpivot')
-		super(LogPhiStarPLEPivot,self).__init__(*args,**kwargs)
-	def eval_at_z(self,z,par=None):
-		# this fixes Phi* to be the zpivot value at z<zp
-		z = np.asarray(z).clip(self.zp,np.inf)
-		return super(LogPhiStarPLEPivot,self).eval_at_z(z,par)
+    '''The PLE-Pivot model is PLE (fixed Phi*) below zpivot and
+       LEDE (polynomial in log(Phi*) above zpivot.'''
+    def __init__(self,*args,**kwargs):
+        self.zp = kwargs.pop('zpivot')
+        super(LogPhiStarPLEPivot,self).__init__(*args,**kwargs)
+    def eval_at_z(self,z,par=None):
+        # this fixes Phi* to be the zpivot value at z<zp
+        z = np.asarray(z).clip(self.zp,np.inf)
+        return super(LogPhiStarPLEPivot,self).eval_at_z(z,par)
 
 class MStarPLEPivot(QlfEvolParam):
-	'''The PLE-Pivot model for Mstar encapsulates two evolutionary models,
-	   one for z<zpivot and one for z>zp.'''
-	def __init__(self,*args,**kwargs):
-		self.zp = kwargs.pop('zpivot')
-		self.n1 = kwargs.pop('npar1')
-		self.z0_1 = kwargs.pop('z0_1',0.0)
-		self.z0_2 = kwargs.pop('z0_2',0.0)
-		super(MStarPLEPivot,self).__init__(*args,**kwargs)
-	def eval_at_z(self,z,par=None):
-		z = np.asarray(z)
-		par = self._extract_par(par)
-		return np.choose(z<self.zp,
-		                 [np.polyval(par[self.n1:],z-self.z0_2),
-		                  np.polyval(par[:self.n1],z-self.z0_1)])
+    '''The PLE-Pivot model for Mstar encapsulates two evolutionary models,
+       one for z<zpivot and one for z>zp.'''
+    def __init__(self,*args,**kwargs):
+        self.zp = kwargs.pop('zpivot')
+        self.n1 = kwargs.pop('npar1')
+        self.z0_1 = kwargs.pop('z0_1',0.0)
+        self.z0_2 = kwargs.pop('z0_2',0.0)
+        super(MStarPLEPivot,self).__init__(*args,**kwargs)
+    def eval_at_z(self,z,par=None):
+        z = np.asarray(z)
+        par = self._extract_par(par)
+        return np.choose(z<self.zp,
+                         [np.polyval(par[self.n1:],z-self.z0_2),
+                          np.polyval(par[:self.n1],z-self.z0_1)])
 
 def BOSS_DR9_PLEpivot(**kwargs):
-	# the 0.3 makes the PLE and LEDE models align at the pivot redshift
-	MStar1450_z0 = -22.92 + 1.486 + 0.3
-	k1,k2 = 1.293,-0.268
-	c1,c2 = -0.689, -0.809
-	logPhiStar_z2_2 = -5.83
-	MStar_i_z2_2 = -26.49
-	MStar1450_z0_hiz = MStar_i_z2_2 + 1.486 # --> M1450
-	logPhiStar = LogPhiStarPLEPivot([c1,logPhiStar_z2_2],z0=2.2,zpivot=2.2)
-	MStar = MStarPLEPivot([-2.5*k2,-2.5*k1,MStar1450_z0,c2,MStar1450_z0_hiz],
-	                      zpivot=2.2,npar1=3,z0_1=0,z0_2=2.2)
-	alpha = -1.3
-	beta = -3.5
-	return DoublePowerLawLF(logPhiStar,MStar,alpha,beta,**kwargs)
+    # the 0.3 makes the PLE and LEDE models align at the pivot redshift
+    MStar1450_z0 = -22.92 + 1.486 + 0.3
+    k1,k2 = 1.293,-0.268
+    c1,c2 = -0.689, -0.809
+    logPhiStar_z2_2 = -5.83
+    MStar_i_z2_2 = -26.49
+    MStar1450_z0_hiz = MStar_i_z2_2 + 1.486 # --> M1450
+    logPhiStar = LogPhiStarPLEPivot([c1,logPhiStar_z2_2],z0=2.2,zpivot=2.2)
+    MStar = MStarPLEPivot([-2.5*k2,-2.5*k1,MStar1450_z0,c2,MStar1450_z0_hiz],
+                          zpivot=2.2,npar1=3,z0_1=0,z0_2=2.2)
+    alpha = -1.3
+    beta = -3.5
+    return DoublePowerLawLF(logPhiStar,MStar,alpha,beta,**kwargs)
 

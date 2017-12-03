@@ -58,85 +58,85 @@ qso_models = {
 }
 
 def add_continuum(qsos,model='ebossdr14',const=False):
-	print "CONTINUUM: {}".format(model)
-	try:
-		slopes,breakpts = cont_models[model]
-	except:
-		if isinstance(model,basestring):
-			slopes,breakpts = eval(model)
-		else:
-			slopes,breakpts = model
-	print "CONTINUUM: {}".format(str(slopes))
-	if const:
-		slopes = [ grids.ConstSampler(s[0]) for s in slopes]
-	else:
-		slopes = [ grids.GaussianSampler(*s) for s in slopes]
-	contVar = grids.BrokenPowerLawContinuumVar(slopes,breakpts)
-	qsos.addVar(contVar)
-	return qsos
+    print "CONTINUUM: {}".format(model)
+    try:
+        slopes,breakpts = cont_models[model]
+    except:
+        if isinstance(model,basestring):
+            slopes,breakpts = eval(model)
+        else:
+            slopes,breakpts = model
+    print "CONTINUUM: {}".format(str(slopes))
+    if const:
+        slopes = [ grids.ConstSampler(s[0]) for s in slopes]
+    else:
+        slopes = [ grids.GaussianSampler(*s) for s in slopes]
+    contVar = grids.BrokenPowerLawContinuumVar(slopes,breakpts)
+    qsos.addVar(contVar)
+    return qsos
 
 def add_dust_emission(qsos,model='LR17',const=False):
-	contVar = qsos.getVars(grids.ContinuumVar)[0]
-	try:
-		model = dustem_models[model]
-		print "DUST EMISSION: {}".format(model)
-	except:
-		if isinstance(model,basestring):
-			model = eval(model)
-		else:
-			pass
-		print "DUST EMISSION: {}".format(str(model))
-	dustVars = []
-	for name,par in model.items():
-		dustVar = grids.DustBlackbodyVar([grids.ConstSampler(par[0][0]),
-		                                  grids.ConstSampler(par[1][0])],
-	                                     name=name)
-		dustVar.set_associated_var(contVar)
-		dustVars.append(dustVar)
-	qsos.addVars(dustVars)
-	return qsos
+    contVar = qsos.getVars(grids.ContinuumVar)[0]
+    try:
+        model = dustem_models[model]
+        print "DUST EMISSION: {}".format(model)
+    except:
+        if isinstance(model,basestring):
+            model = eval(model)
+        else:
+            pass
+        print "DUST EMISSION: {}".format(str(model))
+    dustVars = []
+    for name,par in model.items():
+        dustVar = grids.DustBlackbodyVar([grids.ConstSampler(par[0][0]),
+                                          grids.ConstSampler(par[1][0])],
+                                         name=name)
+        dustVar.set_associated_var(contVar)
+        dustVars.append(dustVar)
+    qsos.addVars(dustVars)
+    return qsos
 
 def add_emission_lines(qsos,model='bossdr9',const=False):
-	print "EMISSION LINES: {}".format(model)
-	if model == 'bossdr9':
-		emLineVar = sqmodels.BossDr9_EmLineTemplate(qsos.absMag,
-		                                            NoScatter=const)
-	elif model == 'yang16':
-		emLineVar = sqmodels.get_Yang16_EmLineTemplate(qsos.absMag,
-		                                               NoScatter=const)
-	else:
-		try:
-			kwargs = emline_models[model]
-		except:
-			if isinstance(model,basestring):
-				kwargs = eval(model)
-			else:
-				kwargs = model
-		kwargs['NoScatter'] = const
-		print "EMISSION LINES: {}".format(str(kwargs))
-		emLineVar = grids.generateBEffEmissionLines(qsos.absMag,**kwargs)
-	qsos.addVar(emLineVar)
-	return qsos
+    print "EMISSION LINES: {}".format(model)
+    if model == 'bossdr9':
+        emLineVar = sqmodels.BossDr9_EmLineTemplate(qsos.absMag,
+                                                    NoScatter=const)
+    elif model == 'yang16':
+        emLineVar = sqmodels.get_Yang16_EmLineTemplate(qsos.absMag,
+                                                       NoScatter=const)
+    else:
+        try:
+            kwargs = emline_models[model]
+        except:
+            if isinstance(model,basestring):
+                kwargs = eval(model)
+            else:
+                kwargs = model
+        kwargs['NoScatter'] = const
+        print "EMISSION LINES: {}".format(str(kwargs))
+        emLineVar = grids.generateBEffEmissionLines(qsos.absMag,**kwargs)
+    qsos.addVar(emLineVar)
+    return qsos
 
 def add_iron(qsos,wave,model='bossdr9',const=False):
-	print "IRON TEMPLATE: {}".format(model)
-	fetempl = grids.VW01FeTemplateGrid(qsos.z,wave,
-	                                   scales=sqmodels.BossDr9_FeScalings)
-	feVar = grids.FeTemplateVar(fetempl)
-	qsos.addVar(feVar)
-	return qsos
+    print "IRON TEMPLATE: {}".format(model)
+    fetempl = grids.VW01FeTemplateGrid(qsos.z,wave,
+                                       scales=sqmodels.BossDr9_FeScalings)
+    feVar = grids.FeTemplateVar(fetempl)
+    qsos.addVar(feVar)
+    return qsos
 
 def add_dust_extinction(qsos,model='dr9expdust',const=False):
-	if model == 'dr9expdust':
-		dustscl = 0.033
-		print "DUST EXTINCTION: {} with scale {}".format(model,dustscl)
-		if const:
-			s = grids.ConstSampler(dustscl)
-		else:
-			s = grids.ExponentialSampler(dustscl)
-	else:
-		raise ValueError
-	dustVar = grids.SMCDustVar(s)
-	qsos.addVar(dustVar)
-	return qsos
+    if model == 'dr9expdust':
+        dustscl = 0.033
+        print "DUST EXTINCTION: {} with scale {}".format(model,dustscl)
+        if const:
+            s = grids.ConstSampler(dustscl)
+        else:
+            s = grids.ExponentialSampler(dustscl)
+    else:
+        raise ValueError
+    dustVar = grids.SMCDustVar(s)
+    qsos.addVar(dustVar)
+    return qsos
 

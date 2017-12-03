@@ -42,59 +42,59 @@ SMCdust_ev = InterpolatedUnivariateSpline(SMCDustTable[:,0],
 SMC_R_V = 2.93
 
 def SMCdust_Alam(w,E_BmV): 
-	A_V = E_BmV / SMC_R_V
-	return A_V * (SMCdust_ev(w)/SMC_R_V + 1.0)
+    A_V = E_BmV / SMC_R_V
+    return A_V * (SMCdust_ev(w)/SMC_R_V + 1.0)
 
 Calzetti_R_V = 4.05
 
 klam_blue = lambda lam: 2.659*(-2.156 + 
-		                        1.509*lam**-1 - 
-		                        0.198*lam**-2 +
-		                        0.011*lam**-3) + Calzetti_R_V
+                                1.509*lam**-1 - 
+                                0.198*lam**-2 +
+                                0.011*lam**-3) + Calzetti_R_V
 
 klam_red = lambda lam: 2.659*(-1.857 + 1.040*lam**-1) + Calzetti_R_V
 
 def Calzetti_klam(lam):
-	lam_um = 1e-4*np.asarray(lam)
-	k_lam = np.empty_like(lam)
-	# blue side
-	i1 = np.searchsorted(lam_um,0.12)
-	i2 = np.searchsorted(lam_um,0.63,side='right')
-	if i2-i1 > 0:
-		k_lam[i1:i2] = klam_blue(lam_um[i1:i2])
-	# extrapolate blueward
-	if i1 > 0:
-		# linear extrapolation a la hyperz...
-		lamb = np.array([0.11,0.12])
-		klamb = klam_blue(lamb)
-		slopeb = np.diff(klamb)/np.diff(lamb)
-		k_lam[:i1] = klamb[0] + slopeb*(lam_um[:i1]-lamb[0])
-	# red side
-	i1 = np.searchsorted(lam_um,0.63)
-	i2 = np.searchsorted(lam_um,2.20,side='right')
-	if i2-i1 > 0:
-		k_lam[i1:i2] = klam_red(lam_um[i1:i2])
-	# extrapolate redward
-	if i2 < len(lam)-1:
-		lamr = np.array([2.19,2.20])
-		klamr = klam_red(lamr)
-		sloper = np.diff(klamr)/np.diff(lamr)
-		k_lam[i2:] = klamr[0] + sloper*(lam_um[i2:]-lamr[0])
-	return k_lam
+    lam_um = 1e-4*np.asarray(lam)
+    k_lam = np.empty_like(lam)
+    # blue side
+    i1 = np.searchsorted(lam_um,0.12)
+    i2 = np.searchsorted(lam_um,0.63,side='right')
+    if i2-i1 > 0:
+        k_lam[i1:i2] = klam_blue(lam_um[i1:i2])
+    # extrapolate blueward
+    if i1 > 0:
+        # linear extrapolation a la hyperz...
+        lamb = np.array([0.11,0.12])
+        klamb = klam_blue(lamb)
+        slopeb = np.diff(klamb)/np.diff(lamb)
+        k_lam[:i1] = klamb[0] + slopeb*(lam_um[:i1]-lamb[0])
+    # red side
+    i1 = np.searchsorted(lam_um,0.63)
+    i2 = np.searchsorted(lam_um,2.20,side='right')
+    if i2-i1 > 0:
+        k_lam[i1:i2] = klam_red(lam_um[i1:i2])
+    # extrapolate redward
+    if i2 < len(lam)-1:
+        lamr = np.array([2.19,2.20])
+        klamr = klam_red(lamr)
+        sloper = np.diff(klamr)/np.diff(lamr)
+        k_lam[i2:] = klamr[0] + sloper*(lam_um[i2:]-lamr[0])
+    return k_lam
 
 def Calzetti_Alam(lam,E_BmV):
-	#A_V = E_BmV / Calzetti_R_V
-	#return Calzetti_klam(lam)*A_V/Calzetti_R_V
-	return Calzetti_klam(lam)*E_BmV
+    #A_V = E_BmV / Calzetti_R_V
+    #return Calzetti_klam(lam)*A_V/Calzetti_R_V
+    return Calzetti_klam(lam)*E_BmV
 
 #def SMCdust_fn(rfwave,flux,E_BmV):
-#	return flux * 10**(-0.4*SMCdust_Alam(rfwave,E_BmV))
+#    return flux * 10**(-0.4*SMCdust_Alam(rfwave,E_BmV))
 
 def SMCdust_fn(rfwave,flux,E_BmV):
-	return flux * 10**(-0.4*(1.39*E_BmV*(rfwave/1e4)**-1.2))
+    return flux * 10**(-0.4*(1.39*E_BmV*(rfwave/1e4)**-1.2))
 
 def CalzettiDust_fn(rfwave,flux,E_BmV):
-	return flux * 10**(-0.4*Calzetti_Alam(rfwave,E_BmV))
+    return flux * 10**(-0.4*Calzetti_Alam(rfwave,E_BmV))
 
 dust_fn = {'SMC':SMCdust_fn,'CalzettiSB':CalzettiDust_fn}
 

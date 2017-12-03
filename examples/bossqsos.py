@@ -6,25 +6,25 @@ from simqso import qsoSimulation,lumfun,sqmodels
 dr9cosmo = FlatLambdaCDM(70,1-0.7,name='BOSSDR9')
 
 def BOSS_DR9_PLE(which=1):
-	if which==1:
-		row = -1.16,-3.37,-22.85,1.241,-0.249,-5.96
-	alpha,beta,MStar_i_z0,k1,k2,logPhiStar = row
-	MStar1450_z0 = MStar_i_z0 + 1.486
-	MStar = lumfun.PolyEvolParam([-2.5*k2,-2.5*k1,MStar1450_z0])
-	return lumfun.DoublePowerLawLF(logPhiStar,MStar,alpha,beta,
-	                               cosmo=dr9cosmo)
+    if which==1:
+        row = -1.16,-3.37,-22.85,1.241,-0.249,-5.96
+    alpha,beta,MStar_i_z0,k1,k2,logPhiStar = row
+    MStar1450_z0 = MStar_i_z0 + 1.486
+    MStar = lumfun.PolyEvolParam([-2.5*k2,-2.5*k1,MStar1450_z0])
+    return lumfun.DoublePowerLawLF(logPhiStar,MStar,alpha,beta,
+                                   cosmo=dr9cosmo)
 
 def BOSS_DR9_LEDE():
-	c1,c2 = -0.689, -0.809
-	logPhiStar_z2_2 = -5.83
-	MStar_i_z2_2 = -26.49
-	MStar1450_z0 = MStar_i_z2_2 + 1.486 # --> M1450
-	MStar = lumfun.PolyEvolParam([c2,MStar1450_z0],z0=2.2)
-	logPhiStar = lumfun.PolyEvolParam([c1,logPhiStar_z2_2],z0=2.2)
-	alpha = -1.31
-	beta = -3.45
-	return lumfun.DoublePowerLawLF(logPhiStar,MStar,alpha,beta,
-	                               cosmo=dr9cosmo)
+    c1,c2 = -0.689, -0.809
+    logPhiStar_z2_2 = -5.83
+    MStar_i_z2_2 = -26.49
+    MStar1450_z0 = MStar_i_z2_2 + 1.486 # --> M1450
+    MStar = lumfun.PolyEvolParam([c2,MStar1450_z0],z0=2.2)
+    logPhiStar = lumfun.PolyEvolParam([c1,logPhiStar_z2_2],z0=2.2)
+    alpha = -1.31
+    beta = -3.45
+    return lumfun.DoublePowerLawLF(logPhiStar,MStar,alpha,beta,
+                                   cosmo=dr9cosmo)
 
 simParams = {
   # filename for simulation output (".fits" is appended)
@@ -40,13 +40,13 @@ simParams = {
   # setting a global random seed allows the simulation to be repeatable
   'RandomSeed':12345,
   # Define the "grid" of points in (M,z) space for the simulation
-  # In this case the grid is a distribution of points sampled from the	
+  # In this case the grid is a distribution of points sampled from the    
   # Ross et al. 2013 QLF determined from BOSS DR9.
   'GridParams':{
     # Define the grid as coming from a luminosity function
     'GridType':'LuminosityFunction', 
     # Specify the functional form of the LF, using a double power-law
-	# with evolutionary parameters from Ross et al. 2013
+    # with evolutionary parameters from Ross et al. 2013
     'QLFmodel':BOSS_DR9_LEDE(),
     # simulate a 10k deg2 survey
     #'QLFargs':{'skyArea':1e4},       
@@ -160,20 +160,20 @@ bossdr9_expdust_model = {
 }
 
 def make_grid():
-	from copy import deepcopy
-	simpar = deepcopy(simParams)
-	simpar['FileName'] = 'boss_grid_sim'
-	simpar['GridParams']['GridType'] = 'FluxRedshiftGrid'
-	del simpar['GridParams']['QLFmodel']
-	del simpar['GridParams']['QLFargs']
-	simpar['GridParams']['mRange'] += (30,)
-	simpar['GridParams']['zRange'] += (20,)
-	simpar['GridParams']['nPerBin'] = 100
-	simpar['ForestParams']['NumLinesOfSight'] = 1000
-	simpar['ForestParams']['FileName'] = 'boss_grid_forest'
-	qsoSimulation(simpar,verbose=5)
+    from copy import deepcopy
+    simpar = deepcopy(simParams)
+    simpar['FileName'] = 'boss_grid_sim'
+    simpar['GridParams']['GridType'] = 'FluxRedshiftGrid'
+    del simpar['GridParams']['QLFmodel']
+    del simpar['GridParams']['QLFargs']
+    simpar['GridParams']['mRange'] += (30,)
+    simpar['GridParams']['zRange'] += (20,)
+    simpar['GridParams']['nPerBin'] = 100
+    simpar['ForestParams']['NumLinesOfSight'] = 1000
+    simpar['ForestParams']['FileName'] = 'boss_grid_forest'
+    qsoSimulation(simpar,verbose=5)
 
 if __name__=='__main__':
-	qsoSimulation(simParams)
+    qsoSimulation(simParams)
 
 
