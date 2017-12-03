@@ -201,7 +201,7 @@ class VoigtTable(object):
         w2[ll] = self.npix
         # within the spectrum!
         ll = np.where(~((w2<0)|(w1>=self.npix)|(w2-w1<=0)))[0]
-        # now loop over the absorbers and add the tabled voigt profiles
+        # now loop over the absorbers and add the tabulated voigt profiles
         for i,j,k in zip(ii[ll],jj[ll],ll):
             tau_lam[w1[k]:w2[k]] += \
                               c_voigt[k] * self.voigt_tab[i][j][x1[k]:x2[k]]
