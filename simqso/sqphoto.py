@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os
 import numpy as np
 from collections import OrderedDict
 from scipy.interpolate import interp1d
