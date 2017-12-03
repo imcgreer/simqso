@@ -86,7 +86,7 @@ def runsim(model,fileName,forest,qsoGrid,
             if os.path.exists(forestFile):
                 break
         if not os.path.exists(forestFile):
-            print 'forest file {} does not exist, generating...'.format(forest)
+            print('forest file {} does not exist, generating...'.format(forest))
             make_forest_grid(forest,foresttype,wave,qsoGrid.z,
                              nlos=nlos,outputDir=outputDir)
         if foresttype == 'meanmag':
@@ -144,7 +144,7 @@ def apply_selection_fun(fileName,verbose=0,redo=False):
         if not os.path.exists(xdFile):
             cmd = ["idl","-e","xdprob,'{0}','{1}'".format(fileName,xdFile)]
             if verbose:
-                print "executing "+" ".join(cmd)
+                print("executing "+" ".join(cmd))
             subprocess.call(cmd)
         xdqso = Table.read(xdFile)
         if redo and 'PQSO' in qsos.colnames:
@@ -158,25 +158,25 @@ def apply_selection_fun(fileName,verbose=0,redo=False):
     #
     sel = True
     if verbose:
-        print "{:7d} quasars at start".format(len(qsos))
+        print("{:7d} quasars at start".format(len(qsos)))
     # roughly the FIBER2MAG i>17 cut
     sel &= qsos['obsMag'][:,b('i')] > 17
     if verbose:
-        print "{:7d} after fiberMag_i>17 cut".format(sel.sum())
+        print("{:7d} after fiberMag_i>17 cut".format(sel.sum()))
     # g < 22 OR r < 22
     sel &= ( (qsos['obsMag'][:,b('g')] < 22) | 
              (qsos['obsMag'][:,b('r')] < 22) )
     if verbose:
-        print "{:7d} after g<22 OR r<22 cut".format(sel.sum())
+        print("{:7d} after g<22 OR r<22 cut".format(sel.sum()))
     # XDQSOz probability cut
     sel &= qsos['PQSO'] > 0.2
     if verbose:
-        print "{:7d} after XDQSOz cut".format(sel.sum())
+        print("{:7d} after XDQSOz cut".format(sel.sum()))
     # optical--mid-IR color cut
     sel &= ( qsos['f_WISE']*qsos['obsFlux'][:,b('g')] >
               qsos['f_opt']*qsos['obsFlux'][:,b('i')]*10**(3.0/2.5) )
     if verbose:
-        print "{:7d} after optical--mid-IR color cut".format(sel.sum())
+        print("{:7d} after optical--mid-IR color cut".format(sel.sum()))
     #
     qsos['selected'] = sel
     qsos.write(fileName,overwrite=True)
@@ -187,7 +187,7 @@ def qlf_ranges(model,simName,forestFile,qlf,skyArea,**kwargs):
     for dex in [0.2,0.5,1.0]:
         for sgn in [-1,1]:
             fn = simName+'_logphi_%+04.1f'%(sgn*dex)
-            print 'running simulation {}'.format(fn)
+            print('running simulation {}'.format(fn))
             initpar = qlf.getpar()
             par = initpar.copy()
             par[1] += sgn*dex
@@ -199,7 +199,7 @@ def emline_ranges(model,modelName,line,forestFile,qlf,skyArea,**kwargs):
     for scl in [0.5,0.75,1.0,1.25,1.5]:
         fn = '_'.join([modelName,line,'%.2f'%scl])
         fn = os.path.join(kwargs.get('outputDir','.'),fn+'.fits')
-        print 'running simulation {}'.format(fn)
+        print('running simulation {}'.format(fn))
         np.random.seed(12345)
         qsos = sample_qlf(qlf,skyArea=skyArea)
         np.random.seed(int(pow(2,10**scl)))

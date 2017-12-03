@@ -8,9 +8,9 @@ from astropy.coordinates import SkyCoord
 from astropy import units as u
 
 def make_coreqso_table(dr14qso,ebosstarg):
-    if isinstance(dr14qso,basestring):
+    if isinstance(dr14qso,str):
         dr14qso = Table.read(dr14qso)
-    if isinstance(ebosstarg,basestring):
+    if isinstance(ebosstarg,str):
         ebosstarg = Table.read(ebosstarg)
     #
     dr14coo = SkyCoord(dr14qso['RA'],dr14qso['DEC'],unit=u.deg)
@@ -126,12 +126,12 @@ def prep_simqsos(simqsos,refband='i'):
     j = 3 # XXX
     ii = np.where(simqsos['selected'])[0]
     fluxes = np.array(simqsos['obsFlux'][ii,:5]) # XXX only sdss for now
-    print 'WARNING: HACK to get around bad forest transmission vals'
-    print fluxes.max()
+    print('WARNING: HACK to get around bad forest transmission vals')
+    print(fluxes.max())
     jj = np.where(np.all(fluxes < 1e5,axis=1))[0]
     ii = ii[jj]
     fluxes = fluxes[jj]
-    print fluxes.max()
+    print(fluxes.max())
     refFlux,fratios = get_column_ratio(fluxes,j)
     logz = np.log10(1 + simqsos['z'][ii,None])
     X = np.ma.hstack([logz,fratios])
@@ -151,7 +151,7 @@ def fit_mixtures(X,mag,mbins,binwidth=0.2,
         # is negligible compared to the GMM fitting anyway
         ii = np.where( np.abs(mag-bincenter) < binwidth )[0]
         if False:
-            print '{:.2f}: {} qsos'.format(bincenter,len(ii))
+            print('{:.2f}: {} qsos'.format(bincenter,len(ii)))
         gmm = GaussianMixture(**kwargs)
         gmm.fit(X[ii])
         fits.append(gmm)
@@ -187,7 +187,7 @@ def model_selection(simqsos,refband='i',mbin=20.):
                                     n_components=ncomp,
                                     covariance_type=cv_type)
             bics.append(bic[0])
-            print cv_type,ncomp,bic[0]
+            print(cv_type,ncomp,bic[0])
     return np.array(bics)
 
 def plot_model_selection(simqsos):
@@ -200,13 +200,13 @@ def plot_model_selection(simqsos):
     plt.legend()
 
 def fit_ebossqsos(simqsos,qsos=None):
-    if isinstance(simqsos,basestring):
+    if isinstance(simqsos,str):
         simqsos = Table.read(simqsos)
     if qsos is None:
         qsos = eBossQsos()
     features,names,refFlux = qsos.extract_features()
     mags = 22.5 - 2.5*np.log10(refFlux.clip(1e-10,np.inf))
-    print names,features.shape
+    print(names,features.shape)
     fits = fit_simqsos(simqsos)
     mbins = np.arange(17.7,22.51,0.1)
     binNums = np.digitize(mags,mbins-0.1/2)
@@ -218,7 +218,7 @@ def fit_ebossqsos(simqsos,qsos=None):
             score += s.sum()
             n += len(ii)
     score /= n
-    print score
+    print(score)
 
 if __name__=='__main__':
     #make_coreqso_table(sys.argv[1],sys.argv[2])

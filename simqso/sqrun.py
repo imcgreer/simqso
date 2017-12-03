@@ -134,7 +134,7 @@ def buildForest(wave,z,simParams,outputDir):
     if tgrid is None:
         nlos = forestParams['NumLinesOfSight']
         forestModel = forestParams['ForestModel']
-        if isinstance(forestModel,basestring):
+        if isinstance(forestModel,str):
             forestModel = sqmodels.forestModels[forestModel]
         tgrid = hiforest.IGMTransmissionGrid(wave,forestModel,nlos,
                                              zmax=z.max(),**forestParams)
@@ -146,12 +146,12 @@ def buildContinuumModels(qsoGrid,simParams):
     reseed(continuumParams)
     slopes = continuumParams['PowerLawSlopes'][::2]
     breakpts = continuumParams['PowerLawSlopes'][1::2]
-    print '... building continuum grid'
+    print('... building continuum grid')
     cmodel = continuumParams['ContinuumModel']
     if cmodel in ['GaussianPLawDistribution','FixedPLawDistribution',
                                                     'BrokenPowerLaw']:
         if cmodel in ['GaussianPLawDistribution','FixedPLawDistribution']:
-            print 'WARNING: %s continuum is deprecated' % cmodel
+            print('WARNING: %s continuum is deprecated' % cmodel)
         slopeVars = [ grids.GaussianSampler(*s) for s in slopes ]
         continuumVars = [ grids.BrokenPowerLawContinuumVar(slopeVars,
                                                            breakpts) ]
@@ -180,7 +180,7 @@ def buildEmissionLineGrid(qsoGrid,simParams):
     qsoGrid.addVar(emLineGrid)
 
 def buildDustGrid(qsoGrid,simParams):
-    print '... building dust extinction grid'
+    print('... building dust extinction grid')
     dustParams = simParams['QuasarModelParams']['DustExtinctionParams']
     reseed(dustParams)
     if dustParams['DustExtinctionModel'] == 'Fixed E(B-V)':
@@ -289,7 +289,7 @@ def buildGrpSpectra(wave,cosmo,specFeatures,photoCache,saveSpectra,
     if verbose and verbose > 0:
         losGrp = objGroup['igmlos'][0]
         if losGrp % verbose == 0:
-            print 'processing ',n,' obj in group ',losGrp
+            print('processing ',n,' obj in group ',losGrp)
     rv = dict()
     if photoCache:
         nb = len(photoCache)
@@ -342,9 +342,9 @@ def buildSpectraBySightLine(wave,qsoGrid,procMap=map,
         Input wavelength grid.
     '''
     photoCache = qsoGrid.getPhotoCache(wave)
-    print 'simulating ',qsoGrid.nObj,' quasar spectra'
-    print 'units are ',qsoGrid.units
-    print 'max number iterations: ',maxIter
+    print('simulating ',qsoGrid.nObj,' quasar spectra')
+    print('units are ',qsoGrid.units)
+    print('max number iterations: ',maxIter)
     verby = 0 if not verbose else qsoGrid.nObj//(5*verbose)
     if qsoGrid.units == 'luminosity' or photoCache is None:
         nIter = 1
@@ -404,8 +404,8 @@ def buildSpectraBulk(wave,qsoGrid,procMap=map,
         Input wavelength grid.
     '''
     photoCache = qsoGrid.getPhotoCache(wave)
-    print 'simulating ',qsoGrid.nObj,' quasar spectra'
-    print 'units are ',qsoGrid.units
+    print('simulating ',qsoGrid.nObj,' quasar spectra')
+    print('units are ',qsoGrid.units)
     if qsoGrid.units == 'luminosity' or photoCache is None:
         nIter = 1
         fluxBand = None
@@ -424,7 +424,7 @@ def buildSpectraBulk(wave,qsoGrid,procMap=map,
         build_one_spec = partial(buildSpecWithPhot,wave,qsoGrid.cosmo,
                                  specFeatures,photoCache,iterNum=iterNum,
                                  saveSpectra=saveSpectra)
-        print 'buildSpectra iteration ',iterNum,' out of ',nIter
+        print('buildSpectra iteration ',iterNum,' out of ',nIter)
         specOut = procMap(build_one_spec,qsoGrid)
         specOut = _regroup(specOut)
         synMag,synFlux,spectra = specOut
@@ -439,8 +439,8 @@ def buildSpectraBulk(wave,qsoGrid,procMap=map,
         if nIter > 1:
             # find the largest mag offset
             dm = synMag[:,fluxBand] - qsoGrid.appMag
-            print '--> delta mag mean = %.7f, rms = %.7f, |max| = %.7f' % \
-                          (dm.mean(),dm.std(),np.abs(dm).max())
+            print('--> delta mag mean = %.7f, rms = %.7f, |max| = %.7f' % \
+                          (dm.mean(),dm.std(),np.abs(dm).max()))
             qsoGrid.absMag[:] -= dm
             dmagMax = np.abs(dm).max()
             # resample features with updated absolute mags
@@ -526,19 +526,19 @@ def qsoSimulation(simParams,**kwargs):
                                                outputDir,retParams=True,
                                                clean=True)
     except IOError:
-        print simParams['FileName']+' output not found'
+        print(simParams['FileName']+' output not found')
         if 'GridFileName' in simParams:
-            print 'restoring grid from ',simParams['GridFileName']
+            print('restoring grid from ',simParams['GridFileName'])
             try:
                 qsoGrid = readSimulationData(simParams['GridFileName'],
                                              outputDir)
             except IOError:
-                print simParams['GridFileName'],' not found, generating'
+                print(simParams['GridFileName'],' not found, generating')
                 qsoGrid = buildQsoGrid(simParams)
                 qsoGrid.write(simParams,outputDir,
                               simParams['GridFileName']+'.fits')
         else:
-            print 'generating QSO grid'
+            print('generating QSO grid')
             qsoGrid = buildQsoGrid(simParams)
         if not forestOnly:
             if not noWriteOutput and 'GridFileName' in simParams:
@@ -599,7 +599,7 @@ def qsoSimulation(simParams,**kwargs):
     # map the simulated photometry to observed values with uncertainties
     #
     if not noPhotoMap:
-        print 'mapping photometry'
+        print('mapping photometry')
         reseed(simParams['PhotoMapParams'])
         photoData = sqphoto.calcObsPhot(qsoGrid.synFlux,qsoGrid.photoMap)
         qsoGrid.addData(photoData)

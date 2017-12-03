@@ -163,10 +163,10 @@ def colorz_param_trends(modelName,forestFile):
         for ds in [-0.3,0.0,0.3]:
             model['continuum'] = deepcopy(ebossmodels.cont_models[cname])
             model['continuum'][0][j] = (model['continuum'][0][j][0]+ds,None)
-            print ds,model
+            print(ds,model)
             cz = model_colorz_tracks(model,forestFile)
             add_entry(tab,'slope%d'%j,'%+4.1f'%ds,cz)
-            print
+            print()
     #
     model = deepcopy(ebossmodels.qso_models[modelName])
     for l in ['LyA','CIV','MgII','Hbeta','HA','Pa']:
@@ -181,10 +181,10 @@ def colorz_param_trends(modelName,forestFile):
             else:
                 for c in 'bn':
                     model['emlines']['scaleEWs'][l+c] = scl
-            print l,model
+            print(l,model)
             cz = model_colorz_tracks(model,forestFile)
             add_entry(tab,l,'%3.1f'%scl,cz)
-        print
+        print()
     #
     if 'dustem' in ebossmodels.qso_models[modelName]:
         model = deepcopy(ebossmodels.qso_models[modelName])
@@ -195,19 +195,19 @@ def colorz_param_trends(modelName,forestFile):
                 model['dustem'] = deepcopy(ebossmodels.dustem_models[dustnm])
                 pars = model['dustem'][c]
                 model['dustem'][c] = [(pars[0][0]*f,None)] + pars[1:]
-                print f,model
+                print(f,model)
                 cz = model_colorz_tracks(model,forestFile)
                 add_entry(tab,'%sfrac'%c,'%3.1f'%f,cz)
-                print
+                print()
         for i,c in enumerate(comps):
             for f in [0.7,1.0,1.3]:
                 model['dustem'] = deepcopy(ebossmodels.dustem_models[dustnm])
                 pars = model['dustem'][c]
                 model['dustem'][c] = [pars[0]] + [(pars[1][0]*f,None)]
-                print f,model
+                print(f,model)
                 cz = model_colorz_tracks(model,forestFile)
                 add_entry(tab,'%sT'%c,'%3.1f'%f,cz)
-                print
+                print()
     return cz['mbins'],cz['zbins'],tab
 
 def plot_trends(modelName,trendFile,coreqsos):
@@ -260,7 +260,7 @@ def plot_trends(modelName,trendFile,coreqsos):
 def plot_model_trends(model='all',forestFile=None):
     coreqsos = ebossfit.eBossQsos() 
     if model=='all':
-        models = ebossmodels.qso_models.keys()
+        models = list(ebossmodels.qso_models.keys())
     else:
         models = [model]
     for modelName in models:
@@ -342,7 +342,7 @@ def model_spectrum_z(model,**kwargs):
 def compare_model_spec(models='all'):
     plt.figure()
     if models == 'all':
-        models = ebossmodels.qso_models.keys()
+        models = list(ebossmodels.qso_models.keys())
     for name in models:
         model = ebossmodels.qso_models[name]
         spec,comp,_ = model_spectrum(model)

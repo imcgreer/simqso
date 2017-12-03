@@ -885,7 +885,7 @@ class QsoSimObjects(object):
     def setCosmology(self,cosmodef):
         if type(cosmodef) is dict:
             self.cosmo = cosmology.FlatLambdaCDM(**cosmodef)
-        elif isinstance(cosmodef,basestring):
+        elif isinstance(cosmodef,str):
             self.cosmo = cosmology.FlatLambdaCDM(**eval(cosmodef))
         elif isinstance(cosmodef,cosmology.FLRW):
             self.cosmo = cosmodef
@@ -932,10 +932,10 @@ class QsoSimObjects(object):
         Return all variables that are instances of varType.
         If varType is a string, return the variable with name varType.
         '''
-        if isinstance(varType,basestring):
+        if isinstance(varType,str):
             return self.qsoVars[self.varNames.index(varType)]
         else:
-            return filter(lambda v: isinstance(v,varType),self.qsoVars)
+            return [v for v in self.qsoVars if isinstance(v,varType)]
     def varIndex(self,varName):
         return self.varNames.index(varName)
     def resample(self):
@@ -947,7 +947,7 @@ class QsoSimObjects(object):
         return self.cosmo.distmod(z).value
     def loadPhotoMap(self,photoSys):
         self.photoMap = sqphoto.load_photo_map(photoSys)
-        self.photoBands = self.photoMap['bandpasses'].keys()
+        self.photoBands = list(self.photoMap['bandpasses'].keys())
     def getPhotoCache(self,wave):
         if self.photoMap:
             return sqphoto.getPhotoCache(wave,self.photoMap)
@@ -981,7 +981,7 @@ class QsoSimObjects(object):
             self.simPars = ast.literal_eval(hdr['SQPARAMS'])
             self.setCosmology(self.simPars['Cosmology'])
         except:
-            print 'WARNING: no params in header'
+            print('WARNING: no params in header')
         for i,v in enumerate(range(hdr['NSIMVAR'])):
             cls = hdr['AX%dTYPE'%i]
             name = hdr['AX%dNAME'%i]
@@ -995,7 +995,7 @@ class QsoSimObjects(object):
                     c.name = name
                 self.addVar(c,noVals=True)
             except:
-                print 'WARNING: failed to restore %s' % cls
+                print('WARNING: failed to restore %s' % cls)
                 self.qsoVars.append(None)
                 self.varNames.append('<null>')
         self._restore(hdr)
@@ -1203,8 +1203,8 @@ def generateVdBCompositeEmLines(minEW=1.0,noFe=False):
     if noFe:
         isFe = lines['ID'].find('Fe') == 0
         lines = lines[~isFe]
-    print 'using the following lines from VdB template: ',
-    print ','.join(list(lines['ID']))
+    print('using the following lines from VdB template: ', end=' ')
+    print(','.join(list(lines['ID'])))
     c = ConstSampler
     lineList = [ [c(l['OWave']),c(l['EqWid']),c(l['Width'])] for l in lines ]
     lines = GaussianEmissionLinesTemplateVar(lineList)

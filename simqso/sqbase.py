@@ -258,8 +258,8 @@ class TimerLog():
         #itimes = np.concatenate([[0,],np.diff(times)]) 
         itimes = np.diff(self.times)
         ftimes = itimes / times[-1]
-        print '%20s %8s %8s %8s' % ('stage','time','elapsed','frac')
+        print('%20s %8s %8s %8s' % ('stage','time','elapsed','frac'))
         for t in zip(stages,itimes,times,ftimes):
-            print '%20s %8.3f %8.3f %8.3f' % t
-        print
+            print('%20s %8.3f %8.3f %8.3f' % t)
+        print()
 
