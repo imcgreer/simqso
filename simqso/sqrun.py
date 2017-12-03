@@ -610,9 +610,8 @@ def qsoSimulation(simParams,**kwargs):
     if not noWriteOutput:
         qsoGrid.write(simPars=simParams,outputDir=outputDir)
     if saveSpectra:
-        fits.writeto(os.path.join(outputDir,
-                                  simParams['FileName']+'_spectra.fits'),
-                     spectra,overwrite=True)
+        spfn = os.path.join(outputDir,simParams['FileName']+'_spectra.fits')
+        save_spectra(wave,spectra,spfn,outputDir)
         return qsoGrid,spectra
     else:
         return qsoGrid
