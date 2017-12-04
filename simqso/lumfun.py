@@ -217,10 +217,11 @@ class DoublePowerLawLF(LuminosityFunction):
                 np.log10(10**(0.4*(alpha+1)*(M-Mstar)) + \
                          10**(0.4*( beta+1)*(M-Mstar)))
     def _sample(self,Mrange,zrange,p,**kwargs):
+        zin = kwargs.pop('zin',None)
+        verbose = kwargs.pop('verbose',0)
         eps_M,eps_z = 5e-2,2e-2
         nM = int(-np.diff(Mrange(zrange)) / eps_M)
         nz = int(np.diff(zrange) / eps_z)
-        zin = kwargs.get('zin')
         if zin is None:
             # integrate across redshift to get the dN/dz distribution
             skyfrac = kwargs.get('skyArea',skyDeg2) / skyDeg2
@@ -234,7 +235,8 @@ class DoublePowerLawLF(LuminosityFunction):
             Ntot = np.sum(zsamp)
             zfun = interp1d(np.cumsum(zsamp)/Ntot,zbins)
             Ntot = np.int(np.round(Ntot * skyfrac * 4*np.pi))
-            print('integration returned ',Ntot,' objects')
+            if verbose > 0:
+                print('integration returned ',Ntot,' objects')
         else:
             # redshifts supplied by user
             zfun = lambda x: zin
@@ -252,11 +254,13 @@ class DoublePowerLawLF(LuminosityFunction):
             N_M = np.sum(Msamp)
             Mfun = interp1d(np.cumsum(Msamp)/N_M,Mbins)
             M[i] = Mfun(y[i])
-            if Ntot > 1e4 and ((i+1)%(Ntot//10))==0:
+            if verbose > 1 and Ntot > 1e4 and ((i+1)%(Ntot//10))==0:
                 print(i+1,' out of ',Ntot)
         return M,z
     def _fast_sample(self,Mrange,zrange,p,**kwargs):
-        print('using fast sample')
+        verbose = kwargs.pop('verbose',0)
+        if verbose > 1:
+            print('using fast sample for QLF')
         skyfrac = kwargs.get('skyArea',skyDeg2) / skyDeg2
         eps_M,eps_z = 0.05,0.10
         magLimPad = 0.2
@@ -284,10 +288,11 @@ class DoublePowerLawLF(LuminosityFunction):
         M,z = np.hstack(Mz)
         M += dM * (np.random.rand(len(M)) - 0.5)
         z += dz * (np.random.rand(len(M)) - 0.5)
-        print('to generate {} quasars'.format(len(M)))
+        if verbose > 1:
+            print('to generate {} quasars'.format(len(M)))
         return M,z
     def sample_from_fluxrange(self,mrange,zrange,kcorr,p=None,**kwargs):
-        fast = kwargs.get('fast_sample',False)
+        fast = kwargs.pop('fast_sample',False)
         m2M = AppToAbsMag(self.cosmo,kcorr)
         _mrange = np.array(mrange[::-1])
         _Mrange = lambda z: _mrange - m2M(_mrange,z)

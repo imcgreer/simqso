@@ -1251,7 +1251,7 @@ def generateBEffEmissionLines(M1450,**kwargs):
                                            lineCatalog['name'][useLines])
     return lines
 
-def generateVdBCompositeEmLines(minEW=1.0,noFe=False):
+def generateVdBCompositeEmLines(minEW=1.0,noFe=False,verbose=0):
     tmplfits = os.path.join(datadir,'simqso_templates.fits')
     all_lines = Table(fits.getdata(tmplfits,'VdB01CompEmLines'))
     # blended lines are repeated in the table
@@ -1263,8 +1263,9 @@ def generateVdBCompositeEmLines(minEW=1.0,noFe=False):
     if noFe:
         isFe = lines['ID'].find('Fe') == 0
         lines = lines[~isFe]
-    print('using the following lines from VdB template: ', end=' ')
-    print(','.join(list(lines['ID'])))
+    if verbose > 0:
+        print('using the following lines from VdB template: ', end=' ')
+        print(','.join(list(lines['ID'])))
     c = ConstSampler
     lineList = [ [c(l['OWave']),c(l['EqWid']),c(l['Width'])] for l in lines ]
     lines = GaussianEmissionLinesTemplateVar(lineList)
