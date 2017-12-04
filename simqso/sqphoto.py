@@ -366,12 +366,14 @@ def calcSynPhot(spec,photoMap=None,photoCache=None,mags=None,fluxes=None):
     fluxes *= 1e9 # nanomaggies
     return mags,fluxes
 
-def calcObsPhot(synFlux,photoMap):
+def calcObsPhot(synFlux,photoMap,seed=None):
     obsFlux = np.empty_like(synFlux)
     obsFluxErr = np.empty_like(synFlux)
     obsMag = np.empty_like(synFlux)
     obsMagErr = np.empty_like(synFlux)
     gridShape = synFlux.shape[:-1]
+    if seed:
+        np.random.seed(seed)
     for j,b in enumerate(photoMap['bandpasses']):
         _b = b.split("-")[-1] # the short filter name
         obsFluxErr[...,j] = photoMap['mapObserved'][b](synFlux[...,j])

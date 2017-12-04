@@ -349,8 +349,11 @@ class QsoSimVar(object):
     sampler : :class:`simqso.sqgrids.Sampler` instance
     name : str
         Unique name for variable.
+    seed : int
+        Seed to apply to RNG before sampling the variable. If None there
+        is no call to random.seed().
     '''
-    def __init__(self,sampler,name=None):
+    def __init__(self,sampler,name=None,seed=None):
         self.sampler = sampler
         if name is not None:
             self.name = name
@@ -358,7 +361,10 @@ class QsoSimVar(object):
         self.dependentVars = None
         self.assocVar = None
         self.dtype = np.float32
+        self.seed = seed
     def __call__(self,n,**kwargs):
+        if self.seed:
+            np.random.seed(self.seed)
         vals = self.sampler(n,**kwargs)
         if vals is not None:
             vals = np.array(vals).astype(self.dtype)
@@ -374,6 +380,13 @@ class QsoSimVar(object):
         self.assocVar = assocVar
     def get_associated_var(self):
         return self.assocVar
+    def set_seed(self,seed,overwrite=False):
+        '''
+        Update the random seed used when sampling the variable. If
+        overwrite is False an exisiting seed will be preserved.
+        '''
+        if overwrite or self.seed is None:
+            self.seed = seed
     def updateMeta(self,meta,axPfx):
         '''
         Update the meta-data dictionary associated with the variable.
@@ -383,6 +396,7 @@ class QsoSimVar(object):
         meta[axPfx+'TYPE'] = self.__class__.__name__
         meta[axPfx+'NAME'] = str(self.name)
         meta[axPfx+'SMPL'] = self._sampler_to_string()
+        meta[axPfx+'SEED'] = str(self.seed)
 
 class MultiDimVar(QsoSimVar):
     '''
@@ -435,8 +449,8 @@ class AppMagVar(QsoSimVar):
     An apparent magnitude variable, defined in an observed bandpass ``band``.
     '''
     name = 'appMag'
-    def __init__(self,sampler,obsBand):
-        super(AppMagVar,self).__init__(sampler)
+    def __init__(self,sampler,obsBand,**kwargs):
+        super(AppMagVar,self).__init__(sampler,**kwargs)
         self.obsBand = obsBand
     def updateMeta(self,meta,axPfx):
         super(AppMagVar,self).updateMeta(meta,axPfx)
@@ -448,9 +462,9 @@ class AbsMagVar(QsoSimVar):
     ``restWave`` in Angstroms.
     '''
     name = 'absMag'
-    def __init__(self,sampler,restWave=None):
+    def __init__(self,sampler,restWave=None,**kwargs):
         '''if restWave is none then bolometric'''
-        super(AbsMagVar,self).__init__(sampler)
+        super(AbsMagVar,self).__init__(sampler,**kwargs)
         self.restWave = restWave
     def updateMeta(self,meta,axPfx):
         super(AbsMagVar,self).updateMeta(meta,axPfx)
@@ -489,15 +503,17 @@ class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
     Examples
     --------
     >>> from simqso.sqgrids import BrokenPowerLawContinuumVar,GaussianSampler
-    >>> v = BrokenPowerLawContinuumVar([GaussianSampler(-1.5,0.3),GaussianSampler(-0.5,0.3)],[1215.7])
+    >>> v = BrokenPowerLawContinuumVar([GaussianSampler(-1.5,0.3),
+                                        GaussianSampler(-0.5,0.3)],
+                                       [1215.7])
     >>> v(3)
     array([[-1.801, -1.217],
            [-1.56 , -0.594],
            [-1.605, -0.248]])
     '''
     name = 'slopes'
-    def __init__(self,samplers,breakPts):
-        super(BrokenPowerLawContinuumVar,self).__init__(samplers)
+    def __init__(self,samplers,breakPts,**kwargs):
+        super(BrokenPowerLawContinuumVar,self).__init__(samplers,**kwargs)
         self.breakPts = np.asarray(breakPts).astype(np.float32)
         self.meta['CNTBKPTS'] = ','.join(['%.1f' % b for b in self.breakPts])
     def _normalize(self,wave,z,slopes,fluxNorm=None,
@@ -610,8 +626,8 @@ class GaussianLineEqWidthVar(EmissionFeatureVar):
         Fixed Gaussian parameters for the rest-frame wavelength and sigma
         in Angstroms. Only the equivalent width is sampled.
     '''
-    def __init__(self,sampler,name,wave0,width0,log=False):
-        super(GaussianLineEqWidthVar,self).__init__(sampler,name)
+    def __init__(self,sampler,name,wave0,width0,log=False,**kwargs):
+        super(GaussianLineEqWidthVar,self).__init__(sampler,name,**kwargs)
         self.wave0 = wave0
         self.width0 = width0
         self.log = log
@@ -636,8 +652,8 @@ class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
     trends for the emission lines from the BOSS DR9 model (Ross et al. 2013).
     TODO: this should really start with the file
     '''
-    def __init__(self,samplers,lineNames):
-        super(BossDr9EmissionLineTemplateVar,self).__init__(samplers)
+    def __init__(self,samplers,lineNames,**kwargs):
+        super(BossDr9EmissionLineTemplateVar,self).__init__(samplers,**kwargs)
         self.lineNames = lineNames
         self.meta['LINEMODL'] = 'BOSS DR9 Log-linear trends with luminosity'
         self.meta['LINENAME'] = ','.join(lineNames)
@@ -712,13 +728,13 @@ class SightlineVar(QsoSimVar):
     spectra.
     '''
     name = 'igmlos'
-    def __init__(self,forest,losMap=None):
+    def __init__(self,forest,losMap=None,**kwargs):
         N = forest.numSightLines
         if losMap is None:
             s = RandomSubSampler(N)
         else:
             s = FixedSampler(losMap)
-        super(SightlineVar,self).__init__(s)
+        super(SightlineVar,self).__init__(s,**kwargs)
         self.forest = forest
         self.dtype = np.int32
 
@@ -797,10 +813,10 @@ class AbsMagFromAppMagVar(AbsMagVar):
     restWave : float
         Rest wavelength in Angstroms for the absolute magnitudes.
     '''
-    def __init__(self,appMag,z,kcorr,cosmo,restWave=None):
+    def __init__(self,appMag,z,kcorr,cosmo,restWave=None,**kwargs):
         absMag = appMag - self.cosmo.distmod(z).value - kcorr(appMag,z)
         sampler = FixedSampler(absMag)
-        super(AbsMagFromAppMagVar,self).__init__(sampler,restWave)
+        super(AbsMagFromAppMagVar,self).__init__(sampler,restWave,**kwargs)
 
 class AbsMagFromBHMassEddRatioVar(AbsMagVar):
     '''
@@ -821,14 +837,15 @@ class AbsMagFromBHMassEddRatioVar(AbsMagVar):
     restWave : float
         Rest wavelength in Angstroms for the absolute magnitudes.
     '''
-    def __init__(self,logBhMass,logEddRatio,restWave=None):
+    def __init__(self,logBhMass,logEddRatio,restWave=None,**kwargs):
         eddLum = 1.26e38 * 10**logBhMass
         lum = 10**logEddRatio * eddLum
         BC1450 = 5.0 # rough value from Richards+06
         lnu1450 = lum / BC1450
         M1450 = magnitude_AB_from_L_nu(lnu1450/2e15)
         sampler = FixedSampler(M1450)
-        super(AbsMagFromBHMassEddRatioVar,self).__init__(sampler,restWave)
+        super(AbsMagFromBHMassEddRatioVar,self).__init__(sampler,restWave,
+                                                         **kwargs)
 
 class TimeVar(QsoSimVar):
     '''
@@ -874,16 +891,22 @@ class QsoSimObjects(object):
         Cosmology used for the simulation.
     units : str
         One of "flux" or "luminosity", XXX should be handled internally...
+    seed : int
+        Seed for RNG. Note the seed is only applied at initialization,
+        individual variables can be seeded with QsoSimVar.__init___().
     '''
-    def __init__(self,qsoVars=[],cosmo=None,units=None):
+    def __init__(self,qsoVars=[],cosmo=None,units=None,seed=None):
         self.cosmo = cosmo
         self.units = units
+        self.seed = seed
         self.qsoVars = qsoVars
         if len(qsoVars) > 0:
             self.varNames = [ v.name for v in qsoVars ]
         else:
             self.varNames = []
         self.photoMap = None
+        if self.seed:
+            np.random.seed(self.seed)
     def setCosmology(self,cosmodef):
         if type(cosmodef) is dict:
             self.cosmo = cosmology.FlatLambdaCDM(**cosmodef)
@@ -1030,6 +1053,7 @@ class QsoSimObjects(object):
         tab.meta['COSMO'] = self.cosmo_str(self.cosmo)
         tab.meta['GRIDUNIT'] = self.units
         tab.meta['GRIDDIM'] = str(self.gridShape)
+        tab.meta['RANDSEED'] = str(self.seed)
         if self.photoMap is not None:
             tab.meta['OBSBANDS'] = ','.join(self.photoMap['bandpasses'])
         for i,var in enumerate(self.qsoVars):
@@ -1147,20 +1171,54 @@ def generateQlfPoints(qlf,mRange,zRange,kcorr,**kwargs):
     '''
     Generate a `QsoSimPoints` grid fed by `AppMagVar` and `RedshiftVar`
     instances which are sampled from an input luminosity function.
+
+    Parameters
+    ----------
+    qlf : `lumfun.LuminosityFunction` instance
+        Representation of QLF to sample from.
+    mRange : sequence (m_min,m_max)
+        Range of apparent magnitudes to sample within [e.g., (17,22)].
+    zRange : sequence (z_min,z_max)
+        Range of redshifts to sample within [e.g., (2.2,3.5)].
+    kcorr : callable
+        K-correcton defined by either an `sqbase.SimKCorr` object or an 
+        equivalent callable that accepts as arguments (m,z,inverse=False) 
+        where m is apparent (absolute) magnitude if inverse is False (True),
+        and z is redshift.
+    qlfseed : int
+        Seed for RNG applied *before* sampling from QLF.
+    gridseed : int
+        Seed for RNG applied *after* sampling from QLF, but before
+        sampling additional variables added to the grid.
+    zin : sequence
+        Optional input redshifts. If supplied only the apparent magnitudes 
+        are sampled from the QLF.
+
+    kwargs : dict
+        Additional parameters passed to
+        `LuminosityFunction.sample_from_fluxrange()`.
     '''
+    qlfSeed = kwargs.pop('qlfseed',None)
+    if qlfSeed:
+        np.random.seed(qlfSeed)
+    gridSeed = kwargs.pop('gridseed',None)
     M,m,z = qlf.sample_from_fluxrange(mRange,zRange,kcorr,**kwargs)
     M = AbsMagVar(FixedSampler(M),kcorr.restBand)
     m = AppMagVar(FixedSampler(m),kcorr.obsBand)
     z = RedshiftVar(FixedSampler(z))
-    qlfGrid = QsoSimPoints([M,m,z],cosmo=qlf.cosmo,units='flux')
+    qlfGrid = QsoSimPoints([M,m,z],cosmo=qlf.cosmo,units='flux',
+                           seed=gridSeed)
     return qlfGrid
 
 def generateBEffEmissionLines(M1450,**kwargs):
-    trendFn = kwargs.get('EmissionLineTrendFilename','emlinetrends_v6')
-    indy = kwargs.get('EmLineIndependentScatter',False)
-    noScatter = kwargs.get('NoScatter',False)
-    excludeLines = kwargs.get('ExcludeLines',[])
-    onlyLines = kwargs.get('OnlyLines')
+    trendFn = kwargs.pop('EmissionLineTrendFilename','emlinetrends_v6')
+    indy = kwargs.pop('EmLineIndependentScatter',False)
+    noScatter = kwargs.pop('NoScatter',False)
+    excludeLines = kwargs.pop('ExcludeLines',[])
+    onlyLines = kwargs.pop('OnlyLines',None)
+    seed = kwargs.pop('seed',None)
+    if seed:
+        np.random.seed(seed)
     M_i = M1450 - 1.486 + 0.596
     lineCatalog = Table.read(os.path.join(datadir,trendFn+'.fits'))
     for line,scl in kwargs.get('scaleEWs',{}).items():
