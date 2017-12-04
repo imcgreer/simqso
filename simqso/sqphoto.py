@@ -287,6 +287,16 @@ supported_photo_systems = {
   'TMASS':{
     'Allsky':{'bands':['J','H','K'],'magSys':'AB','uncMap':tmassPhotoUnc},
   },
+  'DECam':{
+    'DECaLS':{'bands':'grz','magSys':'AB','uncMap':None},
+    'DES':{'bands':'grizy','magSys':'AB','uncMap':None},
+  },
+  'HSC':{
+    'Wide':{'bands':'grizy','magSys':'AB','uncMap':None},
+  },
+  'LSST':{
+    'Wide':{'bands':'ugrizy','magSys':'AB','uncMap':None},
+  },
 }
 
 # should find a better container / organization for this
@@ -321,7 +331,8 @@ def load_photo_map(photSystems):
             # precompute the bandpass normalization
             norm = simps(fdat.Rlam/fdat.lam, fdat.lam)
             bandpasses[bpName] = dict(Rlam=fcurv,norm=norm,data=fdat)
-            mapObserved[bpName] = photSys['uncMap'](band)
+            if photSys['uncMap'] is not None:
+                mapObserved[bpName] = photSys['uncMap'](band)
             magSys[bpName] = photSys['magSys']
             filtName[bpName] = bpExt
     return dict(bandpasses=bandpasses,mapObserved=mapObserved,
