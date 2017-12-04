@@ -116,11 +116,15 @@ class SimKCorr(object):
         raise NotImplementedError
 
 class ContinuumKCorr(SimKCorr):
-    def __init__(self,obsBand,restBand,alpha_nu=-0.5):
+    def __init__(self,obsBand,restBand,alpha_nu=-0.5,effWaveBand=None):
         super(ContinuumKCorr,self).__init__(obsBand,restBand)
         self.alpha_nu = alpha_nu
+        if effWaveBand is None:
+            self._obsBand = self.obsBand
+        else:
+            self._obsBand = effWaveBand
     def __call__(self,m,z,inverse=False):
-        return continuum_kcorr(self.obsBand,self.restBand,z,
+        return continuum_kcorr(self._obsBand,self.restBand,z,
                                alpha_nu=self.alpha_nu)
 
 class EmissionLineKCorr(SimKCorr):
