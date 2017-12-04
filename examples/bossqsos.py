@@ -65,7 +65,7 @@ simParams = {
     # underlying continuum, only option is power law
     'ContinuumParams':{
       # power law slopes have a gaussian distribution
-      'ContinuumModel':'GaussianPLawDistribution',
+      'ContinuumModel':'BrokenPowerLaw',
       # the continuum consists of a series of broken power laws with
       # independent slope distributions 
       # the format is [ (meanSlope, stdSlope), breakWavelength, ... ]
