@@ -118,9 +118,9 @@ class eBossQsos(object):
         if 'z' in featureset:
             z = np.ma.array(self.specz)[:,None]
             z = np.ma.log10(1+z)
-            features = [z,features]
+            features = np.ma.hstack([z,features])
             names = ['logz_q'] + names
-        return np.ma.hstack(features),names,refFlux
+        return features,names,refFlux
 
 def prep_simqsos(simqsos,refband='i'):
     j = 3 # XXX
@@ -222,5 +222,8 @@ def fit_ebossqsos(simqsos,qsos=None):
 
 if __name__=='__main__':
     #make_coreqso_table(sys.argv[1],sys.argv[2])
-    fit_ebossqsos(sys.argv[1])
+    for f in sys.argv[1:]:
+        print(f)
+        fit_ebossqsos(f)
+        print()
 

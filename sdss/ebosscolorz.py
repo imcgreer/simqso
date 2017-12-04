@@ -79,7 +79,7 @@ def ebosscore_colorz(coreqsos,pvals,zedges,maglim=None,maglimband='i'):
         zqso = zqso[ii]
     clrs = features.filled(1e20)
     colorz = calc_colorz(zqso,clrs,pvals,zedges)
-    return Table(dict(ebosscore=colorz)),names[1:]
+    return Table(dict(ebosscore=colorz)),names
 
 # mags
 #yr = [ (-0.7,4.2), (-0.3,1.7), (-0.15,0.5), (-0.2,0.5), (-0.15,0.75) ]
@@ -358,7 +358,7 @@ if __name__=='__main__':
     import argparse
     parser = argparse.ArgumentParser(
                               description='run eboss color-z simulations.')
-    parser.add_argument('fitsfile',nargs='?',type=str,help='input file name')
+    parser.add_argument('fitsfile',nargs='+',type=str,help='input file name')
     parser.add_argument('--forest',type=str,default='sdss_forest_grid',
         help='file containing forest grid (default:sdss_forest_grid)')
     parser.add_argument('-m','--model',type=str,default='bossdr9',
@@ -376,12 +376,14 @@ if __name__=='__main__':
         model = ebossmodels.qso_models[args.model]
         cz = model_colorz_tracks(model,args.forest)
     else:
-        simqsos = Table.read(args.fitsfile)
         coreqsos = ebossfit.eBossQsos()
-        colorz_compare(simqsos,coreqsos,maglim=args.maglim)
-        if args.maglim:
-            sfx = '_ilt%.1f' % args.maglim
-        else:
-            sfx = ''
-        plt.savefig(args.fitsfile.replace('.fits','_colorz'+sfx+'.pdf'))
+        for ff in args.fitsfile:
+            print(ff)
+            simqsos = Table.read(ff)
+            colorz_compare(simqsos,coreqsos,maglim=args.maglim)
+            if args.maglim:
+                sfx = '_ilt%.1f' % args.maglim
+            else:
+                sfx = ''
+            plt.savefig(ff.replace('.fits','_colorz'+sfx+'.pdf'))
 
