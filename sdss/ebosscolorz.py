@@ -358,7 +358,8 @@ if __name__=='__main__':
     import argparse
     parser = argparse.ArgumentParser(
                               description='run eboss color-z simulations.')
-    parser.add_argument('fitsfile',nargs='+',type=str,help='input file name')
+    parser.add_argument('fitsfile',nargs='+',type=str,
+        help='input file name(s)')
     parser.add_argument('--forest',type=str,default='sdss_forest_grid',
         help='file containing forest grid (default:sdss_forest_grid)')
     parser.add_argument('-m','--model',type=str,default='bossdr9',

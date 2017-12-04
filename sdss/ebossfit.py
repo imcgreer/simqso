@@ -137,7 +137,7 @@ def prep_simqsos(simqsos,refband='i'):
     X = np.ma.hstack([logz,fratios])
     return X,refFlux
 
-def fit_mixtures(X,mag,mbins,binwidth=0.2,
+def fit_mixtures(X,mag,mbins,binwidth=0.2,seed=None,
                  keepscore=False,keepbic=False,**kwargs):
     kwargs.setdefault('n_components',25)
     kwargs.setdefault('covariance_type','full')
@@ -146,6 +146,8 @@ def fit_mixtures(X,mag,mbins,binwidth=0.2,
         scores = []
     if keepbic:
         bics = []
+    if seed:
+        np.random.seed(seed)
     for bincenter in mbins:
         # this is not an efficient way to assign bins, but the time
         # is negligible compared to the GMM fitting anyway
@@ -166,12 +168,12 @@ def fit_mixtures(X,mag,mbins,binwidth=0.2,
         rv += (bics,)
     return rv
 
-def fit_simqsos(simqsos,refband='i',mbins=None):
+def simqso_density_estimation(simqsos,refband='i',mbins=None,seed=None):
     if mbins is None:
         mbins = np.arange(17.7,22.51,0.1)
     X,refFlux = prep_simqsos(simqsos,refband)
     mag = 22.5 - 2.5*np.log10(refFlux.clip(1e-10,np.inf))
-    fits, = fit_mixtures(X,mag,mbins)
+    fits, = fit_mixtures(X,mag,mbins,seed=seed)
     return fits
 
 def model_selection(simqsos,refband='i',mbin=20.):
@@ -199,31 +201,52 @@ def plot_model_selection(simqsos):
         plt.plot(n_components,bics-bics.min(),label=str(mbin))
     plt.legend()
 
-def fit_ebossqsos(simqsos,qsos=None):
+def fit_ebossqsos(simqsos,qsos=None,seed=None,navg=1):
     if isinstance(simqsos,str):
         simqsos = Table.read(simqsos)
     if qsos is None:
         qsos = eBossQsos()
     features,names,refFlux = qsos.extract_features()
     mags = 22.5 - 2.5*np.log10(refFlux.clip(1e-10,np.inf))
-    print(names,features.shape)
-    fits = fit_simqsos(simqsos)
     mbins = np.arange(17.7,22.51,0.1)
     binNums = np.digitize(mags,mbins-0.1/2)
-    n,score = 0,0
-    for i,fit in enumerate(fits):
-        ii = np.where(binNums==i)[0]
-        if len(ii) > 0:
-            s = fit.score_samples(features[ii])
-            score += s.sum()
-            n += len(ii)
-    score /= n
-    print(score)
+    print('fitting features ',','.join(names))
+    print('in {} magnitude bins'.format(len(mbins)))
+    allscore = []
+    for iterNum in range(navg):
+        fits = simqso_density_estimation(simqsos,seed=seed)
+        n,score = 0,0
+        for i,fit in enumerate(fits):
+            ii = np.where(binNums==i)[0]
+            if len(ii) > 0:
+                s = fit.score_samples(features[ii])
+                score += s.sum()
+                n += len(ii)
+        score /= n
+        print('  iter {} score {:.3f}'.format(iterNum+1,score))
+        allscore.append(score)
+        # don't reuse the seed!
+        seed = None
+    if navg > 1:
+        allscore = np.array(allscore)
+        print('final avg {:.3f} with rms {:.3f}'.format(
+               allscore.mean(),allscore.std()))
 
 if __name__=='__main__':
+    import argparse
+    parser = argparse.ArgumentParser(
+                              description='fit simulated quasars to eboss')
+    parser.add_argument('fitsfile',nargs='+',type=str,
+        help='simulation output file name(s)')
+    parser.add_argument('-n','--navg',type=int,default=1,
+        help='number of GMM fits to average')
+    parser.add_argument('-s','--seed',type=int,default=12345,
+        help='random seed')
+    args = parser.parse_args()
     #make_coreqso_table(sys.argv[1],sys.argv[2])
-    for f in sys.argv[1:]:
-        print(f)
-        fit_ebossqsos(f)
+    coreqsos = eBossQsos()
+    for ff in args.fitsfile:
+        print(ff)
+        fit_ebossqsos(ff,coreqsos,args.seed,args.navg)
         print()
 
