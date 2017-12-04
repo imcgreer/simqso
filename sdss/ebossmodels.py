@@ -14,11 +14,20 @@ cont_models = {
 }
 
 emline_models = {
+  'bossdr9':{
+    'scaleEWs':{'LyAb':1.1,'LyAn':1.1,'CIVb':0.75,'CIVn':0.75,
+                'CIII]b':0.8,'CIII]n':0.8,'MgIIb':0.8,'MgIIn':0.8},
+    },
   'ebossdr14':{
     'scaleEWs':{'LyAb':1.1,'LyAn':1.1,'CIVb':0.75,'CIVn':0.75,
                  'CIII]b':0.8,'CIII]n':0.8,'MgIIb':0.8,'MgIIn':0.8,
                  'Hbeta':1.1,},#'HAb':1.0,'HAn':1.0},
     'scaleLogScatter':{'CIVb':2,'MgIIb':2,'Hbeta':3,'HAb':4,},
+    },
+  'yang+16':{
+    'scaleEWs':{'LyAb':1.1,'LyAn':1.1,'CIVb':1.2,'CIVn':1.2,
+                'CIII]b':1.0,'CIII]n':1.0,'MgIIb':1.2,'MgIIn':1.2,
+                'Hbeta':1.2,'[OIII]4364':1.2,'HAn':1.0,'HAb':1.0},
     },
 }
 
@@ -98,23 +107,16 @@ def add_dust_emission(qsos,model='LR17',const=False):
 
 def add_emission_lines(qsos,model='bossdr9',const=False):
     print("EMISSION LINES: {}".format(model))
-    if model == 'bossdr9':
-        emLineVar = sqmodels.BossDr9_EmLineTemplate(qsos.absMag,
-                                                    NoScatter=const)
-    elif model == 'yang16':
-        emLineVar = sqmodels.get_Yang16_EmLineTemplate(qsos.absMag,
-                                                       NoScatter=const)
-    else:
-        try:
-            kwargs = emline_models[model]
-        except:
-            if isinstance(model,str):
-                kwargs = eval(model)
-            else:
-                kwargs = model
-        kwargs['NoScatter'] = const
-        print("EMISSION LINES: {}".format(str(kwargs)))
-        emLineVar = grids.generateBEffEmissionLines(qsos.absMag,**kwargs)
+    try:
+        kwargs = emline_models[model]
+    except:
+        if isinstance(model,str):
+            kwargs = eval(model)
+        else:
+            kwargs = model
+    kwargs['NoScatter'] = const
+    print("EMISSION LINES: {}".format(str(kwargs)))
+    emLineVar = grids.generateBEffEmissionLines(qsos.absMag,**kwargs)
     qsos.addVar(emLineVar)
     return qsos
 

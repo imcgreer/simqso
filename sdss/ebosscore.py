@@ -196,6 +196,7 @@ def qlf_ranges(model,simName,forestFile,qlf,skyArea,**kwargs):
             apply_selection_fun(fn+'.fits',verbose=1,redo=True)
 
 def emline_ranges(model,modelName,line,forestFile,qlf,skyArea,**kwargs):
+    model['emlines'] = ebossmodels.emline_models[model['emlines']]
     for scl in [0.5,0.75,1.0,1.25,1.5]:
         fn = '_'.join([modelName,line,'%.2f'%scl])
         fn = os.path.join(kwargs.get('outputDir','.'),fn+'.fits')
@@ -204,6 +205,8 @@ def emline_ranges(model,modelName,line,forestFile,qlf,skyArea,**kwargs):
         qsos = sample_qlf(qlf,skyArea=skyArea)
         np.random.seed(int(pow(2,10**scl)))
         if not os.path.exists(fn) or args.redo:
+            model['emlines']['scaleEWs'][line] = scl
+            print(model)
             runsim(model,fn,forestFile,qsos,**kwargs)
             apply_selection_fun(fn,verbose=1,redo=True)
 
