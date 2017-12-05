@@ -1216,6 +1216,7 @@ def generateBEffEmissionLines(M1450,**kwargs):
     noScatter = kwargs.pop('NoScatter',False)
     excludeLines = kwargs.pop('ExcludeLines',[])
     onlyLines = kwargs.pop('OnlyLines',None)
+    minEw = kwargs.pop('minEw',None)
     seed = kwargs.pop('seed',None)
     if seed:
         np.random.seed(seed)
@@ -1242,6 +1243,9 @@ def generateBEffEmissionLines(M1450,**kwargs):
     useLines = ~np.in1d(lineCatalog['name'],excludeLines)
     if onlyLines is not None:
         useLines &= np.in1d(lineCatalog['name'],onlyLines)
+    if minEw is not None:
+        logEw = np.polyval(lineCatalog['logEW'][:,1].T,-25)
+        useLines &= logEw > np.log10(minEw)
     #
     lineList = [ (BaldwinEffectSampler(l['wavelength'],M_i,x1),
                   BaldwinEffectSampler(l['logEW'],M_i,x2),
