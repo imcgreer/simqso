@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 
 import os,sys
+import itertools
 import subprocess
 import multiprocessing
 import numpy as np
 import matplotlib.pyplot as plt
 from astropy.cosmology import FlatLambdaCDM
-from astropy.table import Table,hstack
+from astropy.table import Table,hstack,vstack
 from simqso import sqbase,sqrun,sqmodels,sqphoto,lumfun,hiforest
 from simqso import sqgrids as grids
 from simqso.sqbase import continuum_kcorr,fixed_R_dispersion
@@ -51,15 +52,10 @@ photSys = [ ('SDSS','Legacy'), ('UKIRT','UKIDSS_LAS'), ('WISE','AllWISE') ]
 
 def runsim(model,fileName,forest,qsoGrid,
            foresttype='meanmag',nlos=5000,
-           maxIter=3,nproc=1,wave=None,
+           maxIter=3,procMap=None,wave=None,
            medianforest=False,const=False,
            nophot=False,withspec=False,outputDir='.'):
     np.random.seed(12345)
-    if nproc==1:
-        procMap = map
-    else:
-        pool = multiprocessing.Pool(nproc)
-        procMap = pool.map
     if wave is None:
         wave = fixed_R_dispersion(0.3e4,6e4,500)
     #
@@ -111,8 +107,6 @@ def runsim(model,fileName,forest,qsoGrid,
     #
     if fileName is not None:
         qsoGrid.write(fileName)
-    if nproc>1:
-        pool.close()
     if withspec:
         return qsoGrid,wave,spectra
     else:
@@ -137,16 +131,38 @@ def get_sim_optwise_mags(simqsos):
     simqsos['f_WISE'] = ( 1.0*f_W1_Vega + 0.5*f_W2_Vega ) / 1.5
     return simqsos
 
-def apply_selection_fun(fileName,verbose=0,redo=False):
-    xdFile = 'xdtmp.fits'
+def run_xdqso(args):
+    fileName,xdFile,verbose = args
+    if not os.path.exists(xdFile):
+        FNULL = open(os.devnull,'w')
+        cmd = ["idl","-e","xdprob,'{0}','{1}'".format(fileName,xdFile)]
+        if verbose:
+            print("executing "+" ".join(cmd))
+        subprocess.call(cmd,stdout=FNULL,stderr=FNULL)
+
+def apply_selection_fun(fileName,verbose=0,redo=False,procMap=None,nsplit=1):
+    xdFile = fileName.replace('.fits','__xdtmp.fits')
     qsos = Table.read(fileName)
     if 'PQSO' not in qsos.colnames or redo:
-        if not os.path.exists(xdFile):
-            cmd = ["idl","-e","xdprob,'{0}','{1}'".format(fileName,xdFile)]
-            if verbose:
-                print("executing "+" ".join(cmd))
-            subprocess.call(cmd)
-        xdqso = Table.read(xdFile)
+        if nsplit == 1:
+            run_xdqso( (fileName,xdFile,verbose) )
+            xdqso = Table.read(xdFile)
+            os.remove(xdFile)
+        else:
+            splits = np.array_split(np.arange(len(qsos)),nsplit)
+            procArgs = []
+            for i,split in enumerate(splits):
+                tmpFn = fileName.replace('.fits','__%02d.fits'%i)
+                tmpXdFn = xdFile.replace('.fits','__%02d.fits'%i)
+                qsos[split].write(tmpFn,overwrite=True)
+                procArgs.append( (tmpFn,tmpXdFn,verbose) )
+            procMap(run_xdqso,procArgs)
+            xdqso = []
+            for i,(tmpFn,tmpXdFn,_) in enumerate(procArgs):
+                xdqso.append( Table.read(tmpXdFn) )
+                os.remove(tmpFn)
+                os.remove(tmpXdFn)
+            xdqso = vstack(xdqso)
         if redo and 'PQSO' in qsos.colnames:
             qsos.remove_columns(xdqso.colnames)
         for col in xdqso.colnames:
@@ -180,7 +196,6 @@ def apply_selection_fun(fileName,verbose=0,redo=False):
     #
     qsos['selected'] = sel
     qsos.write(fileName,overwrite=True)
-    os.remove(xdFile)
 
 def qlf_ranges(model,simName,forestFile,qlf,skyArea,**kwargs):
     np.random.seed(12345)
@@ -197,15 +212,21 @@ def qlf_ranges(model,simName,forestFile,qlf,skyArea,**kwargs):
 
 def emline_ranges(model,modelName,line,forestFile,qlf,skyArea,**kwargs):
     model['emlines'] = ebossmodels.emline_models[model['emlines']]
-    for scl in [0.5,0.75,1.0,1.25,1.5]:
-        fn = '_'.join([modelName,line,'%.2f'%scl])
+    scls = np.linspace(0.5,1.5,6)
+    #for scl in [0.5,0.75,1.0,1.25,1.5]:
+    for scl1,scl2 in itertools.product(scls,scls):
+        #fn = '_'.join([modelName,line,'%.2f'%scl])
+        fn = '_'.join([modelName,line,'%.2f'%scl1,'%.2f'%scl2])
         fn = os.path.join(kwargs.get('outputDir','.'),fn+'.fits')
         print('running simulation {}'.format(fn))
-        np.random.seed(12345)
-        qsos = sample_qlf(qlf,skyArea=skyArea)
-        np.random.seed(int(pow(2,10**scl)))
         if not os.path.exists(fn) or args.redo:
-            model['emlines']['scaleEWs'][line] = scl
+            np.random.seed(12345)
+            qsos = sample_qlf(qlf,skyArea=skyArea)
+            #np.random.seed(int(pow(2,10**scl)))
+            np.random.seed(int(pow(2,scl1+2*scl2)))
+            #model['emlines']['scaleEWs'][line] = scl
+            model['emlines']['scaleEWs']['LyAb'] = scl1
+            model['emlines']['scaleEWs']['CIVb'] = scl2
             print(model)
             runsim(model,fn,forestFile,qsos,**kwargs)
             apply_selection_fun(fn,verbose=1,redo=True)
@@ -257,28 +278,35 @@ if __name__=='__main__':
     #
     modelName = args.model
     model = ebossmodels.qso_models.get(args.model,{})
+    def eval_arg(arg):
+        return None if arg == 'none' else arg
     if args.continuum:
-        model['continuum'] = args.continuum
+        model['continuum'] = eval_arg(args.continuum)
     if args.emlines:
-        model['emlines'] = args.emlines
+        model['emlines'] = eval_arg(args.emlines)
     if args.dustem:
-        model['dustem'] = args.dustem
+        model['dustem'] = eval_arg(args.dustem)
     if args.iron:
-        model['continuum'] = args.iron
+        model['continuum'] = eval_arg(args.iron)
     if args.dustext:
-        model['continuum'] = args.dustext
+        model['continuum'] = eval_arg(args.dustext)
     #
     if args.qlf=='bossdr9':
         qlf = sqmodels.BOSS_DR9_PLEpivot(cosmo=dr9cosmo)
     else:
         raise ValueError
+    if args.processes == 1:
+        procMap = map
+    else:
+        pool = multiprocessing.Pool(args.processes)
+        procMap = pool.map
     #
     if args.testranges:
         #qlf_ranges(model,simName,args.forest,qlf,args.skyarea,
         #           nproc=args.processes)
         emline_ranges(model,modelName,'LyAb',args.forest,qlf,args.skyarea,
                       foresttype=args.foresttype,
-                      nproc=args.processes,outputDir=args.outputdir)
+                      procMap=procMap,outputDir=args.outputdir)
     else:
         np.random.seed(args.seed)
         fn = modelName
@@ -290,6 +318,10 @@ if __name__=='__main__':
         qsoGrid = sample_qlf(qlf,skyArea=args.skyarea)
         runsim(model,fn,args.forest,qsoGrid,
                foresttype=args.foresttype,nlos=args.nlos,
-               nproc=args.processes,outputDir=args.outputdir)
+               procMap=procMap,outputDir=args.outputdir)
         if not args.noselection:
-            apply_selection_fun(fn,verbose=1,redo=True)
+            apply_selection_fun(fn,verbose=1,procMap=procMap,redo=True,
+                                nsplit=args.processes)
+    if args.processes > 1:
+        pool.close()
+

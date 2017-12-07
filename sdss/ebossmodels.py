@@ -17,17 +17,20 @@ emline_models = {
   'bossdr9':{
     'scaleEWs':{'LyAb':1.1,'LyAn':1.1,'CIVb':0.75,'CIVn':0.75,
                 'CIII]b':0.8,'CIII]n':0.8,'MgIIb':0.8,'MgIIn':0.8},
+    'EmissionLineTrendFilename':'emlinetrends_v5',
     },
   'ebossdr14':{
-    'scaleEWs':{'LyAb':1.1,'LyAn':1.1,'CIVb':0.75,'CIVn':0.75,
+    'scaleEWs':{'LyAb':1.0,'LyAn':1.0,'CIVb':1.0,'CIVn':1.0,
                  'CIII]b':0.8,'CIII]n':0.8,'MgIIb':0.8,'MgIIn':0.8,
                  'Hbeta':1.1,},#'HAb':1.0,'HAn':1.0},
-    'scaleLogScatter':{'CIVb':2,'MgIIb':2,'Hbeta':3,'HAb':4,},
+    'scaleLogScatter':{'CIVb':2,'MgIIb':2,'Hbeta':3,'Halpha':4,},
+    'EmissionLineTrendFilename':'emlinetrends_v7',
     },
   'yang+16':{
     'scaleEWs':{'LyAb':1.1,'LyAn':1.1,'CIVb':1.2,'CIVn':1.2,
                 'CIII]b':1.0,'CIII]n':1.0,'MgIIb':1.2,'MgIIn':1.2,
                 'Hbeta':1.2,'[OIII]4364':1.2,'HAn':1.0,'HAb':1.0},
+    'EmissionLineTrendFilename':'emlinetrends_v6',
     },
 }
 
@@ -115,8 +118,10 @@ def add_emission_lines(qsos,model='bossdr9',const=False):
         else:
             kwargs = model
     kwargs['NoScatter'] = const
+#    kwargs['minEw'] = 10
     print("EMISSION LINES: {}".format(str(kwargs)))
-    emLineVar = grids.generateBEffEmissionLines(qsos.absMag,**kwargs)
+    emLineVar = grids.generateBEffEmissionLines(qsos.absMag,verbose=1,
+                                                **kwargs)
     qsos.addVar(emLineVar)
     return qsos
 
