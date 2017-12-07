@@ -1218,9 +1218,12 @@ def generateBEffEmissionLines(M1450,**kwargs):
     onlyLines = kwargs.pop('OnlyLines',None)
     minEw = kwargs.pop('minEw',None)
     seed = kwargs.pop('seed',None)
+    verbose = kwargs.pop('verbose',0)
     if seed:
         np.random.seed(seed)
     M_i = M1450 - 1.486 + 0.596
+    if verbose > 0:
+        print('loading emission line template {}'.format(trendFn))
     lineCatalog = Table.read(os.path.join(datadir,trendFn+'.fits'))
     for line,scl in kwargs.get('scaleEWs',{}).items():
         i = np.where(lineCatalog['name']==line)[0][0]
