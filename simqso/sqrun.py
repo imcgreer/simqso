@@ -241,8 +241,11 @@ def buildQsoSpectrum(wave,cosmo,specFeatures,obj,iterNum=1,
         base = sqbase.Spectrum(spec.wave,spec.f_lambda.copy(),spec.z)
         components = {}
     # start with continuum
-    distmod = lambda z: cosmo.distmod(z).value
-    fluxNorm = {'wavelength':1450.,'M_AB':obj['absMag'],'DM':distmod}
+    if cosmo is None:
+        fluxNorm = None
+    else:
+        distmod = lambda z: cosmo.distmod(z).value
+        fluxNorm = {'wavelength':1450.,'M_AB':obj['absMag'],'DM':distmod}
     for feature in specFeatures:
         if isinstance(feature,grids.ContinuumVar):
             assocvals = _getpar(feature.get_associated_var(),obj)
