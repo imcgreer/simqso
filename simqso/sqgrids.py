@@ -729,9 +729,13 @@ class SightlineVar(QsoSimVar):
     '''
     name = 'igmlos'
     def __init__(self,forest,losMap=None,**kwargs):
+        self.subsample = kwargs.pop('subsample',True)
         N = forest.numSightLines
         if losMap is None:
-            s = RandomSubSampler(N)
+            if self.subsample:
+                s = RandomSubSampler(N)
+            else:
+                s = FixedSampler(np.arange(N,dtype=np.int32))
         else:
             s = FixedSampler(losMap)
         super(SightlineVar,self).__init__(s,**kwargs)

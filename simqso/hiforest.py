@@ -307,7 +307,6 @@ class IGMTransmissionGrid(object):
         Array containing emission redshifts.
     nlos : int
         Number of lines-of-sight to generate.
-        if -1, each emission redshift has an independent line-of-sight
     losMap : sequence 
         Optional mapping from z_em to LOS. Must have the same number of 
         elements and be in the range 0..nlos-1.
