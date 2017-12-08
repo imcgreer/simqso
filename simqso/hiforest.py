@@ -323,6 +323,8 @@ class IGMTransmissionGrid(object):
         map of z_em <-> line-of-sight
     wave : `~numpy.ndarray` 
         input wavelength grid
+    voigtcache : bool
+        use a lookup table of Voigt profiles to speed computation (def: True)
     '''
     def __init__(self,wave,forestModel,numSightLines,**kwargs):
         self.specWave = wave
@@ -330,6 +332,7 @@ class IGMTransmissionGrid(object):
         self.numSightLines = numSightLines
         self.verbose = kwargs.get('verbose',0)
         self.nosortz = kwargs.get('nosortz',False)
+        self.voigtkwargs = {'fast':kwargs.pop('voigtcache',True)}
         # pad the lower redshift by just a bit
         self.zmin = wave.min() / 1215.7 - 1.01
         self.zmax = kwargs.get('zmax',10)
@@ -380,7 +383,7 @@ class IGMTransmissionGrid(object):
             raise ValueError("must generate sightline in increasing redshift")
         self.zi = zi2
         tau = calc_tau_lambda(self.forestWave,los[zi1:zi2],tauIn=self.tau,
-                              **kwargs)
+                              **self.voigtkwargs)
         self.T = exp(-tau).reshape(-1,self.nRebin).mean(axis=1)
         return self.T.astype(np.float32)
     def current_spec(self,sightLine,z,**kwargs):
