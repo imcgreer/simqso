@@ -1230,10 +1230,18 @@ def generateBEffEmissionLines(M1450,**kwargs):
         print('loading emission line template {}'.format(trendFn))
     lineCatalog = Table.read(os.path.join(datadir,trendFn+'.fits'))
     for line,scl in kwargs.get('scaleEWs',{}).items():
-        i = np.where(lineCatalog['name']==line)[0][0]
+        try:
+            i = np.where(lineCatalog['name']==line)[0][0]
+        except IndexError:
+            print('WARNING: {} not in line template'.format(line))
+            continue
         lineCatalog['logEW'][i,:,1] += np.log10(scl)
     for line,scl in kwargs.get('scaleLogScatter',{}).items():
-        i = np.where(lineCatalog['name']==line)[0][0]
+        try:
+            i = np.where(lineCatalog['name']==line)[0][0]
+        except IndexError:
+            print('WARNING: {} not in line template'.format(line))
+            continue
         logew = lineCatalog['logEW'][i,:,1]
         logew[1] = logew[0] - scl*(logew[0]-logew[1])
         logew[2] = logew[0] + scl*(logew[2]-logew[0])
