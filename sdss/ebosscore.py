@@ -52,7 +52,7 @@ photSys = [ ('SDSS','Legacy'), ('UKIRT','UKIDSS_LAS'), ('WISE','AllWISE') ]
 
 def runsim(model,fileName,forest,qsoGrid,
            foresttype='meanmag',nlos=5000,
-           maxIter=3,procMap=None,wave=None,
+           maxIter=3,procMap=map,wave=None,
            medianforest=False,const=False,
            nophot=False,withspec=False,outputDir='.'):
     np.random.seed(12345)

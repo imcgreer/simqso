@@ -169,10 +169,12 @@ def colorz_param_trends(modelName,forestFile):
             print()
     #
     model = deepcopy(ebossmodels.qso_models[modelName])
-    for l in ['LyA','CIV','MgII','Hbeta','HA','Pa']:
+    for l in ['LyB','LyA','CIV','MgII','Hbeta','HA','Halpha','Pa']:
         for scl in [0.5,1.0,2.0]:
-            model['emlines'] = {'scaleEWs':{}}
-            if l == 'Hbeta':
+            model['emlines'] = {'scaleEWs':{},
+                      'EmissionLineTrendFilename':model['emlines'].get(
+                         'EmissionLineTrendFilename','emlinetrends_v7')}
+            if l in ['Hbeta','Halpha']:
                 model['emlines']['scaleEWs'][l] = scl
             elif l == 'Pa':
                 scl = scl**2
@@ -358,7 +360,7 @@ if __name__=='__main__':
     import argparse
     parser = argparse.ArgumentParser(
                               description='run eboss color-z simulations.')
-    parser.add_argument('fitsfile',nargs='+',type=str,
+    parser.add_argument('fitsfile',nargs='*',type=str,
         help='input file name(s)')
     parser.add_argument('--forest',type=str,default='sdss_forest_grid',
         help='file containing forest grid (default:sdss_forest_grid)')
