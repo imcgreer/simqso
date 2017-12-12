@@ -169,20 +169,25 @@ def colorz_param_trends(modelName,forestFile):
             print()
     #
     model = deepcopy(ebossmodels.qso_models[modelName])
-    for l in ['LyB','LyA','CIV','MgII','Hbeta','HA','Halpha','Pa']:
+    emtemplate = ebossmodels.emline_models[
+                               model['emlines']]['EmissionLineTrendFilename']
+    if emtemplate.endswith('v6'):
+        Halpha = 'HA'
+    else:
+        Halpha = 'Halpha'
+    if emtemplate[-2:] in ['v5','v6']:
+        LyB = 'LyB'
+    else:
+        LyB = 'LyB+OVI'
+    for l in [LyB,'LyA','CIV','MgII','Hbeta',Halpha]:
         for scl in [0.5,1.0,2.0]:
             model['emlines'] = {'scaleEWs':{},
-                      'EmissionLineTrendFilename':model['emlines'].get(
-                         'EmissionLineTrendFilename','emlinetrends_v7')}
-            if l in ['Hbeta','Halpha']:
-                model['emlines']['scaleEWs'][l] = scl
-            elif l == 'Pa':
-                scl = scl**2
-                for c in ['alpha','beta']:
-                    model['emlines']['scaleEWs'][l+c] = scl
-            else:
+                                'EmissionLineTrendFilename':emtemplate}
+            if l in ['LyA','CIV','MgII','HA']:
                 for c in 'bn':
                     model['emlines']['scaleEWs'][l+c] = scl
+            else:
+                model['emlines']['scaleEWs'][l] = scl
             print(l,model)
             cz = model_colorz_tracks(model,forestFile)
             add_entry(tab,l,'%3.1f'%scl,cz)
