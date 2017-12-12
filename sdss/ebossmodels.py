@@ -10,7 +10,7 @@ cont_models = {
                  (-1.70,0.3),(-1.03,0.3)],
                  [1100.,5700.,9730.,22300.]],
   'ebossdr14':[[(-1.5,0.3),(-0.4,0.3)],[1200.]],
-  'dr14expdust':[[(-1.2,0.3),(-0.3,0.3)],[1200.]],
+  'dr14expdust':[[(-0.5,0.3),(-0.3,0.3)],[1200.]],
 }
 
 emline_models = {
@@ -47,8 +47,8 @@ dustem_models = {
   'GHW06b':{'sublimdust':[(0.03,None),(1800.,None)],
            'hotdust':[(0.07,None),(1260.,None)]},
   #
-  'dr14expdust':{'sublimdust':[(0.03,None),(1800.,None)],
-                 'hotdust':[(0.06,None),(880.,None)]},
+  'dr14expdust':{'sublimdust':[(0.011,None),(1800.,None)],
+                 'hotdust':[(0.02,None),(880.,None)]},
 }
 
 qso_models = {
