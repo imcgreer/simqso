@@ -332,11 +332,14 @@ class IGMTransmissionGrid(object):
         self.numSightLines = numSightLines
         self.verbose = kwargs.get('verbose',0)
         self.nosortz = kwargs.get('nosortz',False)
+        self.subsample = kwargs.get('subsample',True)
         self.voigtkwargs = {'fast':kwargs.pop('voigtcache',True)}
         # pad the lower redshift by just a bit
         self.zmin = wave.min() / 1215.7 - 1.01
         self.zmax = kwargs.get('zmax',10)
-#        # Generate the lines-of-sight first, to preserve random generator order
+        # Generate the lines-of-sight first, to preserve random generator order
+        if self.verbose:
+            print("Generating {} sightlines".format(self.numSightLines))
         self.sightLines = [ generate_los(self.forestModel,self.zmin,self.zmax) 
                               for i in range(self.numSightLines) ]
         # default is 10 km/s
@@ -363,6 +366,8 @@ class IGMTransmissionGrid(object):
         self.forestWave = exp( log(wavemin) +  dloglam*np.arange(self.nPix) )
         #
         self.tau = np.zeros(self.nPix)
+        if not self.subsample:
+            self.allT = []
         self.reset()
     def reset(self):
         self.currentSightLineNum = -1
@@ -379,15 +384,23 @@ class IGMTransmissionGrid(object):
         zi1 = self.zi
         los = self.currentSightLine
         zi2 = np.searchsorted(los['z'],min(z,self.zmax))
+        if self.verbose > 1:
+            print("extending sightline {} to z={:.4f}".format(sightLine,z))
         if zi2 < zi1:
             raise ValueError("must generate sightline in increasing redshift")
         self.zi = zi2
         tau = calc_tau_lambda(self.forestWave,los[zi1:zi2],tauIn=self.tau,
                               **self.voigtkwargs)
-        self.T = exp(-tau).reshape(-1,self.nRebin).mean(axis=1)
-        return self.T.astype(np.float32)
-    def current_spec(self,sightLine,z,**kwargs):
+        T = exp(-tau).reshape(-1,self.nRebin).mean(axis=1)
+        self.T = T.astype(np.float32)
+        if not self.subsample:
+            self.allT.append(self.T)
         return self.T
+    def current_spec(self,sightLine,z,**kwargs):
+        if self.subsample:
+            return self.T
+        else:
+            return self.allT[sightLine]
     def all_spec(self,losMap,z_em,**kwargs):
         if len(losMap) != len(z_em):
             raise ValueError
