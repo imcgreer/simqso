@@ -353,7 +353,7 @@ class QsoSimVar(object):
         Seed to apply to RNG before sampling the variable. If None there
         is no call to random.seed().
     '''
-    def __init__(self,sampler,name=None,seed=None):
+    def __init__(self,sampler,name=None,seed=None,meta=None):
         self.sampler = sampler
         if name is not None:
             self.name = name
@@ -362,6 +362,7 @@ class QsoSimVar(object):
         self.assocVar = None
         self.dtype = np.float32
         self.seed = seed
+        self.varmeta = meta
     def __call__(self,n,**kwargs):
         if self.seed:
             np.random.seed(self.seed)
@@ -396,7 +397,10 @@ class QsoSimVar(object):
         meta[axPfx+'TYPE'] = self.__class__.__name__
         meta[axPfx+'NAME'] = str(self.name)
         meta[axPfx+'SMPL'] = self._sampler_to_string()
-        meta[axPfx+'SEED'] = str(self.seed)
+        if self.seed is not None:
+            meta[axPfx+'SEED'] = str(self.seed)
+        if self.varmeta is not None:
+            meta[axPfx+'META'] = str(self.varmeta)
 
 class MultiDimVar(QsoSimVar):
     '''
@@ -515,7 +519,6 @@ class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
     def __init__(self,samplers,breakPts,**kwargs):
         super(BrokenPowerLawContinuumVar,self).__init__(samplers,**kwargs)
         self.breakPts = np.asarray(breakPts).astype(np.float32)
-        self.meta['CNTBKPTS'] = ','.join(['%.1f' % b for b in self.breakPts])
     def _normalize(self,wave,z,slopes,fluxNorm=None,
                    minwave=12.4,getspec=True):
         z1 = 1 + z
@@ -571,6 +574,9 @@ class BrokenPowerLawContinuumVar(ContinuumVar,MultiDimVar):
         ftot = np.sum( breakwvs[:-1]*f0*(np.power(waveratio,alpha_lams+1)-1)
                          / (alpha_lams+1))
         return ftot
+    def updateMeta(self,meta,axPfx):
+        super(BrokenPowerLawContinuumVar,self).updateMeta(meta,axPfx)
+        meta[axPfx+'VARG'] = str(list(self.breakPts))
 
 class EmissionFeatureVar(QsoSimVar,SpectralFeatureVar):
     '''
@@ -652,11 +658,12 @@ class BossDr9EmissionLineTemplateVar(GaussianEmissionLinesTemplateVar):
     trends for the emission lines from the BOSS DR9 model (Ross et al. 2013).
     TODO: this should really start with the file
     '''
-    def __init__(self,samplers,lineNames,**kwargs):
+    def __init__(self,samplers,lineNames=None,**kwargs):
         super(BossDr9EmissionLineTemplateVar,self).__init__(samplers,**kwargs)
-        self.lineNames = lineNames
-        self.meta['LINEMODL'] = 'BOSS DR9 Log-linear trends with luminosity'
-        self.meta['LINENAME'] = ','.join(lineNames)
+        if lineNames is not None:
+            self.lineNames = lineNames
+            self.meta['LINEMODL'] = 'BOSS DR9 Log-linear trends with luminosity'
+            self.meta['LINENAME'] = ','.join(lineNames)
         self.dependentVars = 'absMag'
     def __call__(self,n=None,ii=None):
         lpar = super(BossDr9EmissionLineTemplateVar,self).__call__(n,ii=ii)
@@ -672,9 +679,14 @@ class FeTemplateVar(EmissionFeatureVar):
     instance internally.
     '''
     name = 'fetempl'
-    def __init__(self,feGrid):
-        super(FeTemplateVar,self).__init__(NullSampler())
+    def __init__(self,feGrid=None,**kwargs):
+        super(FeTemplateVar,self).__init__(NullSampler(),**kwargs)
+        if feGrid is not None:
+            self.set_template_grid(feGrid)
+    def set_template_grid(self,feGrid):
         self.feGrid = feGrid
+        self.varmeta = dict(fwhm=self.feGrid.fwhm,scales=self.feGrid.scales,
+                            useopt=self.feGrid.useopt)
     def render(self,wave,z,par,assocvals=None):
         return self.feGrid.get(z)
 
@@ -730,17 +742,27 @@ class SightlineVar(QsoSimVar):
     name = 'igmlos'
     def __init__(self,forest,losMap=None,**kwargs):
         self.subsample = kwargs.pop('subsample',True)
-        N = forest.numSightLines
-        if losMap is None:
-            if self.subsample:
-                s = RandomSubSampler(N)
-            else:
-                s = FixedSampler(np.arange(N,dtype=np.int32))
+        if isinstance(forest,Sampler):
+            s = forest
+            forest = None
         else:
-            s = FixedSampler(losMap)
+            N = forest.numSightLines
+            if losMap is None:
+                if self.subsample:
+                    s = RandomSubSampler(N)
+                else:
+                    s = FixedSampler(np.arange(N,dtype=np.int32))
+            else:
+                s = FixedSampler(losMap)
         super(SightlineVar,self).__init__(s,**kwargs)
-        self.forest = forest
+        if forest is not None:
+            self.set_forest_grid(forest)
         self.dtype = np.int32
+    def set_forest_grid(self,forest):
+        self.forest = forest
+        self.varmeta = (self.forest.forestModel,self.forest.numSightLines,
+                        dict(zmax=self.forest.zmax,seed=self.forest.seed,
+                             subsample=self.forest.subsample))
 
 class HIAbsorptionVar(SightlineVar,SpectralFeatureVar):
     '''
@@ -1006,27 +1028,39 @@ class QsoSimObjects(object):
         self.units = hdr['GRIDUNIT']
         self.gridShape = eval(hdr['GRIDDIM'])
         hdr = fits.getheader(gridFile,1)
+        self.setCosmology(hdr['COSMO'])
         try:
             self.simPars = ast.literal_eval(hdr['SQPARAMS'])
-            self.setCosmology(self.simPars['Cosmology'])
         except:
-            print('WARNING: no params in header')
+            #print('WARNING: no params in header')
+            pass
         for i,v in enumerate(range(hdr['NSIMVAR'])):
             cls = hdr['AX%dTYPE'%i]
             name = hdr['AX%dNAME'%i]
             smplr = hdr['AX%dSMPL'%i] 
-            kwargs = hdr.get('AX%dVARG'%i,'')
+            seed = hdr.get('AX%dSEED'%i)
+            vargs = hdr.get('AX%dVARG'%i)
+            varmeta = hdr.get('AX%dMETA'%i)
             try:
-                if smplr == 'FixedSampler':
-                    smplr = 'FixedSampler(self.data[name])'
-                c = eval(cls+'('+smplr+',%s)'%kwargs)
+                initargs = []
+                if name in self.data.colnames:
+                    # treat all input variables as fixed, using the values
+                    # stored in gridFile
+                    initargs.append( 'FixedSampler(self.data[name])' )
+                if vargs is not None:
+                    initargs.append('%s' % vargs)
+                if seed is not None:
+                    initargs.append('seed=%s' % seed)
+                if varmeta is not None:
+                    initargs.append('meta=%s' % varmeta)
+                initargs = cls+'('+','.join(initargs)+')'
+                #print('[{}]: '.format(name),initargs)
+                c = eval(initargs)
                 if c.name != name:
                     c.name = name
                 self.addVar(c,noVals=True)
-            except:
+            except AttributeError:
                 print('WARNING: failed to restore %s' % cls)
-                self.qsoVars.append(None)
-                self.varNames.append('<null>')
         self._restore(hdr)
     def _restore(self,hdr):
         pass
@@ -1294,6 +1328,9 @@ def generateVdBCompositeEmLines(minEW=1.0,noFe=False,verbose=0):
 
 class VW01FeTemplateGrid(object):
     def __init__(self,z,wave,fwhm=5000.,scales=None,useopt=True):
+        self.fwhm = fwhm
+        self.scales = scales
+        self.useopt = useopt
         z1 = max(0,z.min()-0.1)
         z2 = z.max() + 0.1
         nz = int((z2-z1)/0.005) + 1

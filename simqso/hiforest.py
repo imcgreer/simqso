@@ -333,6 +333,7 @@ class IGMTransmissionGrid(object):
         self.verbose = kwargs.get('verbose',0)
         self.nosortz = kwargs.get('nosortz',False)
         self.subsample = kwargs.get('subsample',True)
+        self.seed = kwargs.get('seed')
         self.voigtkwargs = {'fast':kwargs.pop('voigtcache',True)}
         # pad the lower redshift by just a bit
         self.zmin = wave.min() / 1215.7 - 1.01
@@ -340,6 +341,10 @@ class IGMTransmissionGrid(object):
         # Generate the lines-of-sight first, to preserve random generator order
         if self.verbose:
             print("Generating {} sightlines".format(self.numSightLines))
+            if self.verbose > 1:
+                print('... using random seed {}'.format(self.seed))
+        if self.seed is not None:
+            np.random.seed(self.seed)
         self.sightLines = [ generate_los(self.forestModel,self.zmin,self.zmax) 
                               for i in range(self.numSightLines) ]
         # default is 10 km/s
@@ -373,7 +378,7 @@ class IGMTransmissionGrid(object):
         self.currentSightLineNum = -1
     def next_spec(self,sightLine,z,**kwargs):
         if self.currentSightLineNum != sightLine:
-            if self.verbose > 0:
+            if self.verbose > 1:
                 print('finished sightline ',self.currentSightLineNum)
 #            self.currentSightLine = generate_los(self.forestModel,
 #                                                 self.zmin,self.zmax) 

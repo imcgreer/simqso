@@ -483,6 +483,35 @@ def readSimulationData(fileName,outputDir,retParams=False,clean=False):
     return qsoGrid
 
 
+def restore_qso_grid(fileName,wave,outputDir='.'):
+    qsoGrid = grids.QsoSimObjects()
+    if not fileName.endswith('.fits'):
+        fileName += '.fits'
+    qsoGrid.read(os.path.join(outputDir,fileName))
+    # IGM transmission spectra depend on a (possibly) pre-computed grid,
+    # which must be regenerated
+    try:
+        hiVar = qsoGrid.getVars(grids.HIAbsorptionVar)[0]
+        fmodel,nlos,kwargs = hiVar.varmeta
+        igmGrid = hiforest.IGMTransmissionGrid(wave,fmodel,nlos,**kwargs)
+        hiVar.set_forest_grid(igmGrid)
+    except IndexError:
+        # no forest
+        pass
+    # Fe template spectra depend on a (possibly) pre-computed grid,
+    # which must be regenerated
+    try:
+        feVar = qsoGrid.getVars(grids.FeTemplateVar)[0]
+        kwargs = feVar.varmeta
+        fetempl = grids.VW01FeTemplateGrid(qsoGrid.z,wave,**kwargs)
+        feVar.set_template_grid(fetempl)
+    except IndexError:
+        # no forest
+        pass
+    #
+    return qsoGrid
+
+
 def qsoSimulation(simParams,**kwargs):
     '''
     Run a complete simulation.
