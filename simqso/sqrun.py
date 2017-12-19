@@ -483,11 +483,11 @@ def readSimulationData(fileName,outputDir,retParams=False,clean=False):
     return qsoGrid
 
 
-def restore_qso_grid(fileName,wave,outputDir='.'):
+def restore_qso_grid(fileName,wave,outputDir='.',**kwargs):
     qsoGrid = grids.QsoSimObjects()
     if not fileName.endswith('.fits'):
         fileName += '.fits'
-    qsoGrid.read(os.path.join(outputDir,fileName))
+    qsoGrid.read(os.path.join(outputDir,fileName),**kwargs)
     # IGM transmission spectra depend on a (possibly) pre-computed grid,
     # which must be regenerated
     try:

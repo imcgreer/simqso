@@ -1009,11 +1009,11 @@ class QsoSimObjects(object):
                       if self.photoMap['filtName'][self.photoBands[j]]==band)
     def getObsBandIndex(self):
         return self.getBandIndex(self.getVars(AppMagVar)[0].obsBand)
-    def read(self,gridFile,clean=False):
+    def read(self,gridFile,clean=False,extname=None):
         '''
         Read a simulation grid from a file.
         '''
-        self.data = Table.read(gridFile)
+        self.data = Table.read(gridFile,hdu=extname)
         if clean:
             # XXX it's hacky to be aware of these colnames here, but need to
             # know how to delete derived quantities that will be recomputed
@@ -1073,7 +1073,8 @@ class QsoSimObjects(object):
                 d['Ob0'] = cosmodef.Ob0
             cosmodef = d
         return str(cosmodef)
-    def write(self,outFn=None,simPars=None,outputDir='.'):
+    def write(self,outFn=None,simPars=None,outputDir='.',
+              extname=None,overwrite=False):
         '''
         Write a simulation grid to a FITS file as a binary table, storing 
         meta-data in the header.
@@ -1101,7 +1102,19 @@ class QsoSimObjects(object):
             outFn = 'qsosim.fits'
         if not outFn.endswith('.fits'):
             outFn += '.fits'
-        tab.write(os.path.join(outputDir,outFn),overwrite=True)
+        outFn = os.path.join(outputDir,outFn)
+        tabhdu = fits.table_to_hdu(tab)
+        if extname is not None:
+            tabhdu.name = extname
+        if not os.path.isfile(outFn):
+            tabhdu.writeto(outFn)
+        else:
+            hdus = fits.open(outFn,mode='update')
+            if overwrite and extname in hdus:
+                hdus[extname] = tabhdu
+            else:
+                hdus.append(tabhdu)
+            hdus.close()
 
 class QsoSimPoints(QsoSimObjects):
     '''
