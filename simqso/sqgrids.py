@@ -1110,8 +1110,11 @@ class QsoSimObjects(object):
             tabhdu.writeto(outFn)
         else:
             hdus = fits.open(outFn,mode='update')
-            if overwrite and extname in hdus:
-                hdus[extname] = tabhdu
+            if extname in hdus:
+                if overwrite:
+                    hdus[extname] = tabhdu
+                else:
+                    pass
             else:
                 hdus.append(tabhdu)
             hdus.close()
