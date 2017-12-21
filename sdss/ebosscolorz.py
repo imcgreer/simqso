@@ -10,9 +10,9 @@ from matplotlib import ticker
 from astropy.table import Table,hstack
 from simqso import sqgrids as grids
 
-import ebossmodels
 import ebosscore
 import ebossfit
+import ebossmodels
 
 class percfun(object):
     def __init__(self,pval):
@@ -31,8 +31,7 @@ def calc_colorz(z,clrs,pvals,zedges):
         colorz[i] = clrz
     return colorz
 
-def sim_colorz(simqsos,pvals,zedges,ratios=True,refBand=None,
-               maglim=None,maglimband='i'):
+def sim_colorz(simqsos,pvals,zedges,ratios=True,refBand=None,maglim=None):
     b = ebosscore.BandIndexes(simqsos)
     if ratios:
         fluxk = 'Flux'
@@ -40,14 +39,18 @@ def sim_colorz(simqsos,pvals,zedges,ratios=True,refBand=None,
     else:
         fluxk = 'Mag'
         d = '-'
-    bnames = [ d.join(bb) for bb in zip(b.shortNames[:-1],b.shortNames[1:]) ]
+    if refBand is None:
+        bnames = [ d.join(bb)
+                     for bb in zip(b.shortNames[:-1],b.shortNames[1:]) ]
+    else:
+        bnames = [ b_+d+refBand for b_ in b.shortNames if b_ != refBand ]
     colorz = {}
     for which in ['syn','obs']:
         z = simqsos['z']
         flux = simqsos[which+fluxk]
         sel = np.ones(len(simqsos),dtype=bool)
         if maglim is not None:
-            sel &= simqsos['obsMag'][:,b(maglimband)] < maglim
+            sel &= simqsos['obsMag'][:,b(refBand)] < maglim
         if which=='obs':
             sel &= simqsos['selected']
         flux = flux[sel]
@@ -57,7 +60,7 @@ def sim_colorz(simqsos,pvals,zedges,ratios=True,refBand=None,
                 clrs = flux[:,:-1] / flux[:,1:]
             else:
                 clrs = flux / flux[:,[b(refBand)]]
-                clrs = np.delete(flux,b(refBand),1)
+                clrs = np.delete(clrs,b(refBand),1)
         else:
             clrs = -np.diff(flux,axis=1)
         # needs to be masked to match observations table
@@ -66,11 +69,12 @@ def sim_colorz(simqsos,pvals,zedges,ratios=True,refBand=None,
     tab = Table(colorz)
     return tab,bnames
 
-def ebosscore_colorz(coreqsos,pvals,zedges,maglim=None,maglimband='i'):
+def ebosscore_colorz(coreqsos,pvals,zedges,maglim=None,
+                     refBand=None,ratios='neighboring'):
     photsets = ['sdss','ukidss','wise']
     features,names,refFlux = coreqsos.extract_features(featureset=photsets,
-                                                       refband=maglimband,
-                                                       ratios='neighboring')
+                                                       refband=refBand,
+                                                       ratios=ratios)
     zqso = coreqsos.specz
     if maglim:
         refMag = 22.5 - 2.5*np.log10(refFlux.clip(1e-5,np.inf))
@@ -89,13 +93,16 @@ fratio_yrange = {
   'W1/W2':(0.4,1.3),
 }
 
-def colorz_compare(simqsos,coreqsos,maglim=None):
+def colorz_compare(simqsos,coreqsos,maglim=None,refBand=None):
     zedges = np.linspace(0.9,4.0,32)
     zbins = zedges[:-1] + np.diff(zedges)/2
     pvals = [25,50,75]
+    ratios = 'neighboring' if refBand is None else 'byref'
     colorz,simClrNames = sim_colorz(simqsos,pvals,zedges,
-                                    maglim=maglim)
+                                    refBand=refBand,maglim=maglim)
+    refBand_ = 'i' if refBand is None else refBand
     colorz2,ebossClrNames = ebosscore_colorz(coreqsos,pvals,zedges,
+                                             ratios=ratios,refBand=refBand_,
                                              maglim=maglim)
     assert np.all(np.array(simClrNames)==np.array(ebossClrNames))
     colorz = hstack([colorz,colorz2])
@@ -295,6 +302,9 @@ if __name__=='__main__':
         help='show color-z mean trends instead of running sim')
     parser.add_argument('--maglim',type=float,
         help='limiting magnitude')
+    parser.add_argument('--refband',type=str,
+        help='colors are relative to reference band instead of '+
+             'adjoining filters')
     args = parser.parse_args()
     if args.trends:
         plot_model_trends(model=args.model,forestFile=args.forest)
@@ -306,10 +316,14 @@ if __name__=='__main__':
         for ff in args.fitsfile:
             print(ff)
             simqsos = Table.read(ff)
-            colorz_compare(simqsos,coreqsos,maglim=args.maglim)
+            colorz_compare(simqsos,coreqsos,maglim=args.maglim,
+                           refBand=args.refband)
+            plt.figtext(0.5,0.05,os.path.basename(ff).replace('.fits',''),
+                        ha='center',size=15)
+            sfx = ''
             if args.maglim:
-                sfx = '_ilt%.1f' % args.maglim
-            else:
-                sfx = ''
+                sfx += '_ilt%.1f' % args.maglim
+            if args.refband:
+                sfx += '_ref-%s' % args.refband
             plt.savefig(ff.replace('.fits','_colorz'+sfx+'.pdf'))
 

@@ -40,10 +40,11 @@ def make_coreqso_table(dr14qso,ebosstarg):
 def get_column_ratio(a,j):
     col = a[:,[j]].copy()
     a /= col
-    return col,np.delete(a,j,1)
+    a = np.ma.hstack([a[:,:j],a[:,j+1:]])
+    return col,a
 
 class eBossQsos(object):
-    def __init__(self,fileName='ebosscore_dr14q.fits',zrange=None):
+    def __init__(self,fileName='ebosscore_dr14q.fits',zrange=(0.9,4.0)):
         dat = Table.read(fileName)
         if zrange is not None:
             dat = dat[np.logical_and(dat['Z']>zrange[0],dat['Z']<zrange[1])]
@@ -70,6 +71,9 @@ class eBossQsos(object):
                       for b in 'YJHK' ] ).transpose()
         # units are W/m^2/Hz, 1e26 converts to Jy and 5.44 to nanomaggie
         self.ukidssFluxes *= 1e26*10**5.44
+        # XXX the fluxes seem to be consistently offset when compared to
+        #     catalog Vega magnitudes... why?
+        self.ukidssFluxes *= 1.07
         # WISE (convert from Vega)
         # using extinction conversions from ebosstarget_qso_selection.pro
         w1 = np.ma.array(self.data['W1_NANOMAGGIES'],
@@ -122,10 +126,12 @@ class eBossQsos(object):
             names = ['logz_q'] + names
         return features,names,refFlux
 
-def prep_simqsos(simqsos,refband='i'):
+def prep_simqsos(simqsos,refband='i',sdssonly=False):
     j = 3 # XXX
     ii = np.where(simqsos['selected'])[0]
-    fluxes = np.array(simqsos['obsFlux'][ii,:5]) # XXX only sdss for now
+    fluxes = np.array(simqsos['obsFlux'][ii])
+    if sdssonly:
+        fluxes = fluxes[:,:5]
     print('WARNING: HACK to get around bad forest transmission vals')
     print(fluxes.max())
     jj = np.where(np.all(fluxes < 1e5,axis=1))[0]
@@ -168,10 +174,11 @@ def fit_mixtures(X,mag,mbins,binwidth=0.2,seed=None,
         rv += (bics,)
     return rv
 
-def simqso_density_estimation(simqsos,refband='i',mbins=None,seed=None):
+def simqso_density_estimation(simqsos,refband='i',mbins=None,seed=None,
+                              sdssonly=False):
     if mbins is None:
         mbins = np.arange(17.7,22.51,0.1)
-    X,refFlux = prep_simqsos(simqsos,refband)
+    X,refFlux = prep_simqsos(simqsos,refband,sdssonly=sdssonly)
     mag = 22.5 - 2.5*np.log10(refFlux.clip(1e-10,np.inf))
     fits, = fit_mixtures(X,mag,mbins,seed=seed)
     return fits
@@ -201,20 +208,28 @@ def plot_model_selection(simqsos):
         plt.plot(n_components,bics-bics.min(),label=str(mbin))
     plt.legend()
 
-def fit_ebossqsos(simqsos,qsos=None,seed=None,navg=1):
+def fit_ebossqsos(simqsos,qsos=None,seed=None,navg=1,
+                  sdssonly=False,verbose=0):
     if isinstance(simqsos,str):
         simqsos = Table.read(simqsos)
     if qsos is None:
         qsos = eBossQsos()
-    features,names,refFlux = qsos.extract_features()
+    if sdssonly:
+        featureset = ['sdss','z']
+    else:
+        featureset = ['sdss','ukidss','wise','z']
+    features,names,refFlux = qsos.extract_features(featureset=featureset)
     mags = 22.5 - 2.5*np.log10(refFlux.clip(1e-10,np.inf))
     mbins = np.arange(17.7,22.51,0.1)
     binNums = np.digitize(mags,mbins-0.1/2)
     print('fitting features ',','.join(names))
     print('in {} magnitude bins'.format(len(mbins)))
+    if verbose:
+        score_zedgs = np.linspace(np.log10(1.9),np.log10(5.0),10)
+        score_zvals = np.zeros((len(score_zedgs),2))
     allscore = []
     for iterNum in range(navg):
-        fits = simqso_density_estimation(simqsos,seed=seed)
+        fits = simqso_density_estimation(simqsos,seed=seed,sdssonly=sdssonly)
         n,score = 0,0
         for i,fit in enumerate(fits):
             ii = np.where(binNums==i)[0]
@@ -222,11 +237,24 @@ def fit_ebossqsos(simqsos,qsos=None,seed=None,navg=1):
                 s = fit.score_samples(features[ii])
                 score += s.sum()
                 n += len(ii)
+                if verbose:
+                    zi = np.digitize(features[ii,0],score_zedgs) - 1
+                    assert np.all( (zi>=0) & (zi<len(score_zedgs)) )
+                    np.add.at( score_zvals, (zi,0), s )
+                    np.add.at( score_zvals, (zi,1), 1 )
         score /= n
         print('  iter {} score {:.3f}'.format(iterNum+1,score))
         allscore.append(score)
         # don't reuse the seed!
         seed = None
+    if verbose:
+        avzscore = score_zvals[:,0] / score_zvals[:,1]
+        print('#{:3} {:5} {:5}'.format('z','score','n'))
+        score_zbins = 10**score_zedgs-1
+        score_zbins = score_zbins[:-1] + np.diff(score_zbins)/2
+        for i,z in enumerate(score_zbins):
+            print('{:4.2f} {:5.2f} {:5d}'.format(z,
+                                         avzscore[i],int(score_zvals[i,1])))
     if navg > 1:
         allscore = np.array(allscore)
         print('final avg {:.3f} with rms {:.3f}'.format(
@@ -242,11 +270,16 @@ if __name__=='__main__':
         help='number of GMM fits to average')
     parser.add_argument('-s','--seed',type=int,default=12345,
         help='random seed')
+    parser.add_argument('--sdss',action='store_true',
+        help='only use SDSS fluxes in fit')
+    parser.add_argument('-v','--verbose',action='count',
+        help='increase output verbosity')
     args = parser.parse_args()
     #make_coreqso_table(sys.argv[1],sys.argv[2])
     coreqsos = eBossQsos()
     for ff in args.fitsfile:
         print(ff)
-        fit_ebossqsos(ff,coreqsos,args.seed,args.navg)
+        fit_ebossqsos(ff,coreqsos,args.seed,args.navg,
+                      sdssonly=args.sdss,verbose=args.verbose)
         print()
 
