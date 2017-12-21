@@ -7,8 +7,10 @@ try:  # Python 3.x
 except ImportError:  # Python 2.x
     from distutils.command.build_py import build_py
 
+from simqso import __version__
+
 setup(name='simqso',
-      version='1.2.2dev',
+      version=__version__,
       description='Simulated Quasar Spectra',
       author='Ian McGreer',
       author_email='imcgreer@gmail.com,',
