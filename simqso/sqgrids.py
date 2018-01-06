@@ -1217,8 +1217,7 @@ class QsoSimGrid(QsoSimObjects):
         return s
 
 
-
-def generateQlfPoints(qlf,mRange,zRange,kcorr,**kwargs):
+def generate_qlf_grid(qlf,mRange,zRange,kcorr,**kwargs):
     '''
     Generate a `QsoSimPoints` grid fed by `AppMagVar` and `RedshiftVar`
     instances which are sampled from an input luminosity function.
@@ -1248,6 +1247,10 @@ def generateQlfPoints(qlf,mRange,zRange,kcorr,**kwargs):
     kwargs : dict
         Additional parameters passed to
         `LuminosityFunction.sample_from_fluxrange()`.
+
+    Returns
+    -------
+        qlfGrid : QsoSimPoints instance
     '''
     qlfSeed = kwargs.pop('qlfseed',None)
     if qlfSeed:
@@ -1261,7 +1264,41 @@ def generateQlfPoints(qlf,mRange,zRange,kcorr,**kwargs):
                            seed=gridSeed)
     return qlfGrid
 
-def generateBEffEmissionLines(M1450,**kwargs):
+def generate_beff_emission_lines(M1450,**kwargs):
+    '''Generate emission template incorporating the Baldwin Effect.
+
+    Parameters
+    ----------
+    M1450 : numpy.ndarray
+        Absolute magnitudes for input quasars.
+    EmissionLineTrendFileName : str
+        Name of file containing trends of emission line properties with
+        luminosity. Default is emlinetrends_v6.
+    EmLineIndependentScatter : bool
+        Whether to use independent random variables for each emission line
+        when randomly sampling line properties. Default is False, which means
+        lines are perfectly correlated (i.e., if x=2.0, all lines will be
+        +2 sigma above the mean equivalent width).
+    NoScatter : bool
+        Do not include scatter in line properties. Useful for producing
+        spectra with mean template values. Default is False.
+    ExcludeLines : list
+        List of line names to exclude (based on names in the trend file).
+    OnlyLines : list
+        List of line names to include, excluding all others.
+    minEw : float
+        Minimum EW of lines to include. Default is None, which means no
+        minimum.
+    seed : int
+        Random seed to apply before generating line parameter values.
+        Default is None, in which case no seeding is done.
+    verbose : int
+        Verbosity level. Default is 0.
+
+    Returns
+    -------
+    lines : BossDr9EmissionLineTemplateVar instance
+    '''
     trendFn = kwargs.pop('EmissionLineTrendFilename','emlinetrends_v6')
     indy = kwargs.pop('EmLineIndependentScatter',False)
     noScatter = kwargs.pop('NoScatter',False)
@@ -1317,7 +1354,23 @@ def generateBEffEmissionLines(M1450,**kwargs):
                                            lineCatalog['name'][useLines])
     return lines
 
-def generateVdBCompositeEmLines(minEW=1.0,noFe=False,verbose=0):
+def generate_sdss_composite_emlines(minEW=1.0,noFe=False,verbose=0):
+    '''Generate emission lines from a template based on the SDSS composite,
+    using values from Vanden Berk et al. (2001).
+
+    Parameters
+    ----------
+    minEw : float
+        Minimum EW of lines to include. Default is 1.0.
+    noFe : bool
+        Exclude Fe lines. Default is False.
+    verbose : int
+        Verbosity level. Default is 0.
+
+    Returns
+    -------
+    lines : GaussianEmissionLinesTemplateVar instance
+    '''
     tmplfits = os.path.join(datadir,'simqso_templates.fits')
     all_lines = Table(fits.getdata(tmplfits,'VdB01CompEmLines'))
     # blended lines are repeated in the table
@@ -1340,6 +1393,8 @@ def generateVdBCompositeEmLines(minEW=1.0,noFe=False,verbose=0):
 
 
 class VW01FeTemplateGrid(object):
+    '''Pre-computed grid of Fe emission template spectra using the
+    Vestergaard & Wilkes (2001) template.'''
     def __init__(self,z,wave,fwhm=5000.,scales=None,useopt=True):
         self.fwhm = fwhm
         self.scales = scales
@@ -1400,4 +1455,25 @@ class VW01FeTemplateGrid(object):
     def get(self,z):
         zi = np.searchsorted(self.zbins,z)
         return self.feGrid[zi]
+
+def generateQlfPoints(*args,**kwargs):
+    '''DEPRECATED since v1.3, use generate_qlf_grid'''
+    warnings.warn("generateQlfPoints is deprecated, "
+                  "use generate_qlf_grid instead",
+                  DeprecationWarning)
+    return generate_qlf_grid(*args,**kwargs)
+
+def generateBEffEmissionLines(*args,**kwargs):
+    '''DEPRECATED since v1.3, use generate_beff_emission_lines'''
+    warnings.warn("generateBEffEmissionLines is deprecated, "
+                  "use generate_beff_emission_lines instead",
+                  DeprecationWarning)
+    return generate_beff_emission_lines(*args,**kwargs)
+
+def generateVdBCompositeEmLines(*args,**kwargs):
+    '''DEPRECATED since v1.3, use generate_sdss_composite_emlines'''
+    warnings.warn("generateVdBCompositeEmLines is deprecated, "
+                  "use generate_sdss_composite_emlines instead",
+                  DeprecationWarning)
+    return generate_sdss_composite_emlines(*args,**kwargs)
 
