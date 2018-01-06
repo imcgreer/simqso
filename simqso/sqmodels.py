@@ -4,7 +4,7 @@ import numpy as np
 from astropy.cosmology import FlatLambdaCDM
 from . import sqgrids as grids
 from .lumfun import QlfEvolParam,PolyEvolParam,DoublePowerLawLF
-from .hiforest import IGMTransmissionGrid
+from .hiforest import IGMTransmissionGrid,generate_binned_forest
 
 Fan99_model = {
   'forest':{'zrange':(0.0,6.0),
@@ -117,6 +117,14 @@ McG13hiz_model = {
 forestModels = {'Fan1999':Fan99_model,
                 'Worseck&Prochaska2011':WP11_model,
                 'McGreer+2013':McG13hiz_model}
+
+def generate_default_binned_forest(fileName,outputDir='.',**kwargs):
+    nlos = kwargs.pop('numSightlines',1000)
+    zbins = kwargs.pop('zBins',np.arange(0.1,4.6,0.025))
+    waverange = kwargs.pop('waverange',(1300.,7000))
+    R = kwargs.pop('R',300)
+    generate_binned_forest(fileName,WP11_model,nlos,zbins,waverange,R,
+                           outputDir=outputDir,**kwargs)
 
 BossDr9_fiducial_continuum = grids.BrokenPowerLawContinuumVar([
                                     grids.GaussianSampler(-1.50,0.3),

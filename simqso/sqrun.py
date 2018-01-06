@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 
 import os
+import warnings
+
 import numpy as np
 from functools import partial
+
 from astropy.io import fits
 from astropy.table import Table,hstack
 from astropy import cosmology
@@ -17,7 +20,13 @@ from . import sqmodels
 import multiprocessing
 
 
-def buildWaveGrid(simParams):
+def _reseed(par):
+    try:
+        np.random.seed(par['RandomSeed'])
+    except KeyError:
+        pass
+
+def _build_wave_grid(simParams):
     dispersionScale = simParams.get('DispersionScale','logarithmic')
     if dispersionScale == 'logarithmic':
         lam1,lam2 = simParams['waveRange']
@@ -27,17 +36,8 @@ def buildWaveGrid(simParams):
         raise ValueError('Dispersion scale %s not supported' % dispersionScale)
     return wave
 
-
-def reseed(par):
-    try:
-        np.random.seed(par['RandomSeed'])
-    except KeyError:
-        pass
-
-
-def buildQsoGrid(simParams):
-    '''
-    Create a grid of simulated quasar "points". This function parses the 
+def _build_qso_grid(simParams):
+    '''Create a grid of simulated quasar "points". This function parses the 
     'GridParams' section of simParams, and intreprets the following options:
 
     - FluxRedshiftGrid : points are defined by (appMag,z)
@@ -60,7 +60,7 @@ def buildQsoGrid(simParams):
                                          gridPars['RestBand'])
     else:
         raise ValueError
-    reseed(gridPars)
+    _reseed(gridPars)
     #
     def get_nbins(low,high,n):
         if type(n) is int:
@@ -110,18 +110,16 @@ def buildQsoGrid(simParams):
         qsoGrid.addVar(absMag)
     return qsoGrid
 
-
-
-def buildForest(wave,z,simParams,outputDir):
+def _build_forest(wave,z,simParams,outputDir):
     '''Create a set of absorbers for a given number of lines-of-sight, 
-       sampled according to the input forest model. Then calculate the
-       transmission along each line of sight. The input redshifts correspond
-       to individual QSOs. The number of LOSs is generally smaller so that
-       fewer forest computations are needed; individual LOSs are built up
-       in redshift steps as each QSO redshift is iterated.
+    sampled according to the input forest model. Then calculate the
+    transmission along each line of sight. The input redshifts correspond
+    to individual QSOs. The number of LOSs is generally smaller so that
+    fewer forest computations are needed; individual LOSs are built up
+    in redshift steps as each QSO redshift is iterated.
     '''
     forestParams = simParams['ForestParams']
-    reseed(forestParams)
+    _reseed(forestParams)
     forestFn = forestParams.get('FileName')
     tgrid = None
     if forestFn:
@@ -140,10 +138,9 @@ def buildForest(wave,z,simParams,outputDir):
                                              zmax=z.max(),**forestParams)
     return tgrid
 
-
-def buildContinuumModels(qsoGrid,simParams,verbose=0):
+def _build_continua(qsoGrid,simParams,verbose=0):
     continuumParams = simParams['QuasarModelParams']['ContinuumParams']
-    reseed(continuumParams)
+    _reseed(continuumParams)
     slopes = continuumParams['PowerLawSlopes'][::2]
     breakpts = continuumParams['PowerLawSlopes'][1::2]
     if verbose > 0:
@@ -160,9 +157,9 @@ def buildContinuumModels(qsoGrid,simParams,verbose=0):
     qsoGrid.addVars(continuumVars)
 
 
-def buildEmissionLineGrid(qsoGrid,simParams):
+def _build_emission_line_grid(qsoGrid,simParams):
     emLineParams = simParams['QuasarModelParams']['EmissionLineParams']
-    reseed(emLineParams)
+    _reseed(emLineParams)
     if emLineParams['EmissionLineModel'] == 'FixedVdBCompositeLines':
         emLineGrid = grids.generateVdBCompositeEmLines(
                                      minEW=emLineParams.get('minEW',1.0),
@@ -177,11 +174,11 @@ def buildEmissionLineGrid(qsoGrid,simParams):
                             emLineParams['EmissionLineModel'])
     qsoGrid.addVar(emLineGrid)
 
-def buildDustGrid(qsoGrid,simParams,verbose=0):
+def _build_dust_grid(qsoGrid,simParams,verbose=0):
     if verbose > 0:
         print('... building dust extinction grid')
     dustParams = simParams['QuasarModelParams']['DustExtinctionParams']
-    reseed(dustParams)
+    _reseed(dustParams)
     if dustParams['DustExtinctionModel'] == 'Fixed E(B-V)':
         sampler = grids.ConstSampler(dustParams['E(B-V)'])
     elif dustParams['DustExtinctionModel']=='Exponential E(B-V) Distribution':
@@ -196,23 +193,20 @@ def buildDustGrid(qsoGrid,simParams,verbose=0):
     else:
         raise ValueError('invalid dust extinction model: '+
                          dustParams['DustModelName'])
-# XXX
-#                         fraction=dustParams.get('DustLOSfraction',1.0))
     qsoGrid.addVar(dustVar)
 
-
-def buildFeatures(qsoGrid,wave,simParams,forest=None,verbose=0):
-    buildContinuumModels(qsoGrid,simParams,verbose=verbose)
+def _build_features(qsoGrid,wave,simParams,forest=None,verbose=0):
+    _build_continua(qsoGrid,simParams,verbose=verbose)
     qsoParams = simParams['QuasarModelParams']
     if 'EmissionLineParams' in qsoParams:
-        buildEmissionLineGrid(qsoGrid,simParams)
+        _build_emission_line_grid(qsoGrid,simParams)
     if 'IronEmissionParams' in qsoParams:
         # only option for now is the VW01 template
         scalings = qsoParams['IronEmissionParams'].get('FeScalings')
         feGrid = grids.VW01FeTemplateGrid(qsoGrid.z,wave,scales=scalings)
         qsoGrid.addVar(grids.FeTemplateVar(feGrid))
     if 'DustExtinctionParams' in qsoParams:
-        buildDustGrid(qsoGrid,simParams,verbose=verbose)
+        _build_dust_grid(qsoGrid,simParams,verbose=verbose)
     if forest is not None:
         if isinstance(forest,hiforest.CachedIGMTransmissionGrid):
             losMap = forest.losMap
@@ -234,10 +228,37 @@ def _getpar(feature,obj):
     else:
         return obj[feature.name]
 
-def buildQsoSpectrum(wave,cosmo,specFeatures,obj,iterNum=1,
-                     save_components=False):
+def build_qso_spectrum(wave,cosmo,specFeatures,obj,**kwargs):
+    '''Generate a single mock quasar spectrum given the input list of
+    spectral features and their associated values.
+
+    Parameters
+    ----------
+    wave : `~numpy.ndarray`
+        Input wavelength grid.
+    cosmo : astropy.cosmo.Cosmology object
+        Cosmology.
+    specFeatures : sequence of sqbase.SpectralFeature instances
+        List of spectral features defining the quasar model.
+    obj : dict, namedtuple, or astropy.Table.Row object
+        Values associated with each specFeature, indexed by 
+        SpectralFeature.name
+
+    Returns
+    -------
+    spec : `~sqbase.Spectrum`
+        Spectrum object containing the generated spectrum.
+
+    Notes
+    -----
+    While building a single spectrum through this interface is supported,
+    using the higher level build_spectra_from_grid() is likely a better 
+    option.
+    '''
+    iterNum = kwargs.pop('iterNum',1)
+    saveComponents = kwargs.pop('save_components',False)
     spec = sqbase.Spectrum(wave,z=obj['z'])
-    if save_components:
+    if saveComponents:
         base = sqbase.Spectrum(spec.wave,spec.f_lambda.copy(),spec.z)
         components = {}
     # start with continuum
@@ -252,19 +273,19 @@ def buildQsoSpectrum(wave,cosmo,specFeatures,obj,iterNum=1,
             spec = feature.add_to_spec(spec,_getpar(feature,obj),
                                        assocvals=assocvals,
                                        fluxNorm=fluxNorm)
-            if save_components:
+            if saveComponents:
                 components[feature.name] = spec - base
                 base.f_lambda[:] = spec.f_lambda
     # add emission (multiplicative) features
     emspec = sqbase.Spectrum(wave,z=obj['z'])
-    if save_components:
+    if saveComponents:
         base = sqbase.Spectrum(emspec.wave,emspec.f_lambda.copy(),emspec.z)
     for feature in specFeatures:
         if isinstance(feature,grids.EmissionFeatureVar):
             assocvals = _getpar(feature.get_associated_var(),obj)
             emspec = feature.add_to_spec(emspec,_getpar(feature,obj),
                                          assocvals=assocvals)
-            if save_components:
+            if saveComponents:
                 components[feature.name] = emspec - base
                 base.f_lambda[:] = emspec.f_lambda
     spec *= emspec + 1
@@ -277,16 +298,16 @@ def buildQsoSpectrum(wave,cosmo,specFeatures,obj,iterNum=1,
         spec = feature.add_to_spec(spec,_getpar(feature,obj),
                                    assocvals=assocvals,
                                    advance=(iterNum==1))
-        if save_components:
+        if saveComponents:
             components[feature.name] = spec - base
             base.f_lambda[:] = spec.f_lambda
-    if save_components:
+    if saveComponents:
         return spec,components
     else:
         return spec
 
-def buildGrpSpectra(wave,cosmo,specFeatures,photoCache,saveSpectra,
-                    fluxBand,nIter,verbose,objGroup):
+def _build_group_spectra(wave,cosmo,specFeatures,photoCache,saveSpectra,
+                         fluxBand,nIter,verbose,objGroup):
     n = len(objGroup)
     if verbose and verbose > 0:
         losGrp = objGroup['igmlos'][0]
@@ -303,7 +324,8 @@ def buildGrpSpectra(wave,cosmo,specFeatures,photoCache,saveSpectra,
     zi = objGroup['z'].argsort()
     for i in zi:
         for iterNum in range(1,nIter+1):
-            sp = buildQsoSpectrum(wave,cosmo,specFeatures,objGroup[i],iterNum)
+            sp = build_qso_spectrum(wave,cosmo,specFeatures,objGroup[i],
+                                    iterNum=iterNum)
             if photoCache is not None:
                 synMag,synFlux = sqphoto.calcSynPhot(sp,photoCache=photoCache)
             if nIter > 1:
@@ -334,59 +356,10 @@ def _regroup(spOut):
             rv[j].append(sp[j])
     return [ np.array(v) for v in rv ]
 
-def buildSpectraBySightLine(wave,qsoGrid,procMap=map,
-                            maxIter=1,verbose=0,saveSpectra=False):
-    '''Assemble the spectral components of QSOs from the input parameters.
-
-    Parameters
-    ----------
-    wave : `~numpy.ndarray`
-        Input wavelength grid.
-    '''
-    photoCache = qsoGrid.getPhotoCache(wave)
-    if verbose > 0:
-        print('simulating ',qsoGrid.nObj,' quasar spectra')
-        print('units are ',qsoGrid.units)
-        print('max number iterations: ',maxIter)
-    verby = 0 if not verbose else qsoGrid.nObj//(5*verbose)
-    if qsoGrid.units == 'luminosity' or photoCache is None:
-        nIter = 1
-        fluxBand = None
-    else:
-        nIter = maxIter
-        fluxBand = qsoGrid.getObsBandIndex()
-    #
-    # extract the feature lists, group by sightline, and run
-    specFeatures = qsoGrid.getVars(grids.SpectralFeatureVar)
-    build_grp_spec = partial(buildGrpSpectra,wave,qsoGrid.cosmo,
-                             specFeatures,photoCache,saveSpectra,
-                             fluxBand,nIter,verby)
-    qsoGroups = qsoGrid.group_by('igmlos',with_index=True)
-    # pool.map() doesn't like the iterable produced by table.group_by(), so
-    # forcing resolution of the elements here with list() -- not that much
-    # memory anyway
-    specOut = list(procMap(build_grp_spec,list(qsoGroups)))
-    if qsoGrid.photoMap:
-        bands = qsoGrid.photoBands
-        def newarr():
-            return np.zeros((qsoGrid.nObj,len(bands)),dtype=np.float32)
-        qsoGrid.addVar(grids.SynMagVar(grids.FixedSampler(newarr())))
-        qsoGrid.addVar(grids.SynFluxVar(grids.FixedSampler(newarr())))
-    # the output needs to be remapped to the input locations
-    for objgrp,out in zip(qsoGroups,specOut):
-        for k in ['absMag','synMag','synFlux']:
-            qsoGrid.data[k][objgrp['_ii']] = out[k]
-    if saveSpectra:
-        spectra = np.vstack([s['spectra'] for s in specOut])
-        spectra = spectra[qsoGroups.parent['_ii'].argsort()]
-    else:
-        spectra = None
-    return qsoGrid,spectra
-
-def buildSpecWithPhot(wave,cosmo,specFeatures,photoCache,
-                      objData,iterNum=None,saveSpectra=False):
-    sp = buildQsoSpectrum(wave,cosmo,specFeatures,objData,
-                          iterNum=iterNum)
+def _build_spectra_with_phot(wave,cosmo,specFeatures,photoCache,
+                             objData,iterNum=None,saveSpectra=False):
+    sp = build_qso_spectrum(wave,cosmo,specFeatures,objData,
+                            iterNum=iterNum)
     if photoCache is None:
         rv = (None,None)
     else:
@@ -397,14 +370,28 @@ def buildSpecWithPhot(wave,cosmo,specFeatures,photoCache,
         rv = rv + (None,)
     return rv
 
-def buildSpectraBulk(wave,qsoGrid,procMap=map,
-                     maxIter=1,verbose=0,saveSpectra=False):
+def build_spectra_from_grid(wave,qsoGrid,procMap=map,
+                            maxIter=1,verbose=0,saveSpectra=False):
     '''Assemble the spectral components of QSOs from the input parameters.
 
     Parameters
     ----------
     wave : `~numpy.ndarray`
         Input wavelength grid.
+    qsoGrid : `~sqgrids.QsoSimObjects`
+        Quasar grid describing spectral model and providing parameters for
+        individual objects.
+    procMap : callable
+        `map`-like function, can be multiprocessing.Pool.map
+    maxIter : int
+        maximum number of iterations used to converge on per-object 
+        k-corrections if the grid is defined with respect to apparent
+        magnitudes. Default is 1.
+    verbose : int
+        verbosity level
+    saveSpectra : bool
+        Keep the generated spectra in addition to the synthetic photometry.
+        Uses a lot of memory if the grid is large.
     '''
     photoCache = qsoGrid.getPhotoCache(wave)
     if verbose > 0:
@@ -425,7 +412,7 @@ def buildSpectraBulk(wave,qsoGrid,procMap=map,
             if not ( isinstance(f.sampler,grids.NullSampler) or 
                      isinstance(f.sampler,grids.IndexSampler) ):
                 f.sampler = None
-        build_one_spec = partial(buildSpecWithPhot,wave,qsoGrid.cosmo,
+        build_one_spec = partial(_build_spectra_with_phot,wave,qsoGrid.cosmo,
                                  specFeatures,photoCache,iterNum=iterNum,
                                  saveSpectra=saveSpectra)
         if verbose > 1:
@@ -461,33 +448,301 @@ def buildSpectraBulk(wave,qsoGrid,procMap=map,
         qsoGrid.addVar(grids.SynFluxVar(grids.FixedSampler(synFlux)))
     return qsoGrid,spectra
 
+def build_spectra_by_sightline(wave,qsoGrid,procMap=map,
+                               maxIter=1,verbose=0,saveSpectra=False):
+    '''See build_spectra_from_grid(). This method sorts the quasars by
+    IGM sightline and redshift, so that the forest transmission spectra
+    can be generated one-at-a-time by adding absorbers up to each quasar
+    redshift associated with a single sightline. This method is necessary
+    if the forest component is an ~sqbase.IGMTransmissionGrid with a number
+    of sightlines smaller than the number of quasars.
+    '''
+    photoCache = qsoGrid.getPhotoCache(wave)
+    if verbose > 0:
+        print('simulating ',qsoGrid.nObj,' quasar spectra')
+        print('units are ',qsoGrid.units)
+        print('max number iterations: ',maxIter)
+    verby = 0 if not verbose else qsoGrid.nObj//(5*verbose)
+    if qsoGrid.units == 'luminosity' or photoCache is None:
+        nIter = 1
+        fluxBand = None
+    else:
+        nIter = maxIter
+        fluxBand = qsoGrid.getObsBandIndex()
+    #
+    # extract the feature lists, group by sightline, and run
+    specFeatures = qsoGrid.getVars(grids.SpectralFeatureVar)
+    build_grp_spec = partial(_build_group_spectra,wave,qsoGrid.cosmo,
+                             specFeatures,photoCache,saveSpectra,
+                             fluxBand,nIter,verby)
+    qsoGroups = qsoGrid.group_by('igmlos',with_index=True)
+    # pool.map() doesn't like the iterable produced by table.group_by(), so
+    # forcing resolution of the elements here with list() -- not that much
+    # memory anyway
+    specOut = list(procMap(build_grp_spec,list(qsoGroups)))
+    if qsoGrid.photoMap:
+        bands = qsoGrid.photoBands
+        def newarr():
+            return np.zeros((qsoGrid.nObj,len(bands)),dtype=np.float32)
+        qsoGrid.addVar(grids.SynMagVar(grids.FixedSampler(newarr())))
+        qsoGrid.addVar(grids.SynFluxVar(grids.FixedSampler(newarr())))
+    # the output needs to be remapped to the input locations
+    for objgrp,out in zip(qsoGroups,specOut):
+        for k in ['absMag','synMag','synFlux']:
+            qsoGrid.data[k][objgrp['_ii']] = out[k]
+    if saveSpectra:
+        spectra = np.vstack([s['spectra'] for s in specOut])
+        spectra = spectra[qsoGroups.parent['_ii'].argsort()]
+    else:
+        spectra = None
+    return qsoGrid,spectra
 
-def readSimulationData(fileName,outputDir,retParams=False,clean=False):
-    qsoGrid = grids.QsoSimObjects()
-    qsoGrid.read(os.path.join(outputDir,fileName+'.fits'),clean=clean)
-    simPars = qsoGrid.simPars
-    gridPars = simPars['GridParams']
-    if True:
-        mSampler = grids.FixedSampler(qsoGrid.appMag)
-        m = grids.AppMagVar(mSampler,gridPars['ObsBand'])
+
+def qso_simulation(simParams,**kwargs):
+    '''Run a complete simulation using a dictionary of parameters to define
+    the quasar model.
+
+    1. Construct grid of QSOs.
+    2. Generate Lyman forest transmission spectra from a subsample of 
+       random LOSs (optional).
+    3. Sample QSO spectral features (continuum, emission lines, dust).
+    4. Build simulated spectra and derive photometry (photometry is optional).
+    5. Transfer the simulated photometry to observed photometry by 
+       calculating errors and folding them in (optional).
+
+    Parameters
+    ----------
+    simParams : dict
+        Quasar model parameters.
+    saveSpectra : bool 
+        save the simulated spectra, not just the photometry.
+        Beware! result may be quite large (Nqso x Npixels). [default:False]
+    forestOnly : bool
+        Only generate the forest transmission spectra. [default:False]
+    noPhotoMap : bool
+        skip the simulation of observed photometry [default:False]
+    outputDir : str
+        write files to this directory [default:'./']
+    nproc : int
+        number of processes to use [default: 1]
+
+    Returns
+    -------
+    qsoGrid : sqbase.QsoSimObjectsinstance
+        simulation grid
+    spectra : np.ndarray
+        [optional if saveSpectra=True] 2D array of simulated spectra
+    '''
+    saveSpectra = kwargs.get('saveSpectra',False)
+    forestOnly = kwargs.get('forestOnly',False)
+    noPhotoMap = kwargs.get('noPhotoMap',False)
+    noWriteOutput = kwargs.get('noWriteOutput',False)
+    outputDir = kwargs.get('outputDir','./')
+    nproc = kwargs.get('nproc',1)
+    verbose = kwargs.get('verbose',0)
+    #
+    # build or restore the grid of (M,z) for each QSO
+    #
+    wave = _build_wave_grid(simParams)
+    _reseed(simParams)
+    if nproc > 1:
+        pool = multiprocessing.Pool(nproc)
+        procMap = pool.map
+    else:
+        procMap = map
+    timerLog = sqbase.TimerLog()
     try:
-        mSampler = grids.FixedSampler(qsoGrid.appMag)
-        m = grids.AppMagVar(mSampler,gridPars['ObsBand'])
-    except:
-        mSampler = grids.FixedSampler(qsoGrid.absMag)
-        m = grids.AbsMagVar(mSampler,restWave=gridPars['LumUnits'])
-    z = grids.RedshiftVar(grids.FixedSampler(qsoGrid.z))
-    qsoGrid.addVars([m,z])
-    if retParams:
-        return qsoGrid,simPars
-    return qsoGrid
+        # only keep the grid parameters and rerun everything else
+        # XXX this assumes the grid is magnitude/redshift. Need to keep track
+        #     of the grid variables for other types of grids.
+        qsoGrid,simParams = restore_qso_grid(simParams['FileName'],None,
+                                             outputDir=outputDir,
+                                             retParams=True,
+                                             keep=['absMag','appMag','z'])
+    except IOError:
+        if verbose > 0:
+            print(simParams['FileName']+' output not found')
+        if 'GridFileName' in simParams:
+            if verbose > 0:
+                print('restoring grid from ',simParams['GridFileName'])
+            try:
+                qsoGrid = restore_qso_grid(simParams['GridFileName'],None,
+                                           outputDir=outputDir)
+            except IOError:
+                if verbose > 0:
+                    print(simParams['GridFileName'],' not found, generating')
+                qsoGrid = _build_qso_grid(simParams)
+                qsoGrid.write(simParams,outputDir,
+                              simParams['GridFileName']+'.fits')
+        else:
+            if verbose > 0:
+                print('generating QSO grid')
+            qsoGrid = _build_qso_grid(simParams)
+        if not forestOnly:
+            if not noWriteOutput and 'GridFileName' in simParams:
+                qsoGrid.write(simParams,outputDir,
+                              simParams['GridFileName']+'.fits')
+    qsoGrid.setCosmology(simParams.get('Cosmology'))
+    timerLog('Initialize Grid')
+    #
+    # configure the IGM transmission spectra grid (load if cached)
+    #
+    if 'ForestParams' in simParams:
+        forest = _build_forest(wave,qsoGrid.z,simParams,outputDir)
+    else:
+        forest = None
+    if forestOnly:
+        timerLog.dump()
+        return
+    #
+    if isinstance(forest,hiforest.IGMTransmissionGrid):
+        # build sightlines on-the-fly
+        buildSpec = build_spectra_by_sightline
+        # if the user specified a file name, save the forest spectra in it
+        fpar = simParams.get('ForestParams',{})
+        forestFn = fpar.get('FileName')
+        if forestFn:
+            # map the objects to sightlines and save the forest spectra grid
+            losSampler = grids.RandomSubSampler(forest.numSightLines)
+            losMap = losSampler.sample(qsoGrid.nObj)
+            forest.write(forestFn,outputDir,losMap=losMap,
+                         z_em=qsoGrid.z,**fpar)
+            # now use the cached forest
+            forest = hiforest.CachedIGMTransmissionGrid(forestFn,outputDir)
+            if not np.allclose(wave[:len(tgrid.specWave)],tgrid.specWave):
+                raise ValueError("Input wavegrid doesn't match stored wave")
+            timerLog('Generate Forest')
+    else:
+        # else no forest or cached forest
+        buildSpec = build_spectra_from_grid
+    #
+    qsoGrid.loadPhotoMap(simParams['PhotoMapParams']['PhotoSystems'])
+    if 'GridForestFile' in simParams:
+        forest = hiforest.GridForest(simParams['GridForestFile'],
+                                     qsoGrid.photoBands)
+    #
+    # add the quasar model variables to the grid (does the random sampling)
+    #
+    _build_features(qsoGrid,wave,simParams,forest,verbose=verbose)
+    timerLog('Generate Features')
+    #
+    # Use continuum and emission line distributions to build the components
+    # of the intrinsic QSO spectrum, then calculate photometry
+    #
+    _,spectra = buildSpec(wave,qsoGrid,procMap,
+                          maxIter=simParams.get('maxFeatureIter',5),
+                          verbose=verbose,saveSpectra=saveSpectra)
+    timerLog('Build Quasar Spectra')
+    #
+    # map the simulated photometry to observed values with uncertainties
+    #
+    if not noPhotoMap:
+        if verbose > 0:
+            print('mapping photometry')
+        _reseed(simParams['PhotoMapParams'])
+        photoData = sqphoto.calcObsPhot(qsoGrid.synFlux,qsoGrid.photoMap)
+        qsoGrid.addData(photoData)
+        timerLog('PhotoMap')
+    timerLog.dump()
+    if nproc > 1:
+        pool.close()
+    if not noWriteOutput:
+        qsoGrid.write(simPars=simParams,outputDir=outputDir)
+    if saveSpectra:
+        spfn = os.path.join(outputDir,simParams['FileName']+'_spectra.fits')
+        save_spectra(wave,spectra,spfn,outputDir)
+        return qsoGrid,spectra
+    else:
+        return qsoGrid
 
+def save_spectra(wave,spectra,fileName,outputDir='.',overwrite=True):
+    '''Save the spectra generated from the simulation to a FITS table.
+    Wavelength information is stored in the header using standard IRAF
+    keywords.
+    '''
+    logwave = np.log(wave[:2])
+    dloglam = np.diff(logwave)
+    hdr = fits.Header()
+    hdr['CD1_1'] = float(dloglam)
+    hdr['CRPIX1'] = 1
+    hdr['CRVAL1'] = logwave[0]
+    hdr['CRTYPE1'] = 'LOGWAVE'
+    hdr['SPECSCAL'] = (1e-17,'erg/s/cm^2/A')
+    spectra = (spectra*1e17).astype(np.float32)
+    if not fileName.endswith('.fits'):
+        fileName += '.fits'
+    fits.writeto(os.path.join(outputDir,fileName),spectra,header=hdr,
+                 overwrite=overwrite)
 
-def restore_qso_grid(fileName,wave,outputDir='.',**kwargs):
+def load_spectra(fileName,outputDir='.'):
+    '''Load simlated spectra from a FITS file.
+
+    Returns
+    -------
+    wave : np.ndarray
+        wavelength vector (N points).
+    spec : np.ndarray
+        MxN array containing the full set of spectra.
+    '''
+    if not fileName.endswith('.fits'):
+        fileName += '.fits'
+    spec,hdr = fits.getdata(fileName,header=True)
+    wi = np.arange(spec.shape[-1])
+    logwave = hdr['CRVAL1'] + hdr['CD1_1']*(wi-(hdr['CRPIX1']-1))
+    wave = np.exp(logwave)
+    return wave,spec
+
+def restore_qso_grid(fileName,wave,outputDir='.',
+                     retParams=False,keep='all',**kwargs):
+    '''Restore a saved quasar grid into an sqbase.QsoSimObjects instance.
+
+    Parameters
+    ----------
+    fileName : string
+        Name of file containing output simulation grid.
+    wave : `numpy.ndarray`
+        Wavelength grid. Not required to be the same as the grid used for
+        the initial run; i.e., one can run a simulation and generate
+        spectra with one grid, save the grid output, and then restore
+        with a new wavelength grid.
+        If wave=None, attempts to restore wavelength grid from saved
+        parameter dict.
+    retParams : bool
+        if true, return the dict of simulation parameters (if present)
+    keep : str or sequence
+        if 'all', restore all variables from the simulation output.
+        if a list of strings, return only the named variables.
+        E.g., if keep=['absMag','z'], retain only the absolute mag and 
+        redshift variables. This allows simulations to be rerun while
+        maintaining some of the same inputs.
+    kwargs : 
+        Additional kwargs passed to QsoSimObjects.read().
+
+    Returns
+    -------
+    qsoGrid : sqbase.QsoSimObjects
+        A new simulation grid based on the output of a previous simulation.
+    '''
     qsoGrid = grids.QsoSimObjects()
     if not fileName.endswith('.fits'):
         fileName += '.fits'
     qsoGrid.read(os.path.join(outputDir,fileName),**kwargs)
+    if wave is None:
+        try:
+            wave = _build_wave_grid(qsoGrid.simPars)
+        except:
+            raise ValueError("Must specify wavelength grid.")
+    #
+    if keep != 'all':
+        for var in qsoGrid.getVars():
+            if var.name not in keep:
+                qsoGrid.removeVar(var)
+        # XXX should have a better way to track these derived data columns
+        for name in ['obsFlux','obsFluxErr','obsMag','obsMagErr']:
+            try:
+                qsoGrid.data.remove_column(name)
+            except:
+                pass
     # IGM transmission spectra depend on a (possibly) pre-computed grid,
     # which must be regenerated
     try:
@@ -508,194 +763,116 @@ def restore_qso_grid(fileName,wave,outputDir='.',**kwargs):
     except IndexError:
         # no forest
         pass
+    if retParams:
+        return qsoGrid,qsoGrid.simPars
     #
     return qsoGrid
 
-
-def qsoSimulation(simParams,**kwargs):
-    '''
-    Run a complete simulation.
-
-    1. Construct grid of QSOs.
-    2. Generate Lyman forest transmission spectra from a subsample of 
-       random LOSs (optional).
-    3. Sample QSO spectral features (continuum, emission lines, dust).
-    4. Build simulated spectra and derive photometry (photometry is optional).
-    5. Transfer the simulated photometry to observed photometry by 
-       calculating errors and folding them in (optional).
-
-    Parameters
-    ----------
-    saveSpectra : bool 
-        save the simulated spectra, not just the photometry.
-        Beware! result may be quite large (Nqso x Npixels). [default:False]
-    forestOnly : bool
-        Only generate the forest transmission spectra. [default:False]
-    noPhotoMap : bool
-        skip the simulation of observed photometry [default:False]
-    outputDir : str
-        write files to this directory [default:'./']
-    nproc : int
-        number of processes to use [default: 1]
-    '''
-    saveSpectra = kwargs.get('saveSpectra',False)
-    forestOnly = kwargs.get('forestOnly',False)
-    noPhotoMap = kwargs.get('noPhotoMap',False)
-    noWriteOutput = kwargs.get('noWriteOutput',False)
-    outputDir = kwargs.get('outputDir','./')
-    nproc = kwargs.get('nproc',1)
-    verbose = kwargs.get('verbose',0)
-    #
-    # build or restore the grid of (M,z) for each QSO
-    #
-    wave = buildWaveGrid(simParams)
-    reseed(simParams)
-    if nproc > 1:
-        pool = multiprocessing.Pool(nproc)
-        procMap = pool.map
-    else:
-        procMap = map
-    timerLog = sqbase.TimerLog()
-    try:
-        qsoGrid,simParams = readSimulationData(simParams['FileName'],
-                                               outputDir,retParams=True,
-                                               clean=True)
-    except IOError:
-        if verbose > 0:
-            print(simParams['FileName']+' output not found')
-        if 'GridFileName' in simParams:
-            if verbose > 0:
-                print('restoring grid from ',simParams['GridFileName'])
-            try:
-                qsoGrid = readSimulationData(simParams['GridFileName'],
-                                             outputDir)
-            except IOError:
-                if verbose > 0:
-                    print(simParams['GridFileName'],' not found, generating')
-                qsoGrid = buildQsoGrid(simParams)
-                qsoGrid.write(simParams,outputDir,
-                              simParams['GridFileName']+'.fits')
-        else:
-            if verbose > 0:
-                print('generating QSO grid')
-            qsoGrid = buildQsoGrid(simParams)
-        if not forestOnly:
-            if not noWriteOutput and 'GridFileName' in simParams:
-                qsoGrid.write(simParams,outputDir,
-                              simParams['GridFileName']+'.fits')
-    qsoGrid.setCosmology(simParams.get('Cosmology'))
-    timerLog('Initialize Grid')
-    #
-    # configure the IGM transmission spectra grid (load if cached)
-    #
-    if 'ForestParams' in simParams:
-        forest = buildForest(wave,qsoGrid.z,simParams,outputDir)
-    else:
-        forest = None
-    if forestOnly:
-        timerLog.dump()
-        return
-    #
-    if isinstance(forest,hiforest.IGMTransmissionGrid):
-        # build sightlines on-the-fly
-        buildSpec = buildSpectraBySightLine
-        # if the user specified a file name, save the forest spectra in it
-        fpar = simParams.get('ForestParams',{})
-        forestFn = fpar.get('FileName')
-        if forestFn:
-            # map the objects to sightlines and save the forest spectra grid
-            losSampler = grids.RandomSubSampler(forest.numSightLines)
-            losMap = losSampler.sample(qsoGrid.nObj)
-            forest.write(forestFn,outputDir,losMap=losMap,
-                         z_em=qsoGrid.z,**fpar)
-            # now use the cached forest
-            forest = hiforest.CachedIGMTransmissionGrid(forestFn,outputDir)
-            if not np.allclose(wave[:len(tgrid.specWave)],tgrid.specWave):
-                raise ValueError("Input wavegrid doesn't match stored wave")
-            timerLog('Generate Forest')
-    else:
-        # else no forest or cached forest
-        buildSpec = buildSpectraBulk
-    #
-    qsoGrid.loadPhotoMap(simParams['PhotoMapParams']['PhotoSystems'])
-    if 'GridForestFile' in simParams:
-        forest = hiforest.GridForest(simParams['GridForestFile'],
-                                     qsoGrid.photoBands)
-    #
-    # add the quasar model variables to the grid (does the random sampling)
-    #
-    buildFeatures(qsoGrid,wave,simParams,forest,verbose=verbose)
-    timerLog('Generate Features')
-    #
-    # Use continuum and emission line distributions to build the components
-    # of the intrinsic QSO spectrum, then calculate photometry
-    #
-    _,spectra = buildSpec(wave,qsoGrid,procMap,
-                          maxIter=simParams.get('maxFeatureIter',5),
-                          verbose=verbose,saveSpectra=saveSpectra)
-    timerLog('Build Quasar Spectra')
-    #
-    # map the simulated photometry to observed values with uncertainties
-    #
-    if not noPhotoMap:
-        if verbose > 0:
-            print('mapping photometry')
-        reseed(simParams['PhotoMapParams'])
-        photoData = sqphoto.calcObsPhot(qsoGrid.synFlux,qsoGrid.photoMap)
-        qsoGrid.addData(photoData)
-        timerLog('PhotoMap')
-    timerLog.dump()
-    if nproc > 1:
-        pool.close()
-    if not noWriteOutput:
-        qsoGrid.write(simPars=simParams,outputDir=outputDir)
-    if saveSpectra:
-        spfn = os.path.join(outputDir,simParams['FileName']+'_spectra.fits')
-        save_spectra(wave,spectra,spfn,outputDir)
-        return qsoGrid,spectra
-    else:
-        return qsoGrid
-
 def load_sim_output(simFileName,outputDir='.',with_spec=True):
-    simdat,par = readSimulationData(simFileName,outputDir,retParams=True)
+    '''Load the output from a previous simulation. Returns only the
+    values associated with model variables, unless with_spec=True, in which
+    case the spectra are returned also (assuming they have been saved).
+    '''
+    simdat = restore_qso_grid(simFileName,None,outputDir=outputDir)
     if with_spec:
-        sp = fits.getdata(os.path.join(outputDir,simFileName+'_spectra.fits'))
-        wave = buildWaveGrid(par)
+        if simFileName.endswith('.fits'):
+            fn = simFileName
+        else:
+            fn = simFileName+'_spectra.fits'
+        wave,sp = load_spectra(fn,outputDir)
         qsos = hstack([simdat.data,Table(dict(spec=sp))])
         return wave,qsos
     else:
         return simdat.data
 
-def save_spectra(wave,spectra,fileName,outputDir='.',overwrite=True):
-    logwave = np.log(wave[:2])
-    dloglam = np.diff(logwave)
-    hdr = fits.Header()
-    hdr['CD1_1'] = float(dloglam)
-    hdr['CRPIX1'] = 1
-    hdr['CRVAL1'] = logwave[0]
-    hdr['CRTYPE1'] = 'LOGWAVE'
-    hdr['SPECSCAL'] = (1e-17,'erg/s/cm^2/A')
-    spectra = (spectra*1e17).astype(np.float32)
-    if not fileName.endswith('.fits'):
-        fileName += '.fits'
-    fits.writeto(os.path.join(outputDir,fileName),spectra,header=hdr,
-                 overwrite=overwrite)
 
-def load_spectra(fileName,outputDir='.'):
-    if not fileName.endswith('.fits'):
-        fileName += '.fits'
-    spec,hdr = fits.getdata(fileName,header=True)
-    wi = np.arange(spec.shape[-1])
-    logwave = hdr['CRVAL1'] + hdr['CD1_1']*(wi-(hdr['CRPIX1']-1))
-    wave = np.exp(logwave)
-    return wave,spec
 
-def generate_default_binned_forest(fileName,outputDir='.',**kwargs):
-    nlos = kwargs.pop('numSightlines',1000)
-    zbins = kwargs.pop('zBins',np.arange(0.1,4.6,0.025))
-    waverange = kwargs.pop('waverange',(1300.,7000))
-    R = kwargs.pop('R',300)
-    hiforest.generate_binned_forest(fileName,sqmodels.WP11_model,
-                                    nlos,zbins,waverange,R,
-                                    outputDir=outputDir,**kwargs)
+def buildWaveGrid(*args,**kwargs):
+    '''DEPRECATED since v1.3'''
+    warnings.warn("access to buildWaveGrid is deprecated",
+                  DeprecationWarning)
+    return _build_wave_grid(*args,**kwargs)
+
+def buildQsoGrid(*args,**kwargs):
+    '''DEPRECATED since v1.3'''
+    warnings.warn("access to buildQsoGrid is deprecated",
+                  DeprecationWarning)
+    return _build_qso_grid(*args,**kwargs)
+
+def buildForest(*args,**kwargs):
+    '''DEPRECATED since v1.3'''
+    warnings.warn("access to buildForest is deprecated",
+                  DeprecationWarning)
+    return _build_forest(*args,**kwargs)
+
+def buildContinuumModels(*args,**kwargs):
+    '''DEPRECATED since v1.3'''
+    warnings.warn("access to buildContinuumModels is deprecated",
+                  DeprecationWarning)
+    return _build_continua(*args,**kwargs)
+
+def buildEmissionLineGrid(*args,**kwargs):
+    '''DEPRECATED since v1.3'''
+    warnings.warn("access to buildEmissionLineGrid is deprecated",
+                  DeprecationWarning)
+    return _build_emission_line_grid(*args,**kwargs)
+
+def buildDustGrid(*args,**kwargs):
+    '''DEPRECATED since v1.3'''
+    warnings.warn("access to buildDustGrid is deprecated",
+                  DeprecationWarning)
+    return _build_dust_grid(*args,**kwargs)
+
+def buildFeatures(*args,**kwargs):
+    '''DEPRECATED since v1.3'''
+    warnings.warn("access to buildFeatures is deprecated",
+                  DeprecationWarning)
+    return _build_features(*args,**kwargs)
+
+def buildQsoSpectrum(*args,**kwargs):
+    '''DEPRECATED since v1.3'''
+    warnings.warn("buildQsoSpectrum is deprecated, use build_qso_spectrum",
+                  DeprecationWarning)
+    return build_qso_spectrum(*args,**kwargs)
+
+def buildGrpSpectra(*args,**kwargs):
+    '''DEPRECATED since v1.3'''
+    warnings.warn("access to buildGrpSpectra is deprecated",
+                  DeprecationWarning)
+    return _build_group_spectra(*args,**kwargs)
+
+def buildSpectraBySightLine(*args,**kwargs):
+    '''DEPRECATED since v1.3, use build_spectra_by_sightline'''
+    warnings.warn("buildSpectraBySightLine is deprecated, "
+                  "use build_spectra_by_sightline instead",
+                  DeprecationWarning)
+    return build_spectra_by_sightline(*args,**kwargs)
+
+def buildSpecWithPhot(*args,**kwargs):
+    '''DEPRECATED since v1.3'''
+    warnings.warn("access to buildSpecWithPhot is deprecated",
+                  DeprecationWarning)
+    return _build_spectra_with_phot(*args,**kwargs)
+
+def buildSpectraBulk(*args,**kwargs):
+    '''DEPRECATED since v1.3, use build_spectra_from_grid'''
+    warnings.warn("buildSpectraBulk is deprecated, "
+                  "use build_spectra_from_grid instead",
+                  DeprecationWarning)
+    return build_spectra_from_grid(*args,**kwargs)
+
+def qsoSimulation(*args,**kwargs):
+    '''DEPRECATED since v1.3, use qso_simulation'''
+    warnings.warn("qsoSimulation is deprecated, "
+                  "use qso_simulation instead",
+                  DeprecationWarning)
+    return qso_simulation(*args,**kwargs)
+
+def readSimulationData(*args,**kwargs):
+    '''DEPRECATED since v1.3, use restore_qso_grid'''
+    warnings.warn("readSimulationData is deprecated ('clean' is ignored), "
+                  "use restore_qso_grid instead",
+                  DeprecationWarning)
+    kwargs.pop('clean')
+    return restore_qso_grid(*args,**kwargs)
 

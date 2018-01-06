@@ -335,6 +335,7 @@ def load_photo_map(photSystems):
                 mapObserved[bpName] = photSys['uncMap'](band)
             magSys[bpName] = photSys['magSys']
             filtName[bpName] = bpExt
+    filterdata.close()
     return dict(bandpasses=bandpasses,mapObserved=mapObserved,
                 magSys=magSys,filtName=filtName)
 

@@ -978,6 +978,12 @@ class QsoSimObjects(object):
             self.addVar(var,noVals=noVals)
     def addData(self,data):
         self.data = hstack([self.data,data])
+    def removeVar(self,var):
+        try:
+            self.data.remove_column(var.name)
+        except:
+            pass
+        self.qsoVars.remove(var)
     def getVars(self,varType=QsoSimVar):
         '''
         Return all variables that are instances of varType.
@@ -1009,20 +1015,11 @@ class QsoSimObjects(object):
                       if self.photoMap['filtName'][self.photoBands[j]]==band)
     def getObsBandIndex(self):
         return self.getBandIndex(self.getVars(AppMagVar)[0].obsBand)
-    def read(self,gridFile,clean=False,extname=None):
+    def read(self,gridFile,extname=None,**kwargs):
         '''
         Read a simulation grid from a file.
         '''
         self.data = Table.read(gridFile,hdu=extname)
-        if clean:
-            # XXX it's hacky to be aware of these colnames here, but need to
-            # know how to delete derived quantities that will be recomputed
-            for k in ['obsFlux','obsMag','obsFluxErr','obsMagErr',
-                      'synMag','synFlux']:
-                try:
-                    del self.data[k]
-                except KeyError:
-                    pass
         self.nObj = len(self.data)
         hdr = fits.getheader(gridFile,1)
         self.units = hdr['GRIDUNIT']
@@ -1373,6 +1370,7 @@ class VW01FeTemplateGrid(object):
             spec = interp1d(tspec['wave'],tspec['f_lambda'],kind='slinear')
             w1,w2 = np.searchsorted(wave,[tspec['wave'][0],tspec['wave'][-1]])
             feTemplate[w1:w2] += spec(wave[w1:w2])
+        tmplfits.close()
         return feTemplate
     def _restFrameFeTemplate(self,FWHM_kms,feScalings):
         if self.useopt:
