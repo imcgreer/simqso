@@ -1365,13 +1365,13 @@ class VW01FeTemplateGrid(object):
             templnames = ['Fe_UVOPT_V01_T06_BR92','Fe2_UV191','Fe3_UV47']
         else:
             templnames = ['Fe_UVtemplt_B','Fe2_UV191','Fe3_UV47']
-        tmplfits = fits.open(os.path.join(datadir,'simqso_templates.fits'))
-        for t in templnames:
-            extnm = t if 'UVOPT' in t else 'VW01_'+t
-            tspec = tmplfits[extnm].data
-            spec = interp1d(tspec['wave'],tspec['f_lambda'],kind='slinear')
-            w1,w2 = np.searchsorted(wave,[tspec['wave'][0],tspec['wave'][-1]])
-            feTemplate[w1:w2] += spec(wave[w1:w2])
+        with fits.open(os.path.join(datadir,'simqso_templates.fits')) as tmplfits:
+            for t in templnames:
+                extnm = t if 'UVOPT' in t else 'VW01_'+t
+                tspec = tmplfits[extnm].data
+                spec = interp1d(tspec['wave'],tspec['f_lambda'],kind='slinear')
+                w1,w2 = np.searchsorted(wave,[tspec['wave'][0],tspec['wave'][-1]])
+                feTemplate[w1:w2] += spec(wave[w1:w2])
         return feTemplate
     def _restFrameFeTemplate(self,FWHM_kms,feScalings):
         if self.useopt:
