@@ -1024,10 +1024,9 @@ class QsoSimObjects(object):
                 except KeyError:
                     pass
         self.nObj = len(self.data)
-        hdr = fits.getheader(gridFile,1)
+        hdr = fits.getheader(gridFile,extname=extname)
         self.units = hdr['GRIDUNIT']
         self.gridShape = eval(hdr['GRIDDIM'])
-        hdr = fits.getheader(gridFile,1)
         self.setCosmology(hdr['COSMO'])
         try:
             self.simPars = ast.literal_eval(hdr['SQPARAMS'])
