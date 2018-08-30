@@ -22,8 +22,8 @@ def add_speclite_filters(speclitepath):
 def add_mzls_bass_filters(speclitepath):
     slfiltdir = os.path.join(speclitepath,'speclite','data','filters')
     filtDat = fits.open('filtercurves.fits',mode='update')
-    toadd = [ ('BASS','BASS','gr'),
-              ('MzLS','MzLS','z') ]
+    toadd = [ ('BASS-MzLS','BASS','gr'),
+              ('BASS-MzLS','MzLS','z') ]
     for name,pfx,bands in toadd:
         for b in bands:
             fdat = Table.read(os.path.join(slfiltdir,pfx+'-'+b+'.ecsv'),
