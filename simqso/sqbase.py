@@ -173,7 +173,7 @@ class Spectrum(object):
         Input redshift. Default is 0.0.
     '''
     def __init__(self,wave,f_lambda=None,z=0.0):
-        self.wave = wave.astype(np.float) # XXX
+        self.wave = wave.astype(float) # XXX
         if f_lambda is None:
             self.f_lambda = np.zeros_like(self.wave)
         else:

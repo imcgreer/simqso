@@ -354,7 +354,7 @@ class IGMTransmissionGrid(object):
         if not np.allclose(dloglam,dloglam[0]):
             raise ValueError("Must have constant dloglam")
         specR = dloglam[0]**-1
-        self.nRebin = np.int(np.ceil(forestRmin/specR))
+        self.nRebin = int(np.ceil(forestRmin/specR))
         self.forestR = specR * self.nRebin
         # go a half pixel below the minimum wavelength
         wavemin = exp(logwave[0]-0.5/specR)
