@@ -237,7 +237,7 @@ class Spectrum(object):
         self.wave = newWave
         self.f_lambda = newFlux(newWave)
     def convolve_restframe(self,g,*args):
-        '''
+        r'''
         Convolves the spectrum with the input function as 
         f_lambda' = g(wave/(1+z),f_lambda).
 
