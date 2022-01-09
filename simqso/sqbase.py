@@ -173,7 +173,7 @@ class Spectrum(object):
         Input redshift. Default is 0.0.
     '''
     def __init__(self,wave,f_lambda=None,z=0.0):
-        self.wave = wave.astype(np.float) # XXX
+        self.wave = wave.astype(float) # XXX
         if f_lambda is None:
             self.f_lambda = np.zeros_like(self.wave)
         else:
@@ -237,7 +237,7 @@ class Spectrum(object):
         self.wave = newWave
         self.f_lambda = newFlux(newWave)
     def convolve_restframe(self,g,*args):
-        '''
+        r'''
         Convolves the spectrum with the input function as 
         f_lambda' = g(wave/(1+z),f_lambda).
 
